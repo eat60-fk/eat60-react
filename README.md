@@ -22,10 +22,20 @@
   (http://localhost:5173 for testing, and your live address later).
 - Sign up in the app, then make yourself admin with the last line of the SQL file.
 
-## Put it online (free)
-Push this folder to GitHub, import it on vercel.com, and add the two `VITE_` values
-as Environment Variables. Add your logo as `public/pwa-192.png` and `public/pwa-512.png`
-so phones can install it (Chrome: Install app. iPhone Safari: Share > Add to Home Screen).
+## Deploy to Vercel
+Push this folder to GitHub and import the repository on Vercel. The included
+`vercel.json` sets the Vite production build command, `dist` output directory,
+and SPA fallback for direct page requests.
+
+In Vercel, open **Project Settings > Environment Variables** and add these for
+each environment you deploy (Production, Preview, and/or Development):
+- `VITE_SUPABASE_URL`: your Supabase project URL
+- `VITE_SUPABASE_ANON_KEY`: your Supabase anon/public key
+
+Redeploy after changing environment variables. Do not use the Supabase
+`service_role` key in a `VITE_` variable. Add your logo as
+`public/pwa-192.png` and `public/pwa-512.png` if you want phone installation
+support (Chrome: Install app; iPhone Safari: Share > Add to Home Screen).
 
 ## Files
 - `src/App.jsx` authentication and screen switching
