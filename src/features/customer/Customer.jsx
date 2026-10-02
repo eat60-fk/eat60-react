@@ -6,7 +6,10 @@ import LoadingIndicator from '../../components/LoadingIndicator';
 import { CUSTOMER_TAB_PATHS, pathForMorePage, resolveCustomerRoute } from '../../lib/customerRoutes';
 import { isNetworkError, readOfflineCache, writeOfflineCache } from '../../lib/offlineCache';
 import { updateRouteMetadata } from '../../lib/routeMetadata';
-import { FlyingBurgerGame, HungrySnakeGame } from './ArcadeGame';
+import HungrySnakes from './games/HungrySnakes';
+import FlyingBurger from './games/FlyingBurger';
+import QuickMathGame from './games/QuickMath';
+import RiderRush from './games/RiderRush';
 
 // Shared customer data, display labels, and small UI helpers.
 const today = () => new Date().toLocaleDateString('en-CA', {
@@ -51,77 +54,12 @@ const CATEGORY_ICONS = {
   Maggie: '🍜',
   Chinese: '🥡'
 };
-const PROFILE_AVATARS = [{
-  skin: '#f3c39f',
-  hairColor: '#38241f',
-  shirt: '#55bca1',
-  bg: '#c4ecdd',
-  gender: 'male',
-  style: 'waves'
-}, {
-  skin: '#9c6348',
-  hairColor: '#171a22',
-  shirt: '#91aaff',
-  bg: '#dcd4ff',
-  gender: 'male',
-  style: 'short'
-}, {
-  skin: '#ffcfaa',
-  hairColor: '#74452d',
-  shirt: '#77c987',
-  bg: '#c9eaff',
-  gender: 'male',
-  style: 'part'
-}, {
-  skin: '#d69a70',
-  hairColor: '#30211d',
-  shirt: '#f0a53e',
-  bg: '#ffdfb3',
-  gender: 'male',
-  style: 'curls'
-}, {
-  skin: '#f4c6a6',
-  hairColor: '#62352c',
-  shirt: '#e9779c',
-  bg: '#ffd8e5',
-  gender: 'female',
-  style: 'long'
-}, {
-  skin: '#8c503e',
-  hairColor: '#17151c',
-  shirt: '#9c82dc',
-  bg: '#e6d9ff',
-  gender: 'female',
-  style: 'curls'
-}, {
-  skin: '#f2d0b6',
-  hairColor: '#a85c32',
-  shirt: '#55aeda',
-  bg: '#c9efff',
-  gender: 'female',
-  style: 'bob'
-}, {
-  skin: '#c88760',
-  hairColor: '#231c1d',
-  shirt: '#efaa43',
-  bg: '#ffe8b8',
-  gender: 'female',
-  style: 'long'
-}, {
-  skin: '#e7bd9f',
-  hairColor: '#7654a3',
-  shirt: '#77c8b5',
-  bg: '#d7f4e9',
-  gender: 'other',
-  style: 'pixie'
-}, {
-  skin: '#b6775c',
-  hairColor: '#263d4b',
-  shirt: '#f08068',
-  bg: '#ffe0d4',
-  gender: 'other',
-  style: 'waves'
-}];
+const PROFILE_AVATAR_COUNT = 10;
+const GENDER_OPTIONS = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+  { value: 'other', label: 'Other' }
+];
 const DELIVERY_POINT = {
   latitude: 25.764105,
   longitude: 84.151860
@@ -138,32 +76,24 @@ function distanceInKm(from, to) {
 function ProfileAvatar({
   avatarId = 1
 }) {
-  const avatar = PROFILE_AVATARS[Math.max(0, Math.min(PROFILE_AVATARS.length - 1, Number(avatarId) - 1))] || PROFILE_AVATARS[0];
-  const hairPaths = {
-    waves: 'M23 45C13 21 30 7 49 8c22 0 37 16 28 39l-8-8-4-15c-7 10-21 15-42 14Z',
-    short: 'M22 43C15 20 27 8 48 8c22 0 35 14 29 37l-9-9-4-13c-8 8-22 12-42 12Z',
-    part: 'M21 43C16 19 30 7 49 8c20 0 34 13 29 36l-8-7-1-14c-8 7-20 10-34 8l-4 11Z',
-    curls: 'M21 44C11 29 17 12 31 12c3-9 18-8 22-1 12-6 24 4 25 16 3 7 1 12-2 18l-9-8-5-16c-10 10-25 15-41 13Z',
-    long: 'M20 48C11 22 23 7 47 7c24 0 39 18 31 47l-6 20H27l-4-21Z',
-    bob: 'M20 48C12 21 26 7 48 7c24 0 37 17 31 43l-8 19-6-16-1-18c-10 9-25 12-40 10l-1 22-7 2Z',
-    pixie: 'M22 42C16 19 29 8 48 9c20 0 31 12 29 31l-8-4-3-16c-8 9-24 14-42 13Z'
+  const selectedAvatarId = Math.min(PROFILE_AVATAR_COUNT, Math.max(1, Number(avatarId) || 1));
+  return <img className="profile-portrait" src={`/avatars/profile-${selectedAvatarId}.png`} alt={`Avatar ${selectedAvatarId}`} />;
+}
+function GenderIcon({ gender }) {
+  const shared = {
+    width: 17,
+    height: 17,
+    viewBox: '0 0 20 20',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': true
   };
-  const longHair = ['long', 'bob'].includes(avatar.style);
-  return <svg className="profile-portrait" viewBox="0 0 100 100" role="img" aria-label="Selected profile avatar">
-    <circle cx="50" cy="50" r="50" fill={avatar.bg} />
-    {longHair && <path d={hairPaths[avatar.style]} fill={avatar.hairColor} />}
-    <path d="M10 100c2-22 16-32 40-32s38 10 40 32Z" fill={avatar.shirt} />
-    <path d="M42 60h16v17H42z" fill={avatar.skin} />
-    <ellipse cx="24" cy="47" rx="5" ry="8" fill={avatar.skin} /><ellipse cx="76" cy="47" rx="5" ry="8" fill={avatar.skin} />
-    <ellipse cx="50" cy="43" rx="25" ry="30" fill={avatar.skin} />
-    {!longHair && <path d={hairPaths[avatar.style]} fill={avatar.hairColor} />}
-    <path d="M36 43q4-4 8 0M56 43q4-4 8 0" fill="none" stroke="#54342c" strokeWidth="2" strokeLinecap="round" />
-    <ellipse cx="40" cy="49" rx="2.4" ry="3.1" fill="#302a2b" /><ellipse cx="60" cy="49" rx="2.4" ry="3.1" fill="#302a2b" />
-    <circle cx="31" cy="55" r="3" fill="#ed8e91" opacity=".42" /><circle cx="69" cy="55" r="3" fill="#ed8e91" opacity=".42" />
-    <path d="M45 61q5 5 10 0" fill="none" stroke="#a34852" strokeWidth="2" strokeLinecap="round" />
-    {avatar.style === 'curls' && <><circle cx="29" cy="22" r="5" fill={avatar.hairColor} /><circle cx="42" cy="13" r="5" fill={avatar.hairColor} /><circle cx="57" cy="13" r="5" fill={avatar.hairColor} /><circle cx="71" cy="23" r="5" fill={avatar.hairColor} /></>}
-    {avatar.style === 'pixie' && <path d="M75 14q11 4 9 14l-8-4" fill={avatar.hairColor} />}
-  </svg>;
+  if (gender === 'male') return <svg {...shared}><circle cx="8" cy="12" r="4" /><path d="m11 9 5-5m0 0h-4m4 0v4" /></svg>;
+  if (gender === 'female') return <svg {...shared}><circle cx="10" cy="7" r="4" /><path d="M10 11v7m-3.5-3.5h7" /></svg>;
+  return <svg {...shared}><circle cx="10" cy="6" r="3" /><path d="M4 17c.7-3.2 2.7-5 6-5s5.3 1.8 6 5" /></svg>;
 }
 function NavigationIcon({
   name
@@ -1647,6 +1577,31 @@ function Games({
   const [rank, setRank] = useState(() => readOfflineCache(leaderboardKey)?.find(row => row.is_me)?.rank ?? null);
   const sessionId = useRef(null);
   const [view, setView] = useState(initialView || 'games');
+  const games = [{
+    id: 'snake',
+    title: 'Hungry Snakes',
+    subtitle: 'Improve rank, earn rewards & coins',
+    icon: '🐍',
+    color: 'snake'
+  }, {
+    id: 'burger',
+    title: 'Flying Burger',
+    subtitle: 'Improve rank, earn rewards & coins',
+    icon: '🍔',
+    color: 'burger'
+  }, {
+    id: 'qmaths',
+    title: 'Quick Maths',
+    subtitle: 'Improve rank, earn rewards & coins',
+    icon: '🧮',
+    color: 'maths'
+  }, {
+    id: 'rider',
+    title: 'Rider Rush',
+    subtitle: 'Deliver orders, dodge traffic & climb the league',
+    icon: '🛵',
+    color: 'rider'
+  }];
   useEffect(() => setView(initialView || 'games'), [initialView]);
   useEffect(() => {
     if (countdown === null) return;
@@ -1736,7 +1691,7 @@ function Games({
     if (error) return say(error.message);
     sessionId.current = data;
     setPlaying(id);
-    setCountdown(id === 'qmaths' ? null : 5);
+    setCountdown(null);
     onFocus(true);
   };
   const quitGame = () => {
@@ -1751,32 +1706,31 @@ function Games({
     setView(nextView);
     onViewChange(nextView);
   };
-  if (countdown !== null) return <div className="game-countdown-screen"><button onClick={requestQuitGame} aria-label="Leave game">×</button><small>GET READY</small><h1>{countdown}</h1><p>{playing === 'snake' ? 'Hungry Snakes' : playing === 'burger' ? 'Flying Burger' : 'Quick Maths'}</p></div>;
-  if (playing === 'snake') return <HungrySnakeGame onEnd={(score, ms) => finish('snake', score, ms)} onQuit={requestQuitGame} />;
-  if (playing === 'burger') return <FlyingBurgerGame onEnd={(score, ms) => finish('burger', score, ms)} onQuit={requestQuitGame} />;
-  if (playing === 'qmaths') return <Maths onEnd={(score, ms) => finish('qmaths', score, ms)} onQuit={requestQuitGame} />;
+  if (countdown !== null) return <div className="game-countdown-screen"><button onClick={requestQuitGame} aria-label="Leave game">×</button><small>GET READY</small><h1>{countdown}</h1><p>{games.find(game => game.id === playing)?.title}</p></div>;
+  if (playing) {
+    const currentGame = playing;
+    const finishIntegratedGame = async result => {
+      await finish(currentGame, result.score);
+      setPlaying(null);
+      onFocus(false);
+    };
+    const shared = {
+      config: { XP_MAX_PER_PLAY: 0, COINS_PER_PLAY: 0 },
+      onGameEnd: finishIntegratedGame
+    };
+    const gameSurface = playing === 'snake' ? <HungrySnakes {...shared} />
+      : playing === 'burger' ? <FlyingBurger {...shared} />
+      : playing === 'qmaths' ? <QuickMathGame {...shared} />
+      : playing === 'rider' ? <RiderRush {...shared} />
+      : null;
+    if (gameSurface) return <div className={`integrated-game-surface ${playing}`}>
+      <button className="integrated-game-exit" type="button" onClick={requestQuitGame} aria-label="Leave game">← <span>Exit</span></button>
+      {gameSurface}
+    </div>;
+  }
   const daysLeft = 7 - new Date().getDay();
   if (view === 'rankings') return <WeeklyLeague rows={lb} daysLeft={daysLeft || 7} onBack={() => changeView('games')} />;
   if (view === 'scores') return <MyGameScores me={me} onBack={() => changeView('games')} />;
-  const games = [{
-    id: 'snake',
-    title: 'Hungry Snakes',
-    subtitle: 'Improve rank, earn rewards & coins',
-    icon: '🐍',
-    color: 'snake'
-  }, {
-    id: 'burger',
-    title: 'Flying Burger',
-    subtitle: 'Improve rank, earn rewards & coins',
-    icon: '🍔',
-    color: 'burger'
-  }, {
-    id: 'qmaths',
-    title: 'Quick Maths',
-    subtitle: 'Improve rank, earn rewards & coins',
-    icon: '🧮',
-    color: 'maths'
-  }];
   return <section className="games-page">
       <header className="games-hero">
         <div><p className="games-eyebrow">GAMES</p><h2>GETTING BORED?<br /><span>TIRED OF DOOM SCROLLING?</span></h2></div>
@@ -1860,10 +1814,15 @@ function MyGameScores({
     detail: 'Answer 25 Quick Maths questions',
     unlocked: mathAnswers >= 25
   }, {
+    icon: '🛵',
+    title: 'Rush hour rider',
+    detail: 'Deliver 50 orders in Rider Rush',
+    unlocked: best('rider') >= 50
+  }, {
     icon: '🎮',
     title: 'All-rounder',
-    detail: 'Try all three games',
-    unlocked: playedGames.size >= 3
+    detail: 'Try all four games',
+    unlocked: playedGames.size >= 4
   }, {
     icon: '🏆',
     title: 'XP collector',
@@ -1873,7 +1832,8 @@ function MyGameScores({
   const gameNames = {
     snake: 'Hungry Snakes',
     burger: 'Flying Burger',
-    qmaths: 'Quick Maths'
+    qmaths: 'Quick Maths',
+    rider: 'Rider Rush'
   };
   return <section className="scores-page">
       <FloatingBack onClick={onBack} label="Back to games" />
@@ -1889,7 +1849,7 @@ function MyGameScores({
       {loading && <p className="score-empty">Loading your scores…</p>}
       {error && <p className="score-error">{error}</p>}
       {!loading && !error && scores.length === 0 && <p className="score-empty">Your scores will appear here after your first game.</p>}
-      <div className="score-history">{scores.slice(0, 15).map((score, index) => <article className="score-history-row" key={`${score.played_at}-${index}`}><span className={`score-history-icon ${score.game}`}>{score.game === 'snake' ? '🐍' : score.game === 'burger' ? '🍔' : '🧮'}</span><div><b>{gameNames[score.game] || score.game}</b><small>{new Date(score.played_at).toLocaleString()}</small></div><strong>{score.score} <small>PTS</small></strong><span className="score-xp">+{score.xp} XP</span></article>)}</div>
+      <div className="score-history">{scores.slice(0, 15).map((score, index) => <article className="score-history-row" key={`${score.played_at}-${index}`}><span className={`score-history-icon ${score.game}`}>{score.game === 'snake' ? '🐍' : score.game === 'burger' ? '🍔' : score.game === 'rider' ? '🛵' : '🧮'}</span><div><b>{gameNames[score.game] || score.game}</b><small>{new Date(score.played_at).toLocaleString()}</small></div><strong>{score.score} <small>PTS</small></strong><span className="score-xp">+{score.xp} XP</span></article>)}</div>
     </section>;
 }
 function WeeklyLeague({
@@ -2696,18 +2656,23 @@ function ProfileEditor({
       <div className="profile-editor-heading"><div><p className="profile-kicker">YOUR ACCOUNT</p><h2>PROFILE</h2></div></div>
       <form className="profile-form card" onSubmit={saveProfile}>
         <div className="profile-form-identity"><div className="profile-avatar"><ProfileAvatar avatarId={form.avatar_id} /></div><div><p>GOOD TO SEE YOU</p><h3>{form.name || 'Your name'}</h3><small>Pick an avatar that feels like you</small></div></div>
-        <fieldset className="profile-gender profile-field-wide"><legend>Gender</legend><div>{[['male', 'Male'], ['female', 'Female'], ['other', 'Other']].map(([value, label]) => <button type="button" key={value} className={form.gender === value ? 'selected' : ''} onClick={() => setForm(current => {
-            const nextAvatar = PROFILE_AVATARS[Number(current.avatar_id) - 1];
-            const available = PROFILE_AVATARS.findIndex(avatar => avatar.gender === value || avatar.gender === 'other') + 1;
-            return {
-              ...current,
-              gender: value,
-              avatar_id: value === 'other' || nextAvatar.gender === value || nextAvatar.gender === 'other' ? current.avatar_id : available
-            };
-          })}>{label}</button>)}</div></fieldset>
-        <fieldset className="profile-avatar-picker profile-field-wide"><legend>Choose your avatar <small>{PROFILE_AVATARS.filter(avatar => form.gender === 'other' || avatar.gender === form.gender || avatar.gender === 'other').length} styles</small></legend><div className="profile-avatar-options">{PROFILE_AVATARS.map((avatar, index) => {
-            const visible = form.gender === 'other' || avatar.gender === form.gender || avatar.gender === 'other';
-            return visible && <button type="button" key={index} className={Number(form.avatar_id) === index + 1 ? 'selected' : ''} onClick={() => setForm(current => ({
+        <fieldset className="profile-gender profile-field-wide">
+          <legend>Gender</legend>
+          <div className="profile-gender-options">
+            {GENDER_OPTIONS.map(option => <button
+              type="button"
+              key={option.value}
+              className={form.gender === option.value ? 'selected' : ''}
+              aria-pressed={form.gender === option.value}
+              onClick={() => setForm(current => ({ ...current, gender: option.value }))}
+            >
+              <GenderIcon gender={option.value} />
+              {option.label}
+            </button>)}
+          </div>
+        </fieldset>
+        <fieldset className="profile-avatar-picker profile-field-wide"><legend>Choose your avatar <small>{PROFILE_AVATAR_COUNT} styles · any gender</small></legend><div className="profile-avatar-options">{Array.from({ length: PROFILE_AVATAR_COUNT }, (_, index) => {
+            return <button type="button" key={index} className={Number(form.avatar_id) === index + 1 ? 'selected' : ''} onClick={() => setForm(current => ({
               ...current,
               avatar_id: index + 1
             }))} aria-label={`Choose avatar ${index + 1}`} aria-pressed={Number(form.avatar_id) === index + 1}><ProfileAvatar avatarId={index + 1} /></button>;

@@ -14,6 +14,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: ['avatars/*.png'],
       workbox: {
         navigateFallbackDenylist: [/^\/download-adminapp\/?$/, /^\/admin\/install\/?$/],
         runtimeCaching: [

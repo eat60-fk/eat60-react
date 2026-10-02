@@ -5,7 +5,7 @@ alter table public.game_scores
 
 alter table public.game_scores
   add constraint game_scores_game_check
-  check (game in ('snake', 'burger', 'qmaths'));
+  check (game in ('snake', 'burger', 'qmaths', 'rider'));
 
 alter table public.settings
   alter column daily_coin_cap set default 125;
@@ -14,11 +14,18 @@ update public.settings set daily_coin_cap = 125 where daily_coin_cap = 50;
 create table if not exists public.game_sessions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  game text not null check (game in ('snake','burger','qmaths')),
+  game text not null check (game in ('snake','burger','qmaths','rider')),
   started_at timestamptz not null default now(),
   expires_at timestamptz not null,
   completed_at timestamptz
 );
+alter table public.game_sessions
+  drop constraint if exists game_sessions_game_check;
+
+alter table public.game_sessions
+  add constraint game_sessions_game_check
+  check (game in ('snake', 'burger', 'qmaths', 'rider'));
+
 create index if not exists game_sessions_user_started_idx
   on public.game_sessions(user_id, started_at desc);
 alter table public.game_sessions enable row level security;
@@ -31,7 +38,7 @@ returns uuid language plpgsql security definer set search_path=public as $$
 declare v_session_id uuid;
 begin
   if auth.uid() is null then raise exception 'Please log in first'; end if;
-  if p_game is null or p_game not in ('snake','burger','qmaths') then raise exception 'Invalid game'; end if;
+  if p_game is null or p_game not in ('snake','burger','qmaths','rider') then raise exception 'Invalid game'; end if;
   perform 1 from public.profiles where id=auth.uid() for update;
   if not found then raise exception 'Player profile not found'; end if;
   if exists(select 1 from public.game_sessions where user_id=auth.uid() and started_at>now()-interval '5 seconds') then
@@ -40,7 +47,7 @@ begin
   insert into public.game_sessions(user_id,game,started_at,expires_at)
   values(
     auth.uid(),p_game,now()+interval '5 seconds',
-    now()+interval '5 seconds'+case p_game when 'snake' then interval '10 minutes' when 'burger' then interval '10 minutes' else interval '140 seconds' end
+    now()+interval '5 seconds'+case p_game when 'snake' then interval '10 minutes' when 'burger' then interval '10 minutes' when 'rider' then interval '10 minutes' else interval '140 seconds' end
   )
   returning id into v_session_id;
   return v_session_id;
@@ -61,15 +68,15 @@ begin
     or (v_session.game<>'qmaths' and v_duration_ms<2000) then
     raise exception 'Game session ended too early';
   end if;
-  v_max:=case v_session.game when 'snake' then (v_duration_ms/140)*10 when 'burger' then (v_duration_ms/1200)*10 else v_duration_ms/600 end;
+  v_max:=case v_session.game when 'snake' then (v_duration_ms/140)*10 when 'burger' then (v_duration_ms/1200)*10 when 'rider' then (v_duration_ms/1200)*10 else v_duration_ms/600 end;
   if p_score>v_max then raise exception 'Invalid score'; end if;
 
   select * into p from public.profiles where id=auth.uid() for update;
   select * into s from public.settings where id=1;
   select coalesce(sum(coins),0) into v_today from public.game_scores
   where user_id=auth.uid() and (played_at at time zone 'Asia/Kolkata')::date=public.today_ist();
-  -- Snake and Burger store 10 points per food or pipe; Maths stores answers.
-  v_target_score:=case v_session.game when 'snake' then 300 when 'burger' then 200 else 15 end;
+  -- Arcade scores use their validated game scale; Maths stores correct answers.
+  v_target_score:=case v_session.game when 'snake' then 300 when 'burger' then 200 when 'rider' then 200 else 15 end;
   v_xp:=10+round(50*least(p_score::numeric/v_target_score,1))::integer;
   v_coins:=greatest(0,least(p_score,s.daily_coin_cap-v_today));
 

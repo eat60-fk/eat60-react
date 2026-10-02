@@ -143,13 +143,46 @@ function localDateTimeValue(value) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
 }
+function SettingsEditCard({
+  title,
+  description,
+  summary,
+  editing,
+  busy = false,
+  disabled = false,
+  feedback,
+  onEdit,
+  onCancel,
+  onSave,
+  children
+}) {
+  return <article className={`admin-settings-card${editing ? ' editing' : ''}`}>
+    <header className="admin-settings-card-heading">
+      <div><h3>{title}</h3><p>{description}</p></div>
+      {!editing && <button type="button" className="admin-settings-edit" onClick={onEdit} disabled={busy || disabled}>Edit <span aria-hidden="true">↗</span></button>}
+    </header>
+    {editing ? <div className="admin-settings-card-form">
+      {children}
+      {feedback && <p className="admin-feedback" role="status">{feedback}</p>}
+      <div className="admin-settings-card-actions">
+        <button type="button" className="admin-secondary" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button type="button" className="admin-primary" disabled={busy} onClick={onSave}>{busy ? 'Saving…' : 'Save changes'} <span aria-hidden="true">→</span></button>
+      </div>
+    </div> : <>
+      <p className="admin-settings-card-summary">{summary}</p>
+      {feedback && <p className="admin-feedback" role="status">{feedback}</p>}
+    </>}
+  </article>;
+}
 function AdBannerSettings() {
   const [form, setForm] = useState(emptyOfferSettings);
+  const [savedForm, setSavedForm] = useState(emptyOfferSettings);
   const [newSocialLabel, setNewSocialLabel] = useState('');
   const [newSocialUrl, setNewSocialUrl] = useState('');
   const [variants, setVariants] = useState([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [editingCard, setEditingCard] = useState('');
   const [message, setMessage] = useState('');
   useEffect(() => {
     let active = true;
@@ -158,7 +191,7 @@ function AdBannerSettings() {
       const error = settingsResult.error || variantsResult.error || itemsResult.error;
       if (error) setMessage(error.message);else {
         const settings = settingsResult.data || {};
-        setForm({
+        const loadedForm = {
           ...emptyOfferSettings,
           ...settings,
           tiffin_url: settings.tiffin_url || '',
@@ -176,7 +209,9 @@ function AdBannerSettings() {
             ...emptyOfferSettings.social_links,
             ...(settings.social_links || {})
           }
-        });
+        };
+        setForm(loadedForm);
+        setSavedForm(loadedForm);
         const itemsById = new Map((itemsResult.data || []).map(item => [item.id, item]));
         setVariants((variantsResult.data || []).map(variant => ({
           ...variant,
@@ -326,13 +361,16 @@ function AdBannerSettings() {
     } = await sb.from('settings').update(values).eq('id', 1);
     setBusy(false);
     if (error) setMessage(error.message);else {
-      setForm(current => ({
-        ...current,
+      const savedValues = {
+        ...form,
         ...values,
         offer_variant_id: values.offer_variant_id ? String(values.offer_variant_id) : '',
         offer_price: values.offer_price ?? '',
         offer_ends_at: localDateTimeValue(values.offer_ends_at)
-      }));
+      };
+      setForm(savedValues);
+      setSavedForm(savedValues);
+      setEditingCard('');
       setMessage('Offer, ad banner, social links and support contact saved.');
     }
   };
@@ -377,10 +415,25 @@ function AdBannerSettings() {
     timeZone: 'Asia/Kolkata'
   });
   const offerStatus = !selectedVariant ? 'No menu size selected, so the offer banner is hidden.' : form.offer_date > today ? `Scheduled for ${form.offer_date}; it will appear on that date.` : form.offer_date < today ? `The selected date (${form.offer_date}) has passed. Set the display date to today to show it.` : form.offer_ends_at && new Date(form.offer_ends_at).getTime() <= Date.now() ? 'This offer has expired. Set a future end time to show it again.' : `${selectedVariant.item.name} · ${selectedVariant.label} is scheduled to appear on the home page now.`;
+  const cancelEdit = () => {
+    setForm(savedForm);
+    setNewSocialLabel('');
+    setNewSocialUrl('');
+    setMessage('');
+    setEditingCard('');
+  };
+  const additionalSocialLinkCount = Object.entries(form.social_links || {}).filter(([key, value]) => !['instagram', 'facebook', 'whatsapp', 'youtube', 'website', 'support_phone'].includes(key) && String(value || '').trim()).length;
+  const socialLinkCount = Object.values(form.social_links || {}).filter(value => String(value || '').trim()).length;
+  const offerSummary = loading ? 'Loading offer details…' : selectedVariant ? `${selectedVariant.item.name} · ${selectedVariant.label} · ₹${form.offer_price || '—'} · ${offerStatus}` : 'No home offer is scheduled.';
+  const partnerAdSummary = loading ? 'Loading partner banner…' : `${form.home_ad_active ? 'Visible on customer home' : 'Not shown on customer home'} · ${form.home_ad_image_url ? 'Banner image added' : 'No banner image'}${form.home_ad_starts_at || form.home_ad_ends_at ? ' · Schedule set' : ''}`;
+  const businessLinksSummary = loading ? 'Loading business links…' : `${socialLinkCount} public/support links · ${form.tiffin_url ? 'Tiffin service link added' : 'No Tiffin service link'}`;
+  const additionalLinksSummary = loading ? 'Loading additional links…' : `${additionalSocialLinkCount} additional social ${additionalSocialLinkCount === 1 ? 'link' : 'links'}`;
   return <section className="admin-settings-form admin-business-settings">
-    <div className="admin-feed-editor">
+      <SettingsEditCard title="Offer banner" description="Set the featured menu item, price, and display dates." summary={offerSummary} editing={editingCard === 'offer'} disabled={Boolean(editingCard && editingCard !== 'offer')} busy={busy || loading} feedback={editingCard === 'offer' ? message : ''} onEdit={() => {
+        setEditingCard('offer');
+        setMessage('');
+      }} onCancel={cancelEdit} onSave={save}>
       {loading ? <p className="admin-feedback">Loading offer settings…</p> : <>
-        <h3>Offer banner</h3>
         <div className="admin-form-grid">
           <label>Offer item and size<select value={form.offer_variant_id} onChange={event => {
               const variant = variants.find(item => String(item.id) === event.target.value);
@@ -397,7 +450,13 @@ function AdBannerSettings() {
           <label>Banner message<input maxLength="100" value={form.offer_message || ''} onChange={change('offer_message')} /></label>
         </div>
         <p className="admin-feedback" role="status">{offerStatus}</p>
-        <h3>Partner ad banner</h3>
+      </>}
+      </SettingsEditCard>
+      <SettingsEditCard title="Partner ad banner" description="Choose an image, destination, and schedule for the home-page ad." summary={partnerAdSummary} editing={editingCard === 'partner-ad'} disabled={Boolean(editingCard && editingCard !== 'partner-ad')} busy={busy || loading} feedback={editingCard === 'partner-ad' ? message : ''} onEdit={() => {
+        setEditingCard('partner-ad');
+        setMessage('');
+      }} onCancel={cancelEdit} onSave={save}>
+      {loading ? <p className="admin-feedback">Loading banner settings…</p> : <>
         <p className="admin-settings-note">Upload an image or animated GIF, or paste a public image URL. Ads only appear during an active schedule.</p>
         <div className="admin-form-grid">
           <label>Image or GIF URL<input type="url" value={form.home_ad_image_url || ''} onChange={change('home_ad_image_url')} placeholder="https://…" /></label>
@@ -415,7 +474,13 @@ function AdBannerSettings() {
             }))} /></label>
         </div>
         {form.home_ad_image_url && <div className="admin-ad-preview"><img src={form.home_ad_image_url} alt={form.home_ad_alt || 'Ad banner preview'} /><span>Preview · {form.home_ad_active ? 'enabled after saving' : 'currently hidden'}</span></div>}
-        <h3>Business links</h3>
+      </>}
+      </SettingsEditCard>
+      <SettingsEditCard title="Business links" description="Manage customer contact details and public profile links." summary={businessLinksSummary} editing={editingCard === 'business-links'} disabled={Boolean(editingCard && editingCard !== 'business-links')} busy={busy || loading} feedback={editingCard === 'business-links' ? message : ''} onEdit={() => {
+        setEditingCard('business-links');
+        setMessage('');
+      }} onCancel={cancelEdit} onSave={save}>
+      {loading ? <p className="admin-feedback">Loading business links…</p> : <>
         <div className="admin-form-grid">
           <label>Tiffin service URL<input type="url" value={form.tiffin_url || ''} onChange={change('tiffin_url')} placeholder="https://…" /></label>
           {Object.entries({
@@ -427,7 +492,13 @@ function AdBannerSettings() {
             support_phone: 'Customer support phone'
           }).map(([key, label]) => <label key={key}>{key === 'support_phone' ? label : `${label} URL`}<input type={key === 'support_phone' ? 'tel' : 'url'} value={form.social_links?.[key] || ''} onChange={changeSocialLink(key)} placeholder={key === 'support_phone' ? '+91 98765 43210' : 'https://…'} /></label>)}
         </div>
-        <h3>Additional social links</h3>
+      </>}
+      </SettingsEditCard>
+      <SettingsEditCard title="Additional social links" description="Add or remove public profiles such as X, LinkedIn, or Telegram." summary={additionalLinksSummary} editing={editingCard === 'additional-links'} disabled={Boolean(editingCard && editingCard !== 'additional-links')} busy={busy || loading} feedback={editingCard === 'additional-links' ? message : ''} onEdit={() => {
+        setEditingCard('additional-links');
+        setMessage('');
+      }} onCancel={cancelEdit} onSave={save}>
+      {loading ? <p className="admin-feedback">Loading additional links…</p> : <>
         <p className="admin-settings-note">Add any other public profile, such as X, LinkedIn, or Telegram. It will appear on the customer Socials and About pages.</p>
         <div className="admin-social-add">
           <label>Platform name<input maxLength={40} value={newSocialLabel} onChange={event => setNewSocialLabel(event.target.value)} placeholder="e.g. Telegram" /></label>
@@ -438,10 +509,8 @@ function AdBannerSettings() {
           <label>{key.replaceAll('_', ' ')} URL<input type="url" value={url || ''} onChange={changeSocialLink(key)} placeholder="https://…" /></label>
           <button className="admin-cancel-order" type="button" onClick={() => removeSocialLink(key)} aria-label={`Remove ${key.replaceAll('_', ' ')} link`}>Remove</button>
         </div>)}
-        <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save home & business settings'} <span>→</span></button>
       </>}
-      {message && <p className="admin-feedback" role="status">{message}</p>}
-    </div>
+      </SettingsEditCard>
   </section>;
 }
 // Admin navigation shell and data loading.
@@ -721,25 +790,28 @@ function SettingsWorkspace({ section, onSelect }) {
         <span>Choose one area to update. Each section saves independently.</span>
       </div>
     </div>
-    <nav className="admin-setting-picker" role="tablist" aria-label="Settings sections">
-      {SETTINGS_SECTIONS.map(item => <button
-        key={item.id}
-        type="button"
-        className={section === item.id ? 'active' : ''}
-        id={`settings-tab-${item.id}`}
-        role="tab"
-        aria-selected={section === item.id}
-        aria-controls={`settings-panel-${item.id}`}
-        aria-current={section === item.id ? 'page' : undefined}
-        onClick={() => onSelect(item.id)}
-      >
-        <span className="admin-setting-icon" aria-hidden="true">{item.icon}</span>
-        <span>{item.title}</span>
-      </button>)}
-    </nav>
     <div className="admin-setting-active-heading">
-      <div><span>EDITING</span><h3>{activeSection.title}</h3></div>
-      <p>{activeSection.description}</p>
+      <div className="admin-setting-heading-copy">
+        <span>EDITING</span>
+        <h3>{activeSection.title}</h3>
+        <p>{activeSection.description}</p>
+      </div>
+      <nav className="admin-setting-picker" role="tablist" aria-label="Settings sections">
+        {SETTINGS_SECTIONS.map(item => <button
+          key={item.id}
+          type="button"
+          className={section === item.id ? 'active' : ''}
+          id={`settings-tab-${item.id}`}
+          role="tab"
+          aria-selected={section === item.id}
+          aria-controls={`settings-panel-${item.id}`}
+          aria-current={section === item.id ? 'page' : undefined}
+          onClick={() => onSelect(item.id)}
+        >
+          <span className="admin-setting-icon" aria-hidden="true">{item.icon}</span>
+          <span>{item.title}</span>
+        </button>)}
+      </nav>
     </div>
     <div id="settings-panel-delivery" role="tabpanel" aria-labelledby="settings-tab-delivery" tabIndex={0} hidden={section !== 'delivery'}><DeliverySettings /></div>
     <div id="settings-panel-business" role="tabpanel" aria-labelledby="settings-tab-business" tabIndex={0} hidden={section !== 'business'}><AdBannerSettings /></div>
@@ -754,7 +826,9 @@ function AboutPageSettings() {
     about_founder_instagram_url: '',
     about_founder_portfolio_url: ''
   });
+  const [savedForm, setSavedForm] = useState(form);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState('');
   useEffect(() => {
     let active = true;
@@ -763,10 +837,11 @@ function AboutPageSettings() {
       error
     }) => {
       if (!active) return;
-      if (error) setMessage(error.message);else if (data) setForm(current => ({
-        ...current,
-        ...data
-      }));
+      if (error) setMessage(error.message);else if (data) {
+        const loadedForm = { ...form, ...data };
+        setForm(loadedForm);
+        setSavedForm(loadedForm);
+      }
     });
     return () => {
       active = false;
@@ -826,12 +901,32 @@ function AboutPageSettings() {
     setBusy(false);
     if (error) setMessage(error.message);else {
       setForm(values);
+      setSavedForm(values);
+      setEditing(false);
       setMessage('About page settings saved.');
     }
   };
+  const cancelEdit = () => {
+    setForm(savedForm);
+    setMessage('');
+    setEditing(false);
+  };
+  const publicLinkCount = [form.about_founder_instagram_url, form.about_founder_portfolio_url].filter(Boolean).length;
   return <section className="admin-settings-form admin-about-settings">
-    <div className="admin-feed-editor">
-      <h3>Founder profile</h3>
+    <SettingsEditCard
+      title="Founder profile"
+      description="Update the founder details shown on the public About page."
+      summary={`${form.about_founder_name || 'No founder name added'} · ${form.about_founder_photo_url ? 'Photo added' : 'No photo added'} · ${publicLinkCount} public ${publicLinkCount === 1 ? 'link' : 'links'}`}
+      editing={editing}
+      busy={busy}
+      feedback={message}
+      onEdit={() => {
+        setEditing(true);
+        setMessage('');
+      }}
+      onCancel={cancelEdit}
+      onSave={save}
+    >
       <div className="admin-form-grid">
         <label>Founder name<input maxLength={100} value={form.about_founder_name} onChange={change('about_founder_name')} placeholder="Your name" /></label>
         <label>Founder photo URL<input type="url" value={form.about_founder_photo_url} onChange={change('about_founder_photo_url')} placeholder="https://…" /></label>
@@ -839,9 +934,7 @@ function AboutPageSettings() {
         <label>Instagram URL<input type="url" value={form.about_founder_instagram_url} onChange={change('about_founder_instagram_url')} placeholder="https://instagram.com/…" /></label>
         <label>Portfolio URL<input type="url" value={form.about_founder_portfolio_url} onChange={change('about_founder_portfolio_url')} placeholder="https://…" /></label>
       </div>
-      <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save About page'} <span>→</span></button>
-      {message && <p className="admin-feedback" role="status">{message}</p>}
-    </div>
+    </SettingsEditCard>
   </section>;
 }
 function DeliverySettings() {
@@ -855,7 +948,9 @@ function DeliverySettings() {
     max_delivery_km: 5
   };
   const [form, setForm] = useState(defaults);
+  const [savedForm, setSavedForm] = useState(defaults);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState('');
   useEffect(() => {
     let active = true;
@@ -864,10 +959,11 @@ function DeliverySettings() {
       error
     }) => {
       if (!active) return;
-      if (error) setMessage(error.message);else if (data) setForm({
-        ...defaults,
-        ...data
-      });
+      if (error) setMessage(error.message);else if (data) {
+        const loadedForm = { ...defaults, ...data };
+        setForm(loadedForm);
+        setSavedForm(loadedForm);
+      }
     });
     return () => {
       active = false;
@@ -898,11 +994,32 @@ function DeliverySettings() {
     setBusy(false);
     if (error) setMessage(error.message);else {
       setForm(values);
+      setSavedForm(values);
+      setEditing(false);
       setMessage('Delivery settings saved.');
     }
   };
+  const cancelEdit = () => {
+    setForm(savedForm);
+    setMessage('');
+    setEditing(false);
+  };
+  const freeDeliverySummary = form.delivery_free ? 'Free delivery enabled' : Number(form.free_delivery_minimum) > 0 ? `Free delivery from ₹${Number(form.free_delivery_minimum).toLocaleString('en-IN')}` : 'Free delivery disabled';
   return <section className="admin-settings-form admin-delivery-settings">
-    <div className="admin-feed-editor">
+    <SettingsEditCard
+      title="Delivery pricing"
+      description="Set delivery fees, minimum order, and service distance."
+      summary={`₹${Number(form.delivery_fee).toLocaleString('en-IN')} base fee · ₹${Number(form.min_order).toLocaleString('en-IN')} minimum order · ${form.min_delivery_km}–${form.max_delivery_km} km service · ${freeDeliverySummary}`}
+      editing={editing}
+      busy={busy}
+      feedback={message}
+      onEdit={() => {
+        setEditing(true);
+        setMessage('');
+      }}
+      onCancel={cancelEdit}
+      onSave={save}
+    >
       <div className="admin-form-grid">
         <label>Base delivery fee ₹<input type="number" min="0" step="1" value={form.delivery_fee} onChange={change('delivery_fee')} /></label>
         <label>Minimum order amount ₹<input type="number" min="0" step="1" value={form.min_order} onChange={change('min_order')} /></label>
@@ -915,9 +1032,7 @@ function DeliverySettings() {
             delivery_free: event.target.checked
           }))} /></label>
       </div>
-      <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save delivery settings'} <span>→</span></button>
-      {message && <p className="admin-feedback" role="status">{message}</p>}
-    </div>
+    </SettingsEditCard>
   </section>;
 }
 function Overview({

@@ -2486,6 +2486,9 @@ nav b {
 .game-card.maths .game-card-copy>b {
   color: #4caeff
 }
+.game-card.rider .game-card-copy>b {
+  color: #a6ff4d
+}
 .game-result {
   display: flex;
   justify-content: space-between;
@@ -3925,7 +3928,8 @@ nav b {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: 50%
+  border-radius: 50%;
+  object-fit: cover
 }
 .profile-gender,.profile-avatar-picker {
   min-width: 0;
@@ -3948,24 +3952,38 @@ nav b {
   font-weight: 500;
   text-transform: none
 }
-.profile-gender>div {
+.profile-gender-options {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px
 }
-.profile-gender button {
-  min-width: 88px;
-  padding: 9px 16px;
+.profile-gender-options button {
+  min-width: 104px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
   border: 1px solid #444;
-  border-radius: 20px;
+  border-radius: 22px;
   background: #2c2c2c;
-  color: #bcbcbc;
+  color: #c4c4c4;
   font-size: 13px;
-  font-weight: 750
+  font-weight: 750;
+  transition: border-color .16s,background .16s,color .16s
 }
-.profile-gender button.selected {
-  border-color: #b8f04a;
+.profile-gender-options button:hover {
+  border-color: #78885a;
+  color: #f4f4f4
+}
+.profile-gender-options button.selected {
+  border-color: var(--ac);
   background: #303b24;
   color: #d4ffa0
+}
+.profile-gender-options svg {
+  flex: none
 }
 .profile-avatar-options {
   display: grid;
@@ -8721,6 +8739,57 @@ nav b {
   overflow: hidden;
   border-radius: 0;
   background: #0b1020
+}
+.game-focus-surface.focused .integrated-game-surface {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+}
+.integrated-game-surface > .hs-root,
+.integrated-game-surface > .fb-root,
+.integrated-game-surface > .qm-root,
+.integrated-game-surface > .rr-root {
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+}
+.integrated-game-exit {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  left: 12px;
+  z-index: 5;
+  min-width: 48px;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 14px;
+  background: rgb(12 16 22 / 82%);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  backdrop-filter: blur(8px);
+}
+.integrated-game-exit span {
+  margin-left: 3px;
+  font-size: 10px;
+}
+.integrated-game-surface .hs-root .hs-hud,
+.integrated-game-surface .fb-root .fb-hud,
+.integrated-game-surface .qm-root .qm-hud,
+.integrated-game-surface .rr-root .rr-hud {
+  left: 72px;
+}
+.integrated-game-surface .hs-root .hs-hud > :nth-child(3),
+.integrated-game-surface .fb-root .fb-hud > :nth-child(3),
+.integrated-game-surface .qm-root .qm-hud > :nth-child(3),
+.integrated-game-surface .rr-root .rr-hud > :nth-child(3),
+.integrated-game-surface .hs-root .hs-rw,
+.integrated-game-surface .fb-root .fb-rw,
+.integrated-game-surface .qm-root .qm-rw,
+.integrated-game-surface .rr-root .rr-rw {
+  display: none!important;
 }
 .arcade-canvas {
   display: block;
