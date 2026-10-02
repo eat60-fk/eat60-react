@@ -1268,7 +1268,7 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
   }
 
   if(countdown!==null)return <div className="game-countdown-screen"><button onClick={requestQuitGame} aria-label="Leave game">×</button><small>GET READY</small><h1>{countdown}</h1><p>{playing==='snake'?'Hungry Snakes':playing==='burger'?'Flying Burger':'Quick Maths'}</p></div>
-  if (playing === 'snake') return <EmbeddedGame game="hungry-snakes" title="Hungry Snakes" onEnd={(score, ms) => finish('snake', score, ms)} onQuit={requestQuitGame} />
+  if (playing === 'snake') return <EmbeddedGame game="snake" title="Hungry Snakes" onEnd={(score, ms) => finish('snake', score, ms)} onQuit={requestQuitGame} />
   if (playing === 'burger') return <EmbeddedGame game="flying-burger" title="Flying Burger" onEnd={(score, ms) => finish('burger', score, ms)} onQuit={requestQuitGame} />
   if (playing === 'qmaths') return <Maths onEnd={(score, ms) => finish('qmaths', score, ms)} onQuit={requestQuitGame} />
   const daysLeft = 7 - new Date().getDay()
