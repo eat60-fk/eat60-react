@@ -1,12 +1,12 @@
 {
-  "id": "/admineat60",
+  "id": "/admin/orders",
   "name": "EAT60 Admin by Foodverse Kitchen",
   "short_name": "EAT60 Admin",
   "description": "EAT60 administrator dashboard for orders and store management.",
   "theme_color": "#141414",
   "background_color": "#141414",
   "display": "standalone",
-  "start_url": "/admineat60",
+  "start_url": "/admin/orders",
   "scope": "/",
   "icons": [
     {

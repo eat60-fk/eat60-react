@@ -27,7 +27,8 @@
 - The app caches the public menu/About content, customer order history, profile, feed, cart, checkout and profile drafts, leaderboard/game scores, and public Supabase images for unstable connections. Visited customer and admin screens stay mounted when switching tabs, preserving in-progress forms and filters. Orders, coupon validation, referral claims, and game score submissions still require a connection and are not shown as completed while offline.
 - Checkout uses device GPS for an estimated straight-line delivery distance when available; customers can enter an address and continue with the base delivery fee if location is unavailable. GST is shown as 5% included in item prices, not added to the total. Active eligible promo coupons are selectable from More > Rewards and are revalidated on the server at order time.
 - Admin news posts published in Feed studio are sent as live in-app announcements to customers with the app open. Customers also get animated full-screen order placed/delivered updates; install EAT60 from More > Download EAT60 or open `/download` directly.
-- The separate administrator PWA is available at `/download-adminapp`; its installed app opens `/admineat60` and requires an authorized administrator account.
+- The separate administrator PWA is available at `/download-adminapp`; its installed app opens the protected `/admin/orders` workspace. `/admineat60` remains available as a sign-in and legacy entry route.
+- Admin workspaces have protected direct links: `/admin/orders`, `/admin/dashboard`, `/admin/menu`, `/admin/outlets`, `/admin/growth`, `/admin/promos`, `/admin/rewards`, `/admin/feed`, `/admin/more`, and `/admin/settings`.
 - Customer destinations have shareable paths such as `/wallet`, `/order-history`, `/games`, `/leaderboard`, `/order`, `/cart`, `/profile`, and `/setting`. Private account routes require sign-in and are marked `noindex`; the public `/download` page is indexable. The site publishes Organization structured data for EAT60 serving Ballia, without inventing a street address or phone number.
 - Supabase > Authentication > Providers: turn on Google (and Email).
 - Supabase > Authentication > URL Configuration: add your site address
@@ -50,7 +51,8 @@ More > Download EAT60. The project includes SVG install icons; you can replace
 `public/pwa-192.svg` and `public/pwa-512.svg` with your own EAT60 branding.
 The public `/download` route opens the install page without requiring sign-in.
 The admin install page at `/download-adminapp` uses a separate manifest and
-launches the restricted admin sign-in route at `/admineat60`.
+launches the protected admin orders route at `/admin/orders`; the legacy
+`/admineat60` route remains available as a sign-in entry point.
 
 ## Files
 - `src/App.jsx` authentication and screen switching

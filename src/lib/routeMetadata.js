@@ -3,6 +3,17 @@ const metadata = {
   '/download': ['Download the EAT60 App', 'Install EAT60 on your device and order local food in Ballia. Android app coming soon.'],
   '/download-adminapp': ['Download the EAT60 Admin App', 'Install the EAT60 admin app for quick access to orders and dashboard controls.'],
   '/admineat60': ['EAT60 Admin Sign In', 'Sign in to the EAT60 administrator dashboard.'],
+  '/admin': ['Orders | EAT60 Admin', 'Review and manage new EAT60 customer orders.'],
+  '/admin/orders': ['Orders | EAT60 Admin', 'Review and manage new EAT60 customer orders.'],
+  '/admin/dashboard': ['Dashboard | EAT60 Admin', 'Monitor EAT60 orders, store availability, and daily performance.'],
+  '/admin/growth': ['Growth | EAT60 Admin', 'Review EAT60 sales and customer activity.'],
+  '/admin/menu': ['Menu | EAT60 Admin', 'Manage the EAT60 menu, prices, and availability.'],
+  '/admin/outlets': ['Outlets | EAT60 Admin', 'Manage EAT60 outlets and public store details.'],
+  '/admin/promos': ['Promos | EAT60 Admin', 'Manage EAT60 promo codes and offers.'],
+  '/admin/rewards': ['Rewards | EAT60 Admin', 'Manage customer loyalty rewards.'],
+  '/admin/feed': ['Feed | EAT60 Admin', 'Publish EAT60 customer announcements and posts.'],
+  '/admin/more': ['More tools | EAT60 Admin', 'Open additional EAT60 admin tools.'],
+  '/admin/settings': ['Settings | EAT60 Admin', 'Manage EAT60 delivery and business settings.'],
   '/wallet': ['My Wallet | EAT60', 'View your EAT60 coins and rewards wallet.'],
   '/order-history': ['Order History | EAT60', 'View your EAT60 orders, delivery progress, ratings, and reviews.'],
   '/cart': ['Your Cart | EAT60', 'Review your EAT60 cart and delivery details.'],
@@ -21,34 +32,30 @@ const metadata = {
   '/socials': ['EAT60 Community', 'Connect with the EAT60 community.'],
   '/careers': ['Careers at EAT60', 'Future career opportunities at EAT60 by Foodverse Kitchen.'],
   '/report-issue': ['Report an Issue | EAT60', 'Report a problem with the EAT60 app or ordering experience.']
-}
-
+};
 export function updateRouteMetadata(pathname) {
-  const path = pathname.replace(/\/+$/, '') || '/'
-  const [title, description] = metadata[path] || ['EAT60 | Food delivery in Ballia', metadata['/'][1]]
-  const publicPage = path === '/download' || path === '/download-adminapp' || path === '/about' || path === '/careers'
-  document.title = title
-
+  const path = pathname.replace(/\/+$/, '') || '/';
+  const [title, description] = metadata[path] || ['EAT60 | Food delivery in Ballia', metadata['/'][1]];
+  const publicPage = path === '/download' || path === '/download-adminapp' || path === '/about' || path === '/careers';
+  document.title = title;
   const setMeta = (selector, attribute, key, content) => {
-    let element = document.head.querySelector(selector)
+    let element = document.head.querySelector(selector);
     if (!element) {
-      element = document.createElement('meta')
-      document.head.appendChild(element)
+      element = document.createElement('meta');
+      document.head.appendChild(element);
     }
-    element.setAttribute(attribute, key)
-    element.content = content
-  }
-
-  setMeta('meta[name="description"]', 'name', 'description', description)
-  setMeta('meta[name="robots"]', 'name', 'robots', publicPage ? 'index, follow' : 'noindex, nofollow')
-  setMeta('meta[property="og:title"]', 'property', 'og:title', title)
-  setMeta('meta[property="og:description"]', 'property', 'og:description', description)
-
-  let canonical = document.head.querySelector('link[rel="canonical"]')
+    element.setAttribute(attribute, key);
+    element.content = content;
+  };
+  setMeta('meta[name="description"]', 'name', 'description', description);
+  setMeta('meta[name="robots"]', 'name', 'robots', publicPage ? 'index, follow' : 'noindex, nofollow');
+  setMeta('meta[property="og:title"]', 'property', 'og:title', title);
+  setMeta('meta[property="og:description"]', 'property', 'og:description', description);
+  let canonical = document.head.querySelector('link[rel="canonical"]');
   if (!canonical) {
-    canonical = document.createElement('link')
-    canonical.rel = 'canonical'
-    document.head.appendChild(canonical)
+    canonical = document.createElement('link');
+    canonical.rel = 'canonical';
+    document.head.appendChild(canonical);
   }
-  canonical.href = `${window.location.origin}${path}`
+  canonical.href = `${window.location.origin}${path}`;
 }
