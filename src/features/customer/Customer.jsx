@@ -6,6 +6,7 @@ import LoadingIndicator from '../../components/LoadingIndicator'
 import { CUSTOMER_TAB_PATHS, pathForMorePage, resolveCustomerRoute } from '../../lib/customerRoutes'
 import { isNetworkError, readOfflineCache, writeOfflineCache } from '../../lib/offlineCache'
 import { updateRouteMetadata } from '../../lib/routeMetadata'
+import { FlyingBurgerGame, HungrySnakeGame } from './ArcadeGame'
 
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 const offerExpiry = (cfg) => {
@@ -1177,63 +1178,6 @@ function Maths({ onEnd, onQuit }) {
   )
 }
 
-function EmbeddedGame({ game, title, onEnd, onQuit }) {
-  const frameRef = useRef(null)
-  const onEndRef = useRef(onEnd)
-  const onQuitRef = useRef(onQuit)
-  const endedRef = useRef(false)
-  const [saving, setSaving] = useState(false)
-  const [result, setResult] = useState(null)
-  const gameAsset = game === 'snake' ? 'hungry-snakes-chilli' : 'flying-burger'
-  const gameMessage = game === 'snake' ? 'hungry-snakes' : 'flying-burger'
-  onEndRef.current = onEnd
-  onQuitRef.current = onQuit
-
-  useEffect(() => {
-    const receiveGameEvent = async (event) => {
-      if (event.source !== frameRef.current?.contentWindow || event.origin !== window.location.origin) return
-      if (event.data?.type === `eat60-${gameMessage}-quit`) {
-        onQuitRef.current()
-      } else if (event.data?.type === `eat60-${gameMessage}-ended` && !endedRef.current) {
-        const { score, elapsedMs } = event.data
-        if (!Number.isInteger(score) || score < 0 || !Number.isFinite(elapsedMs) || elapsedMs < 0) return
-        endedRef.current = true
-        setSaving(true)
-        try {
-          const outcome = await onEndRef.current(score, Math.max(1000, elapsedMs))
-          setResult({
-            score,
-            xp: outcome?.data?.xp,
-            coins: outcome?.data?.coins,
-            error: outcome?.error?.message || ''
-          })
-        } catch (error) {
-          setResult({ score, error: error.message || 'Your score could not be saved.' })
-        } finally {
-          setSaving(false)
-        }
-      }
-    }
-    window.addEventListener('message', receiveGameEvent)
-    return () => window.removeEventListener('message', receiveGameEvent)
-  }, [])
-
-  return (
-    <div className={`game-stage embedded-game-stage ${game}-html-stage`}>
-      <iframe ref={frameRef} title={title} src={`/${gameAsset}.html?embedded=1`} allow="fullscreen" />
-      {(saving || result) && <div className="embedded-game-result" role="status" aria-live="polite">
-        {saving ? <><span className="embedded-game-result-icon">⏳</span><small>ROUND COMPLETE</small><h2>Saving your score…</h2><p>Your game will stay open while we save the result.</p></> : <>
-          <span className="embedded-game-result-icon">{result.error ? '!' : '🏆'}</span>
-          <small>{result.error ? 'SCORE NOT SAVED' : 'ROUND COMPLETE'}</small>
-          <h2>{result.score} points</h2>
-          {result.error ? <p className="embedded-game-result-error">{result.error}</p> : <p>+{result.xp} XP · +{result.coins} coins</p>}
-          <button className="math-submit" onClick={onQuit}>BACK TO GAMES <span>↗</span></button>
-        </>}
-      </div>}
-    </div>
-  )
-}
-
 function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange = () => {}, onRequestQuit, quitRef }) {
   const [playing, setPlaying] = useState(null)
   const [countdown,setCountdown]=useState(null)
@@ -1257,23 +1201,29 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
   const finish = async (game, score) => {
     const currentSessionId = sessionId.current
     sessionId.current = null
-    setBusy(true)
     if (!currentSessionId) {
-      setBusy(false)
       const error = new Error('Game session missing. Please start a new game.')
       say(error.message)
       return { error }
     }
-    const { data, error } = await sb.rpc('submit_game_score', { p_session_id: currentSessionId, p_score: score })
-    setBusy(false)
-    if (error) {
-      say(error.message)
-      return { error }
+    setBusy(true)
+    try {
+      const { data, error } = await sb.rpc('submit_game_score', { p_session_id: currentSessionId, p_score: score })
+      if (error) {
+        say(error.message)
+        return { error }
+      }
+      setRes({ game, score, ...data })
+      reload()
+      loadLb()
+      return { data }
+    } catch (error) {
+      const submissionError = error instanceof Error ? error : new Error('Could not save your game score.')
+      say(submissionError.message)
+      return { error: submissionError }
+    } finally {
+      setBusy(false)
     }
-    setRes({ game, score, ...data })
-    reload()
-    loadLb()
-    return { data }
   }
   const startGame = async (id) => {
     setRes(null)
@@ -1283,7 +1233,7 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
     if (error) return say(error.message)
     sessionId.current = data
     setPlaying(id)
-    setCountdown(id === 'snake' ? null : 5)
+    setCountdown(id === 'qmaths' ? null : 5)
     onFocus(true)
   }
   const quitGame=()=>{sessionId.current=null;setPlaying(null);setCountdown(null);onFocus(false)}
@@ -1295,8 +1245,8 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
   }
 
   if(countdown!==null)return <div className="game-countdown-screen"><button onClick={requestQuitGame} aria-label="Leave game">×</button><small>GET READY</small><h1>{countdown}</h1><p>{playing==='snake'?'Hungry Snakes':playing==='burger'?'Flying Burger':'Quick Maths'}</p></div>
-  if (playing === 'snake') return <EmbeddedGame game="snake" title="Hungry Snakes" onEnd={(score, ms) => finish('snake', score, ms)} onQuit={requestQuitGame} />
-  if (playing === 'burger') return <EmbeddedGame game="flying-burger" title="Flying Burger" onEnd={(score, ms) => finish('burger', score, ms)} onQuit={requestQuitGame} />
+  if (playing === 'snake') return <HungrySnakeGame onEnd={(score, ms) => finish('snake', score, ms)} onQuit={requestQuitGame} />
+  if (playing === 'burger') return <FlyingBurgerGame onEnd={(score, ms) => finish('burger', score, ms)} onQuit={requestQuitGame} />
   if (playing === 'qmaths') return <Maths onEnd={(score, ms) => finish('qmaths', score, ms)} onQuit={requestQuitGame} />
   const daysLeft = 7 - new Date().getDay()
   if (view === 'rankings') return <WeeklyLeague rows={lb} daysLeft={daysLeft || 7} onBack={() => changeView('games')} />

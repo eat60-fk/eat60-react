@@ -74,7 +74,7 @@ begin
   v_coins:=greatest(0,least(p_score,s.daily_coin_cap-v_today));
 
   update public.game_sessions set completed_at=now() where id=v_session.id;
-  insert into public.game_scores(user_id,game,score,duration_ms,xp,coins,city)
+  insert into public.game_scores(user_id,game,score,duration_ms,xp,coins)
   values(auth.uid(),v_session.game,p_score,v_duration_ms,v_xp,v_coins);
   update public.profiles set xp=xp+v_xp,coins=coins+v_coins where id=auth.uid();
   return json_build_object('xp',v_xp,'coins',v_coins,'duration_ms',v_duration_ms);
