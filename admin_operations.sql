@@ -16,7 +16,10 @@ alter table public.settings
   add column if not exists about_founder_photo_url text not null default '',
   add column if not exists about_founder_instagram_url text not null default '',
   add column if not exists about_founder_portfolio_url text not null default '',
-  add column if not exists about_outlet_links jsonb not null default '{}'::jsonb;
+  add column if not exists about_outlet_links jsonb not null default '{}'::jsonb,
+  add column if not exists offer_title text not null default 'OFFER OF THE DAY',
+  add column if not exists offer_message text not null default 'GRAB THIS OFFER BEFORE IT ENDS',
+  add column if not exists offer_ends_at timestamptz;
 
 alter table public.brands
   add column if not exists about_category text not null default '',
@@ -261,7 +264,8 @@ begin
 
   for r in select value from jsonb_array_elements(p_items) loop
     select vr.id as variant_id,vr.item_id,
-      case when vr.id=s.offer_variant_id and s.offer_date=today_ist() then s.offer_price else vr.price end as price,
+      case when vr.id=s.offer_variant_id and s.offer_date=today_ist()
+        and (s.offer_ends_at is null or s.offer_ends_at>now()) then s.offer_price else vr.price end as price,
       vr.label,i.name,i.brand_id,i.is_available,b.is_open
     into v from item_variants vr join menu_items i on i.id=vr.item_id join brands b on b.id=i.brand_id
     where vr.id=(r.value->>'variant_id')::bigint;
@@ -414,7 +418,7 @@ returns void language plpgsql security definer set search_path = public as $$
 begin
   if not is_admin() then raise exception 'Admins only'; end if;
   if not exists(select 1 from brands where id=p_id) then raise exception 'Outlet not found'; end if;
-  update settings set offer_variant_id=null,offer_price=null,offer_date=null
+  update settings set offer_variant_id=null,offer_price=null,offer_date=null,offer_ends_at=null
   where offer_variant_id in (select v.id from item_variants v join menu_items i on i.id=v.item_id where i.brand_id=p_id);
   delete from menu_items where brand_id=p_id;
   delete from brands where id=p_id;

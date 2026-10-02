@@ -51,7 +51,10 @@ nav b{position:absolute;top:-2px;right:8px;background:var(--pk);color:#fff;borde
   .sheet-item-copy h2{font-size:21px}
   .vr{min-height:64px;padding:14px 0}
 }
-.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ac);color:#111;padding:9px 16px;border-radius:20px;font-weight:700;z-index:9;max-width:90%;text-align:center}
+.toast{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);left:50%;transform:translateX(-50%);padding:11px 17px 15px;border:1px solid #d4ff8977;border-radius:14px;background:#252a20;color:#f4f7ed;box-shadow:0 12px 36px #0008;font-weight:750;z-index:70;width:max-content;max-width:min(90vw,520px);text-align:center;overflow:hidden;animation:toast-enter .2s ease-out}
+.toast-progress{position:absolute;right:0;bottom:0;left:0;height:3px;background:var(--ac);transform-origin:left;animation:toast-progress var(--toast-duration,3000ms) linear forwards}
+@keyframes toast-enter{from{opacity:0;translate:0 -8px}to{opacity:1;translate:0 0}}
+@keyframes toast-progress{to{transform:scaleX(0)}}
 .bar{height:8px;background:var(--c2);border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ac)}
 .stp{display:flex;gap:4px;margin:8px 0}.stp i{flex:1;height:5px;border-radius:3px;background:var(--c2)}.stp i.on{background:var(--ac)}
 .opt{display:block;width:100%;text-align:left;background:var(--c2);border-radius:12px;padding:10px 12px;margin:6px 0}
@@ -194,6 +197,7 @@ nav b{position:absolute;top:-2px;right:8px;background:var(--pk);color:#fff;borde
 .offer-card:after{position:absolute;inset:0;border:1px solid #b8f04a22;border-radius:inherit;box-shadow:0 0 28px #b8f04a0e;content:'';pointer-events:none;animation:offer-glow 3.2s ease-in-out infinite}
 .offer-card h2{font-size:clamp(28.52px,3.68vw,47.84px);line-height:1.05}
 .offer-card small{display:block;margin-top:7px;font-family:Oswald,Impact,sans-serif;font-size:clamp(13.8px,1.84vw,21.16px);font-weight:700;color:#858585}
+.offer-card .offer-countdown{width:max-content;margin-top:8px;padding:5px 10px;border:1px solid #b8f04a55;border-radius:999px;color:var(--ac);font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.06em}
 .offer-card p{margin:26px 0 12px;color:var(--ac);font-family:Oswald,Impact,sans-serif;font-size:clamp(21.16px,2.94vw,36.8px);font-weight:800;line-height:1.1}
 .offer-art{flex:none;padding:10px;font-size:clamp(82.8px,13.8vw,152.72px);filter:drop-shadow(0 16px 18px #0005);transform:rotate(-10deg)}
 .offer-card .offer-art{animation:offer-float 3.5s ease-in-out infinite}

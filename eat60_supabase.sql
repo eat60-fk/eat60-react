@@ -73,7 +73,10 @@ create table settings (
   about_outlet_links jsonb not null default '{}'::jsonb,
   offer_variant_id bigint references item_variants(id),
   offer_price int,
-  offer_date date                            -- offer of the day is valid only on this date
+  offer_date date,                           -- offer of the day is valid only on this date
+  offer_title text not null default 'OFFER OF THE DAY',
+  offer_message text not null default 'GRAB THIS OFFER BEFORE IT ENDS',
+  offer_ends_at timestamptz
 );
 
 create table streak_rewards (
@@ -374,7 +377,8 @@ begin
     if not v.is_available or not v.is_open then raise exception '% is not available right now', v.name; end if;
 
     v_price := v.price;
-    if r.vid = s.offer_variant_id and s.offer_date = today_ist() then v_price := s.offer_price; end if;
+    if r.vid = s.offer_variant_id and s.offer_date = today_ist()
+      and (s.offer_ends_at is null or s.offer_ends_at > now()) then v_price := s.offer_price; end if;
 
     insert into order_items (order_id, menu_item_id, brand_id, item_name, qty, unit_price)
     values (v_oid, v.item_id, v.brand_id, v.name || ' (' || v.label || ')', r.q, v_price);

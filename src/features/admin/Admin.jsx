@@ -48,6 +48,148 @@ function ConfirmDialog({ title, message, onCancel, onConfirm }) {
   </div>
 }
 
+const emptyOfferSettings = {
+  tiffin_url: '',
+  offer_variant_id: '',
+  offer_price: '',
+  offer_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }),
+  offer_ends_at: '',
+  offer_title: 'OFFER OF THE DAY',
+  offer_message: 'GRAB THIS OFFER BEFORE IT ENDS'
+}
+
+function localDateTimeValue(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
+}
+
+function AdBannerSettings() {
+  const [form, setForm] = useState(emptyOfferSettings)
+  const [variants, setVariants] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    let active = true
+    Promise.all([
+      sb.from('settings').select('tiffin_url,offer_variant_id,offer_price,offer_date,offer_ends_at,offer_title,offer_message').eq('id', 1).maybeSingle(),
+      sb.from('item_variants').select('id,item_id,label,price'),
+      sb.from('menu_items').select('id,name,is_available')
+    ]).then(([settingsResult, variantsResult, itemsResult]) => {
+      if (!active) return
+      const error = settingsResult.error || variantsResult.error || itemsResult.error
+      if (error) setMessage(error.message)
+      else {
+        const settings = settingsResult.data || {}
+        setForm({
+          ...emptyOfferSettings,
+          ...settings,
+          tiffin_url: settings.tiffin_url || '',
+          offer_variant_id: settings.offer_variant_id ? String(settings.offer_variant_id) : '',
+          offer_price: settings.offer_price ?? '',
+          offer_date: settings.offer_date || emptyOfferSettings.offer_date,
+          offer_ends_at: localDateTimeValue(settings.offer_ends_at)
+        })
+        const itemsById = new Map((itemsResult.data || []).map((item) => [item.id, item]))
+        setVariants((variantsResult.data || []).map((variant) => ({
+          ...variant,
+          item: itemsById.get(variant.item_id)
+        })).filter((variant) => variant.item).sort((a, b) => a.item.name.localeCompare(b.item.name)))
+      }
+      setLoading(false)
+    })
+    return () => { active = false }
+  }, [])
+
+  const change = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }))
+  const save = async () => {
+    const selected = variants.find((variant) => String(variant.id) === String(form.offer_variant_id))
+    const price = form.offer_price === '' ? null : Number(form.offer_price)
+    if (form.tiffin_url) {
+      try {
+        const url = new URL(form.tiffin_url)
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error()
+      } catch {
+        setMessage('Enter a valid http or https Tiffin service URL.')
+        return
+      }
+    }
+    if (selected && (!Number.isInteger(price) || price <= 0 || price >= Number(selected.price))) {
+      setMessage('The offer price must be a whole rupee amount greater than zero and below the regular price.')
+      return
+    }
+    if (selected && !form.offer_date) {
+      setMessage('Choose the date when this offer should appear.')
+      return
+    }
+    const endsAt = form.offer_ends_at ? new Date(form.offer_ends_at) : null
+    if (endsAt && Number.isNaN(endsAt.getTime())) {
+      setMessage('Enter a valid offer end time.')
+      return
+    }
+    if (selected && endsAt && endsAt <= new Date()) {
+      setMessage('The offer end time must be in the future.')
+      return
+    }
+    setBusy(true)
+    setMessage('')
+    const values = {
+      tiffin_url: form.tiffin_url.trim(),
+      offer_variant_id: selected ? selected.id : null,
+      offer_price: selected ? price : null,
+      offer_date: selected ? form.offer_date : null,
+      offer_ends_at: selected && endsAt ? endsAt.toISOString() : null,
+      offer_title: form.offer_title.trim() || emptyOfferSettings.offer_title,
+      offer_message: form.offer_message.trim() || emptyOfferSettings.offer_message
+    }
+    const { error } = await sb.from('settings').update(values).eq('id', 1)
+    setBusy(false)
+    if (error) setMessage(error.message)
+    else {
+      setForm((current) => ({ ...current, ...values, offer_variant_id: values.offer_variant_id ? String(values.offer_variant_id) : '', offer_price: values.offer_price ?? '', offer_ends_at: localDateTimeValue(values.offer_ends_at) }))
+      setMessage('Offer banner and Tiffin link saved.')
+    }
+  }
+  const selectedVariant = variants.find((variant) => String(variant.id) === String(form.offer_variant_id))
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+  const offerStatus = !selectedVariant
+    ? 'No menu size selected, so the offer banner is hidden.'
+    : form.offer_date > today
+      ? `Scheduled for ${form.offer_date}; it will appear on that date.`
+      : form.offer_date < today
+        ? `The selected date (${form.offer_date}) has passed. Set the display date to today to show it.`
+        : form.offer_ends_at && new Date(form.offer_ends_at).getTime() <= Date.now()
+          ? 'This offer has expired. Set a future end time to show it again.'
+          : `${selectedVariant.item.name} · ${selectedVariant.label} is scheduled to appear on the home page now.`
+
+  return <section className="admin-content">
+    <div className="admin-page-heading"><div><p>HOME PAGE</p><h2>Offer banner & Tiffin link</h2><span>Choose the discounted menu size, schedule its display date and expiry, and update the customer-facing banner text.</span></div></div>
+    <div className="admin-feed-editor">
+      {loading ? <p className="admin-feedback">Loading offer settings…</p> : <>
+        <div className="admin-form-grid">
+          <label>Offer item and size<select value={form.offer_variant_id} onChange={(event) => {
+            const variant = variants.find((item) => String(item.id) === event.target.value)
+            setForm((current) => ({ ...current, offer_variant_id: event.target.value, offer_price: variant ? String(Math.max(1, Number(variant.price) - 1)) : '' }))
+          }}><option value="">No active offer</option>{variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.item.name} · {variant.label} · ₹{variant.price}{variant.item.is_available ? '' : ' (unavailable)'}</option>)}</select></label>
+          <label>Offer price ₹<input type="number" min="1" step="1" value={form.offer_price} onChange={change('offer_price')} disabled={!form.offer_variant_id} /></label>
+          <label>Show offer on<input type="date" value={form.offer_date || ''} onChange={change('offer_date')} disabled={!form.offer_variant_id} /></label>
+          <label>Offer ends at (your local time)<input type="datetime-local" value={form.offer_ends_at || ''} onChange={change('offer_ends_at')} disabled={!form.offer_variant_id} /></label>
+          <label>Banner heading<input maxLength="60" value={form.offer_title || ''} onChange={change('offer_title')} /></label>
+          <label>Banner message<input maxLength="100" value={form.offer_message || ''} onChange={change('offer_message')} /></label>
+          <label>Tiffin service URL<input type="url" value={form.tiffin_url || ''} onChange={change('tiffin_url')} placeholder="https://…" /></label>
+        </div>
+        <p className="admin-feedback" role="status">{offerStatus}</p>
+        <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save banner & Tiffin link'} <span>→</span></button>
+      </>}
+      {message && <p className="admin-feedback" role="status">{message}</p>}
+    </div>
+  </section>
+}
+
 export default function Admin({ onBack }) {
   const [tab, setTab] = useState('overview')
   const [orders, setOrders] = useState([])
@@ -161,7 +303,7 @@ export default function Admin({ onBack }) {
       {ordersError && <div className="admin-error" role="alert"><b>Orders could not be loaded</b><span>{ordersError}</span><button onClick={loadOrders}>Retry</button></div>}
       {alert && <div className="admin-alert" role="status"><span>🔔</span><p>{alert}</p><button aria-label="Dismiss notification" onClick={() => setAlert('')}>×</button></div>}
       {tab === 'overview' && <><Overview orders={orders} onViewOrders={() => setTab('orders')} online={storeOnline} setOnline={async (value) => { const { error } = await sb.from('settings').update({ store_online: value }).eq('id', 1); if (!error) setStoreOnline(value); else setAlert(error.message) }} /><DeliverySettings /></>}
-      {tab === 'settings' && <AboutPageSettings />}
+      {tab === 'settings' && <><AdBannerSettings /><AboutPageSettings /></>}
       {tab === 'orders' && <Orders rows={orders} refresh={loadOrders} />}
       {tab === 'menu' && <Menu />}
       {tab === 'outlets' && <Outlets />}

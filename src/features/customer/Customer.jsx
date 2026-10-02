@@ -8,6 +8,12 @@ import { isNetworkError, readOfflineCache, writeOfflineCache } from '../../lib/o
 import { updateRouteMetadata } from '../../lib/routeMetadata'
 
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+const offerExpiry = (cfg) => {
+  if (cfg.offer_ends_at) return new Date(cfg.offer_ends_at).getTime()
+  if (!cfg.offer_date) return 0
+  const [year, month, day] = cfg.offer_date.split('-').map(Number)
+  return Date.UTC(year, month - 1, day + 1) - 330 * 60 * 1000
+}
 const CATS = ['Pizza', 'Burger', 'Sandwich', 'Maggie', 'Chinese', 'Wraps']
 const LABEL = { placed: 'Placed', pending:'Awaiting kitchen', accepted:'Accepted', preparing: 'Preparing', ready:'Ready', out_for_delivery: 'Out for delivery', payment_received:'Payment received', delivered: 'Delivered', rejected:'Rejected', cancelled: 'Cancelled' }
 const STEPS = ['pending','accepted','preparing','ready','out_for_delivery','payment_received','delivered']
@@ -177,6 +183,8 @@ export default function Customer({ me, email, reload, installAvailable, installM
   const contentRef = useRef(null)
   const reduceMotion = useReducedMotion()
   const [toast, setToast] = useState('')
+  const toastTimer = useRef(null)
+  const toastSequence = useRef(0)
   const [locationStatus, setLocationStatus] = useState('idle')
   const [locationLabel, setLocationLabel] = useState('Harpur, Ballia')
   const [backConfirmation, setBackConfirmation] = useState(null)
@@ -185,7 +193,13 @@ export default function Customer({ me, email, reload, installAvailable, installM
   const exitRequestedRef = useRef(false)
   const gameQuitRef = useRef(null)
 
-  const say = useCallback((m) => { setToast(m); setTimeout(() => setToast(''), 2400) }, [])
+  const say = useCallback((message) => {
+    window.clearTimeout(toastTimer.current)
+    const id = ++toastSequence.current
+    setToast({ message, id })
+    toastTimer.current = window.setTimeout(() => setToast(null), 3000)
+  }, [])
+  useEffect(() => () => window.clearTimeout(toastTimer.current), [])
   const handleDelivered = useCallback((orderId) => {
     const key = `eat60:delivered:${orderId}`
     if (sessionStorage.getItem(key)) return
@@ -237,6 +251,18 @@ export default function Customer({ me, email, reload, installAvailable, installM
   }, [])
 
   useEffect(() => { loadCatalog() }, [loadCatalog])
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') loadCatalog()
+    }
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [loadCatalog])
 
   useEffect(() => {
     const key = feedCacheKey(me.id)
@@ -320,7 +346,8 @@ export default function Customer({ me, email, reload, installAvailable, installM
   }, [handleDelivered, me.id])
 
   const price = (v) =>
-    v.id === data.cfg.offer_variant_id && data.cfg.offer_date === today() ? data.cfg.offer_price : v.price
+    Number(v.id) === Number(data.cfg.offer_variant_id) && data.cfg.offer_date === today() &&
+    (!data.cfg.offer_ends_at || new Date(data.cfg.offer_ends_at).getTime() > Date.now()) ? data.cfg.offer_price : v.price
 
   const add = (item, v, extras = []) => {
     const b = data.brands.find((x) => x.id === item.brand_id)
@@ -528,7 +555,7 @@ export default function Customer({ me, email, reload, installAvailable, installM
       {n > 0 && tab !== 'cart' && <button className="floating-cart" onClick={() => go('cart')} aria-label={`Open cart, ${n} items, estimated total ₹${floatingCartTotal}`}>
         <span className="floating-cart-icon"><NavigationIcon name="cart" /><b>{n}</b></span><span className="floating-cart-copy"><small>{n} {n === 1 ? 'ITEM' : 'ITEMS'}</small><strong>₹{floatingCartTotal.toLocaleString('en-IN')}</strong></span><span className="floating-cart-arrow">→</span>
       </button>}
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div key={toast.id} className="toast" role="status" style={{ '--toast-duration': '3000ms' }}>{toast.message}<span className="toast-progress" aria-hidden="true" /></div>}
       {fullscreenNotice && <FullscreenNotice notice={fullscreenNotice}
         onClose={() => { const goHome = fullscreenNotice.type === 'order-placed'; setFullscreenNotice(null); if (goHome) go('home') }}
         onTrackOrder={() => { setFullscreenNotice(null); go('hist') }}
@@ -572,15 +599,28 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(null)
   const [selectedExtras,setSelectedExtras]=useState([])
+  const [clock, setClock] = useState(Date.now())
   const offerRef = useRef(null)
+  useEffect(() => {
+    if (!data.cfg.offer_variant_id || data.cfg.offer_date !== today()) return undefined
+    const timer = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [data.cfg.offer_date, data.cfg.offer_variant_id])
   const brand = (id) => data.brands.find((x) => x.id === id)
   const items = data.items.filter((i) =>
     (!b || i.brand_id === b) && (!c || i.category === c) &&
     (i.name + (i.description || '')).toLowerCase().includes(q.toLowerCase()))
-  const offerItem = data.cfg.offer_date === today() &&
-    data.items.find((i) => i.item_variants.some((v) => v.id === data.cfg.offer_variant_id))
+  const scheduledOffer = data.cfg.offer_date === today() &&
+    data.items.find((i) => i.item_variants.some((v) => Number(v.id) === Number(data.cfg.offer_variant_id)))
+  const offerEndsAt = offerExpiry(data.cfg)
+  const offerItem = scheduledOffer && clock < offerEndsAt ? scheduledOffer : null
+  const offerRemaining = Math.max(0, offerEndsAt - clock)
+  const offerHours = Math.floor(offerRemaining / 3600000)
+  const offerMinutes = Math.floor((offerRemaining % 3600000) / 60000)
+  const offerSeconds = Math.floor((offerRemaining % 60000) / 1000)
+  const offerCountdown = `${String(offerHours).padStart(2, '0')}:${String(offerMinutes).padStart(2, '0')}:${String(offerSeconds).padStart(2, '0')}`
   const sorted = (i) => [...i.item_variants].sort((x, y) => x.price - y.price)
-  const activeVariant = (item) => item?.item_variants?.find((v) => v.id === data.cfg.offer_variant_id)
+  const activeVariant = (item) => item?.item_variants?.find((v) => Number(v.id) === Number(data.cfg.offer_variant_id))
   const scrollToOffer = () => {
     if (!offerItem) return say('No active offer right now. Check back soon!')
     offerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -605,8 +645,9 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
       {offerItem && (
         <div className="offer-card" id="daily-offer" ref={offerRef}>
           <div>
-            <h2>OFFER OF THE DAY</h2>
-            <small>GRAB THIS OFFER BEFORE IT ENDS</small>
+            <h2>{data.cfg.offer_title || 'OFFER OF THE DAY'}</h2>
+            <small>{data.cfg.offer_message || 'GRAB THIS OFFER BEFORE IT ENDS'}</small>
+            <small className="offer-countdown" aria-live="off">ENDS IN {offerCountdown}</small>
             <p>{`GET ${offerItem.name.toUpperCase()} @ ₹${data.cfg.offer_price}/-`}</p>
             <button className="offer-add" onClick={() => add(offerItem, activeVariant(offerItem))}>Add to cart <span>→</span></button>
           </div>
