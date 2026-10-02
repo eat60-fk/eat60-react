@@ -11,6 +11,9 @@ const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kol
 const CATS = ['Pizza', 'Burger', 'Sandwich', 'Maggie', 'Chinese', 'Wraps']
 const LABEL = { placed: 'Placed', pending:'Awaiting kitchen', accepted:'Accepted', preparing: 'Preparing', ready:'Ready', out_for_delivery: 'Out for delivery', payment_received:'Payment received', delivered: 'Delivered', rejected:'Rejected', cancelled: 'Cancelled' }
 const STEPS = ['pending','accepted','preparing','ready','out_for_delivery','payment_received','delivered']
+const EMPTY_FEED = { p: [], pr: [], rc: [], cm: [], mv: [], mr: [], vc: [] }
+const feedCacheKey = (userId) => `customer-feed-${userId}`
+const feedRequests = new Map()
 const CATEGORY_ICONS = { Pizza: '🍕', Burger: '🍔', Sandwich: '🥪', Wraps: '🌯', Maggie: '🍜', Chinese: '🥡' }
 const PROFILE_AVATARS = [
   { skin: '#f3c39f', hairColor: '#38241f', shirt: '#55bca1', bg: '#c4ecdd', gender: 'male', style: 'waves' },
@@ -82,6 +85,67 @@ function FloatingBack({ onClick, label = 'Go back' }) {
   return <button className="floating-back" type="button" onClick={onClick} aria-label={label}><span aria-hidden="true">←</span></button>
 }
 
+function fetchFeedSnapshot(userId) {
+  const pending = feedRequests.get(userId)
+  if (pending) return pending
+  const request = (async () => {
+    const r = await Promise.all([
+      sb.from('feed_posts').select('*, poll_options(*)').order('created_at', { ascending: false }),
+      sb.from('poll_results').select('*'),
+      sb.from('reaction_counts').select('*'),
+      sb.from('feed_comments').select('*').order('created_at'),
+      sb.from('poll_votes').select('post_id,option_id'),
+      sb.from('reactions').select('post_id,emoji'),
+      sb.from('feed_view_counts').select('*')
+    ])
+    const failed = r.find((result) => result.error)
+    if (failed) throw failed.error
+    const posts = r[0].data || []
+    let viewCounts = r[6].data || []
+    if (posts.length) {
+      const { error } = await sb.from('feed_views').upsert(posts.map((post) => ({ post_id: post.id, user_id: userId })), { onConflict: 'post_id,user_id', ignoreDuplicates: true })
+      if (error) throw error
+      const views = await sb.from('feed_view_counts').select('*')
+      if (views.error) throw views.error
+      viewCounts = views.data || viewCounts
+    }
+    return { p: posts, pr: r[1].data || [], rc: r[2].data || [], cm: r[3].data || [], mv: r[4].data || [], mr: r[5].data || [], vc: viewCounts }
+  })()
+  feedRequests.set(userId, request)
+  request.finally(() => {
+    if (feedRequests.get(userId) === request) feedRequests.delete(userId)
+  }).catch(() => {})
+  return request
+}
+
+function BackConfirmation({ kind, onCancel, onConfirm }) {
+  useEffect(() => {
+    if (!kind) return undefined
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [kind, onCancel])
+  if (!kind) return null
+  const copy = {
+    exit: { message: 'Do you want to exit the app?', action: 'EXIT APP' },
+    game: { message: 'Do you want to quit the game?', action: 'QUIT GAME' },
+    order: { message: 'Do you want to cancel this order?', action: 'CANCEL ORDER' }
+  }[kind]
+  return <div className="back-confirm-backdrop" onClick={onCancel}>
+    <section className="back-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="back-confirm-title" aria-describedby="back-confirm-message" onClick={(event) => event.stopPropagation()}>
+      <span className="back-confirm-icon" aria-hidden="true">!</span>
+      <h2 id="back-confirm-title">Hold On!</h2>
+      <p id="back-confirm-message">{copy.message}</p>
+      <div className="back-confirm-actions">
+        <button type="button" className="back-confirm-stay" onClick={onCancel}>STAY</button>
+        <button type="button" className="back-confirm-leave" onClick={onConfirm}>{copy.action}</button>
+      </div>
+    </section>
+  </div>
+}
+
 function CoinIcon() {
   return <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="#ffbf43" stroke="#ffe08b" strokeWidth="2"/><circle cx="16" cy="16" r="9" fill="none" stroke="#d88917" strokeWidth="1.6"/><path d="M18.8 11.6c-.7-.7-1.6-1-2.8-1-1.6 0-2.6.8-2.6 2.1 0 3.2 5.4 1.4 5.4 4.8 0 1.4-1.1 2.4-2.9 2.4-1.2 0-2.2-.4-3-1.2M16 9v14" fill="none" stroke="#9a5b0c" strokeWidth="1.5" strokeLinecap="round"/></svg>
 }
@@ -89,7 +153,7 @@ function CoinIcon() {
 function ActionIcon({ name }) {
   const props = { viewBox: '0 0 48 48', fill: 'none', stroke: 'currentColor', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }
   if (name === 'game') return <svg {...props}><path d="M14 15h20a9 9 0 0 1 8 12l-3 8a4 4 0 0 1-6 1l-7-5h-7l-7 5a4 4 0 0 1-6-1l-3-8a9 9 0 0 1 8-12Z"/><path d="M13 21v10m-5-5h10"/><circle cx="32" cy="23" r="1.5" fill="currentColor"/><circle cx="36" cy="28" r="1.5" fill="currentColor"/></svg>
-  if (name === 'tiffin') return <svg {...props}><path d="M15 10V6h18v4M12 12h24l-2 25H14l-2-25Z"/><path d="M14 20h20m-19 8h18M24 12v25"/><path d="M18 5h12"/></svg>
+  if (name === 'tiffin') return <svg {...props}><path d="M18 11V7h12v4M10 15h28v5H10zM12 20v17a3 3 0 0 0 3 3h18a3 3 0 0 0 3-3V20M12 28h24M12 35h24"/><path d="M7 17h34"/></svg>
   return <svg {...props}><path d="M7 10h34v7a4 4 0 0 0 0 8v7H7v-7a4 4 0 0 0 0-8v-7Z"/><path d="M25 12v3m0 6v3m0 6v3"/></svg>
 }
 
@@ -101,6 +165,7 @@ export default function Customer({ me, email, reload, installAvailable, installM
   const [moreInitialPage, setMoreInitialPage] = useState(initialRoute.morePage || null)
   const [cart, setCart] = useState([])
   const [selectedVoucher, setSelectedVoucher] = useState('')
+  const [feedRefreshKey, setFeedRefreshKey] = useState(0)
   const [rank, setRank] = useState(null)
   const [fullscreenNotice, setFullscreenNotice] = useState(null)
   const [data, setData] = useState(() => readOfflineCache('catalog') || { brands: [], items: [], cfg: {}, ratings: {}, ratingError: '' })
@@ -114,8 +179,13 @@ export default function Customer({ me, email, reload, installAvailable, installM
   const [toast, setToast] = useState('')
   const [locationStatus, setLocationStatus] = useState('idle')
   const [locationLabel, setLocationLabel] = useState('Harpur, Ballia')
+  const [backConfirmation, setBackConfirmation] = useState(null)
+  const currentPathRef = useRef(window.location.pathname)
+  const allowNextBackRef = useRef(false)
+  const exitRequestedRef = useRef(false)
+  const gameQuitRef = useRef(null)
 
-  const say = (m) => { setToast(m); setTimeout(() => setToast(''), 2400) }
+  const say = useCallback((m) => { setToast(m); setTimeout(() => setToast(''), 2400) }, [])
   const handleDelivered = useCallback((orderId) => {
     const key = `eat60:delivered:${orderId}`
     if (sessionStorage.getItem(key)) return
@@ -169,6 +239,18 @@ export default function Customer({ me, email, reload, installAvailable, installM
   useEffect(() => { loadCatalog() }, [loadCatalog])
 
   useEffect(() => {
+    const key = feedCacheKey(me.id)
+    if (readOfflineCache(key)) return
+    let active = true
+    fetchFeedSnapshot(me.id).then((snapshot) => {
+      if (active) writeOfflineCache(key, snapshot)
+    }).catch((error) => {
+      if (active) console.warn('Could not preload the customer feed.', error)
+    })
+    return () => { active = false }
+  }, [me.id])
+
+  useEffect(() => {
     const handleOnline = () => { setOnline(true); loadCatalog() }
     const handleOffline = () => setOnline(false)
     window.addEventListener('online', handleOnline)
@@ -184,12 +266,13 @@ export default function Customer({ me, email, reload, installAvailable, installM
     setRefreshing(true)
     try {
       const results = await Promise.allSettled([loadCatalog(), reload(), reloadRatings()])
+      if (tab === 'feed') setFeedRefreshKey((key) => key + 1)
       const failed = results.find((result) => result.status === 'rejected')
       if (failed) setCatalogError(failed.reason?.message || 'Some EAT60 content could not be refreshed.')
     } finally {
       setRefreshing(false)
     }
-  }, [loadCatalog, reload, reloadRatings])
+  }, [loadCatalog, reload, reloadRatings, tab])
 
   const onTouchStart = (event) => {
     if (!gameFocus && window.scrollY <= 0 && event.touches.length === 1) touchStartY.current = event.touches[0].clientY
@@ -258,7 +341,8 @@ export default function Customer({ me, email, reload, installAvailable, installM
     : Number(data.cfg.delivery_fee || 0)
   const floatingCartTotal = cartSubtotal + floatingDeliveryFee
   const navigatePath = (path) => {
-    if (window.location.pathname !== path) window.history.pushState({}, '', path)
+    if (window.location.pathname !== path) window.history.pushState({ eat60Route: path }, '', path)
+    currentPathRef.current = path
     updateRouteMetadata(path)
   }
   const go = (t, path = CUSTOMER_TAB_PATHS[t]) => {
@@ -278,18 +362,69 @@ export default function Customer({ me, email, reload, installAvailable, installM
   }
   useEffect(() => {
     const syncCustomerRoute = () => {
+      if (exitRequestedRef.current) {
+        if (window.history.state?.eat60Route) {
+          window.history.back()
+          return
+        }
+        exitRequestedRef.current = false
+        allowNextBackRef.current = true
+      }
+      if (allowNextBackRef.current) {
+        allowNextBackRef.current = false
+      } else {
+        const confirmation = gameFocus
+          ? 'game'
+          : tab === 'cart' && cart.length > 0
+            ? 'order'
+            : tab === 'home'
+              ? 'exit'
+              : null
+        if (confirmation) {
+          window.history.pushState({ eat60Route: currentPathRef.current }, '', currentPathRef.current)
+          setBackConfirmation(confirmation)
+          return
+        }
+      }
       const route = resolveCustomerRoute(window.location.pathname)
       setTab(route.tab)
       setGameView(route.gameView || 'games')
       setMoreInitialPage(route.morePage || null)
       setGameFocus(false)
+      currentPathRef.current = window.location.pathname
       updateRouteMetadata(window.location.pathname)
       window.scrollTo(0, 0)
     }
     window.addEventListener('popstate', syncCustomerRoute)
+    window.history.replaceState({ ...window.history.state, eat60Route: window.location.pathname }, '', window.location.href)
     updateRouteMetadata(window.location.pathname)
     return () => window.removeEventListener('popstate', syncCustomerRoute)
-  }, [])
+  }, [cart.length, gameFocus, tab])
+  const leaveCart = () => {
+    setBackConfirmation('order')
+  }
+  const confirmBackAction = () => {
+    const action = backConfirmation
+    setBackConfirmation(null)
+    if (action === 'game') {
+      gameQuitRef.current?.()
+    } else if (action === 'order') {
+      setCart([])
+      setSelectedVoucher('')
+      if (window.history.length > 1) {
+        allowNextBackRef.current = true
+        window.history.back()
+      } else {
+        window.history.replaceState({}, '', CUSTOMER_TAB_PATHS.home)
+        currentPathRef.current = CUSTOMER_TAB_PATHS.home
+        setTab('home')
+        updateRouteMetadata(CUSTOMER_TAB_PATHS.home)
+      }
+    } else if (action === 'exit') {
+      exitRequestedRef.current = true
+      window.history.back()
+    }
+  }
   const navigateMorePage = (page) => navigatePath(pathForMorePage(page))
   const checkDeliveryArea = () => {
     if (!navigator.geolocation) {
@@ -361,17 +496,18 @@ export default function Customer({ me, email, reload, installAvailable, installM
         >
           {tab === 'home' && <Home data={data} add={add} price={price} go={go} goMore={goMore} goGames={goGames} say={say} me={me} reloadRatings={reloadRatings} />}
           {tab === 'cart' && (
-            <Cart cart={cart} setCart={setCart} cfg={data.cfg} me={me} say={say} voucherCode={selectedVoucher}
+            <Cart cart={cart} setCart={setCart} cfg={data.cfg} me={me} say={say} voucherCode={selectedVoucher} onBack={() => cart.length ? leaveCart() : go('home')}
               done={(orderId) => { setSelectedVoucher(''); reload(); setFullscreenNotice({ type: 'order-placed', id: orderId }) }} />
           )}
           {tab === 'hist' && <History me={me} />}
-          {tab === 'feed' && <Feed me={me} say={say} />}
-          {tab === 'games' && <div className={`game-focus-surface${gameFocus?' focused':''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} onViewChange={goGames} /></div>}
+          {tab === 'feed' && <Feed me={me} say={say} refreshKey={feedRefreshKey} />}
+          {tab === 'games' && <div className={`game-focus-surface${gameFocus?' focused':''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} onViewChange={goGames} onRequestQuit={() => setBackConfirmation('game')} quitRef={gameQuitRef} /></div>}
           {tab === 'wallet' && <Wallet me={me} onBack={() => go('home')} />}
           {tab === 'more' && <More me={me} email={email} reload={reload} go={go} goGames={goGames} say={say} initialPage={moreInitialPage} onNavigatePath={navigateMorePage}
             onSelectVoucher={(code) => { setSelectedVoucher(code); go('cart') }} installAvailable={installAvailable} installMessage={installMessage} />}
         </motion.div>
       </AnimatePresence>
+      <BackConfirmation kind={backConfirmation} onCancel={() => setBackConfirmation(null)} onConfirm={confirmBackAction} />
       {!catalogLoaded && (!online || catalogError) && <div className="offline-wait-screen">
         <LoadingIndicator label={online ? 'Waiting for EAT60 data…' : 'Waiting for a network connection…'} />
         <p>{online ? catalogError : 'Your saved app shell is ready. We’ll reconnect and load your menu automatically.'}</p>
@@ -461,7 +597,7 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
       <div className="quick-actions">
         <button onClick={() => goMore('profile')}><i className="quick-icon profile-icon"><ProfileAvatar avatarId={me.avatar_id} /></i><span>{me.username || me.name || 'My Profile'}</span></button>
         <button onClick={() => goGames()}><i className="quick-icon game-icon"><ActionIcon name="game" /></i><span>Play Game</span></button>
-        <button onClick={scrollToOffer}><i className="quick-icon offer-icon">50<small>%<br />OFF</small></i><span>Offers & Coupon</span></button>
+        <button onClick={scrollToOffer}><i className="quick-icon offer-icon"><b>50%</b><small>OFF</small></i><span>Offers & Coupon</span></button>
         <button onClick={() => data.cfg.tiffin_url ? window.open(data.cfg.tiffin_url, '_blank', 'noopener,noreferrer') : say('Tiffin service details are coming soon')}><i className="quick-icon tiffin-icon"><ActionIcon name="tiffin" /></i><span>Tiffin Service</span></button>
       </div>
 
@@ -562,7 +698,7 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
   )
 }
 
-function Cart({ cart, setCart, cfg, me, say, done, voucherCode }) {
+function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
   const [useCoins, setUseCoins] = useState(false)
   const [customerName, setCustomerName] = useState(me.name || '')
   const [addr, setAddr] = useState([me.address, me.area, me.city].filter(Boolean).join(', '))
@@ -660,10 +796,12 @@ function Cart({ cart, setCart, cfg, me, say, done, voucherCode }) {
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 })
   }
 
-  if (!cart.length) return <div className="empty">Your cart is empty. Add something from Home.</div>
+  if (!cart.length) return <><FloatingBack onClick={onBack} label="Back to home" /><div className="empty">Your cart is empty. Add something from Home.</div></>
 
   return (
     <>
+      <FloatingBack onClick={onBack} label="Back from checkout" />
+      <h1 className="cart-page-title">YOUR CART</h1>
       {cart.map((x, k) => (
         <div key={`${x.vid}-${(x.extras||[]).map(e=>e.id).sort().join('-')}`} className="card row between">
           <div className="fx"><b>{x.name}</b>{(x.extras||[]).length>0&&<small>{x.extras.map(e=>e.name).join(', ')}</small>}</div>
@@ -793,35 +931,40 @@ function History({ me }) {
   </>
 }
 
-function Feed({ me, say }) {
-  const [d, setD] = useState({ p: [], pr: [], rc: [], cm: [], mv: [], mr: [], vc: [] })
+function Feed({ me, say, refreshKey }) {
+  const key = feedCacheKey(me.id)
+  const [initialSnapshot] = useState(() => readOfflineCache(key))
+  const [d, setD] = useState(initialSnapshot || EMPTY_FEED)
   const [txt, setTxt] = useState({})
   const [commentOpen, setCommentOpen] = useState({})
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!initialSnapshot)
+  const [loadError, setLoadError] = useState('')
+  const hasSnapshot = useRef(Boolean(initialSnapshot))
+  const lastRefreshKey = useRef(refreshKey)
 
   const load = useCallback(async () => {
-    const r = await Promise.all([
-      sb.from('feed_posts').select('*, poll_options(*)').order('created_at', { ascending: false }),
-      sb.from('poll_results').select('*'),
-      sb.from('reaction_counts').select('*'),
-      sb.from('feed_comments').select('*').order('created_at'),
-      sb.from('poll_votes').select('post_id,option_id'),
-      sb.from('reactions').select('post_id,emoji'),
-      sb.from('feed_view_counts').select('*')
-    ])
-    const posts = r[0].data || []
-    let viewCounts = r[6].data || []
-    if (posts.length) {
-      const { error } = await sb.from('feed_views').upsert(posts.map((post) => ({ post_id: post.id, user_id: me.id })), { onConflict: 'post_id,user_id', ignoreDuplicates: true })
-      if (!error) {
-        const views = await sb.from('feed_view_counts').select('*')
-        viewCounts = views.data || viewCounts
-      }
+    if (!hasSnapshot.current) setLoading(true)
+    setLoadError('')
+    try {
+      const snapshot = await fetchFeedSnapshot(me.id)
+      setD(snapshot)
+      hasSnapshot.current = true
+      writeOfflineCache(key, snapshot)
+    } catch (error) {
+      setLoadError(error.message || 'Could not load feed updates.')
+      say(error.message || 'Could not load feed updates.')
+    } finally {
+      setLoading(false)
     }
-    setD({ p: posts, pr: r[1].data || [], rc: r[2].data || [], cm: r[3].data || [], mv: r[4].data || [], mr: r[5].data || [], vc: viewCounts })
-    setLoading(false)
-  }, [me.id])
-  useEffect(() => { load() }, [load])
+  }, [key, me.id, say])
+  useEffect(() => {
+    if (!hasSnapshot.current) load()
+  }, [load])
+  useEffect(() => {
+    if (lastRefreshKey.current === refreshKey) return
+    lastRefreshKey.current = refreshKey
+    load()
+  }, [load, refreshKey])
 
   const vote = async (post, option) => {
     const { error } = await sb.from('poll_votes').insert({ post_id: post, user_id: me.id, option_id: option })
@@ -845,10 +988,11 @@ function Feed({ me, say }) {
     load()
   }
 
-  if (loading) return <section className="feed-page"><h1 className="games-eyebrow">FEED</h1><div className="feed-empty">Loading posts…</div></section>
-  if (!d.p.length) return <section className="feed-page"><h1 className="games-eyebrow">FEED</h1><div className="feed-empty">No updates yet. Check back soon.</div></section>
+  if (loading) return <section className="feed-page"><h1 className="games-eyebrow">FEED</h1><div className="feed-empty">Preparing your feed…</div></section>
+  if (!d.p.length) return <section className="feed-page"><h1 className="games-eyebrow">FEED</h1>{loadError ? <div className="feed-empty" role="alert">{loadError}<button type="button" onClick={load}>Try again</button></div> : <div className="feed-empty">No updates yet. Pull down to refresh.</div>}</section>
   return <section className="feed-page">
     <h1 className="games-eyebrow">FEED</h1>
+    {loadError && <p className="feed-load-error" role="alert">Showing saved posts. Refresh failed: {loadError}</p>}
     <div className="feed-timeline">{d.p.map((p) => {
     const voted = d.mv.find((x) => x.post_id === p.id)
     const votes = (o) => d.pr.find((x) => x.option_id === o)?.votes || 0
@@ -1115,7 +1259,7 @@ function FlyingBurger({ onEnd, onQuit }) {
   return <div className="game-stage burger-game-stage"><div className="game-stage-head"><button className="game-exit" onClick={onQuit} aria-label="Exit game">←</button><b>FLYING BURGER</b><span>♥ {state.lives}</span><span>{state.left}s</span><strong>{state.score} pts</strong></div><div className="burger-arena" onPointerDown={flap} role="button" tabIndex={0} aria-label="Tap anywhere to fly upward"><div className="burger-ground"/><div className="burger-bird" style={{top:`${state.bird}%`}}>🍔</div>{state.pipes.map(pipe=><Fragment key={pipe.id}><i className="burger-pipe top" style={{left:`${pipe.x}%`,height:`${pipe.gap-15}%`}}/><i className="burger-pipe bottom" style={{left:`${pipe.x}%`,top:`${pipe.gap+15}%`,height:`${85-pipe.gap}%`}}/></Fragment>)}<span className="burger-tap-hint">TAP TO FLY</span></div><p className="game-hint">Tap or press ↑ / Space to flap. Fly between the pipes. Two lives.</p>{state.over&&<div className="game-over-overlay"><small>GAME OVER</small><b>{state.score} POINTS</b><button className="math-submit" onClick={onQuit}>BACK TO GAMES</button></div>}</div>
 }
 
-function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange = () => {} }) {
+function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange = () => {}, onRequestQuit, quitRef }) {
   const [playing, setPlaying] = useState(null)
   const [countdown,setCountdown]=useState(null)
   const [lb, setLb] = useState([])
@@ -1165,15 +1309,17 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
     onFocus(true)
   }
   const quitGame=()=>{sessionId.current=null;setPlaying(null);setCountdown(null);onFocus(false)}
+  const requestQuitGame=()=>onRequestQuit()
+  quitRef.current = quitGame
   const changeView = (nextView) => {
     setView(nextView)
     onViewChange(nextView)
   }
 
-  if(countdown!==null)return <div className="game-countdown-screen"><button onClick={quitGame} aria-label="Leave game">×</button><small>GET READY</small><h1>{countdown}</h1><p>{playing==='snake'?'Hungry Snakes':playing==='burger'?'Flying Burger':'Quick Maths'}</p></div>
-  if (playing === 'snake') return <SnakeGame onEnd={(score, ms) => finish('snake', score, ms)} onQuit={quitGame} />
-  if (playing === 'burger') return <FlyingBurger onEnd={(score, ms) => finish('burger', score, ms)} onQuit={quitGame} />
-  if (playing === 'qmaths') return <Maths onEnd={(score, ms) => finish('qmaths', score, ms)} onQuit={quitGame} />
+  if(countdown!==null)return <div className="game-countdown-screen"><button onClick={requestQuitGame} aria-label="Leave game">×</button><small>GET READY</small><h1>{countdown}</h1><p>{playing==='snake'?'Hungry Snakes':playing==='burger'?'Flying Burger':'Quick Maths'}</p></div>
+  if (playing === 'snake') return <SnakeGame onEnd={(score, ms) => finish('snake', score, ms)} onQuit={requestQuitGame} />
+  if (playing === 'burger') return <FlyingBurger onEnd={(score, ms) => finish('burger', score, ms)} onQuit={requestQuitGame} />
+  if (playing === 'qmaths') return <Maths onEnd={(score, ms) => finish('qmaths', score, ms)} onQuit={requestQuitGame} />
   const daysLeft = 7 - new Date().getDay()
   if (view === 'rankings') return <WeeklyLeague rows={lb} daysLeft={daysLeft || 7} onBack={() => changeView('games')} />
   if (view === 'scores') return <MyGameScores me={me} onBack={() => changeView('games')} />
@@ -1440,7 +1586,7 @@ function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath
         const claimed = claimedRewards.includes(reward.milestone)
         const reached = (me.longest_streak || me.streak) >= reward.milestone
         return <article key={reward.milestone} className={`streak-reward${claimed ? ' is-claimed' : reached ? ' is-ready' : ''}`}>
-          <span className="streak-marker">{claimed ? '✓' : reached ? '!' : '🔒'}</span>
+          <span className="streak-marker">{claimed ? '✓' : reached ? '!' : <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>}</span>
           <div className="streak-reward-card">
             <div className="streak-reward-art" aria-hidden="true">{claimed ? '🎁' : reward.milestone <= 30 ? '✨' : '🎁'}</div>
             <div className="streak-reward-copy"><span className="streak-day">DAY {reward.milestone}</span><b>{reward.gift}</b><small>{claimed ? 'Reward claimed' : reached ? 'Goal reached — claim your reward' : `${Math.max(0, reward.milestone - me.streak)} more streak days to unlock`}</small></div>
