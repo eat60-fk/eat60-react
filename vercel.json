@@ -7,6 +7,14 @@
       "destination": "/admin-install.html"
     },
     {
+      "source": "/hungry-snakes-chilli.html",
+      "destination": "/hungry-snakes-chilli.html"
+    },
+    {
+      "source": "/flying-burger.html",
+      "destination": "/flying-burger.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
