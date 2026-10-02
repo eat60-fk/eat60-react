@@ -4,11 +4,12 @@ create schema if not exists extensions;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public;
 
-select plan(37);
+select plan(50);
 
 create temporary table eat60_test_fixture (
   customer_id uuid not null,
   admin_id uuid not null,
+  game_session uuid,
   brand_id text,
   menu_item_id bigint,
   variant_id bigint,
@@ -36,7 +37,8 @@ select admin_id, 'authenticated', 'authenticated',
 from eat60_test_fixture;
 
 update public.profiles
-set coins = 10000, streak = 0, longest_streak = 0, last_order_date = null
+set coins = 10000, xp = 0, streak = 0, longest_streak = 0, last_order_date = null,
+    city = 'Ballia'
 where id = (select customer_id from eat60_test_fixture);
 update public.profiles
 set role = 'admin'
@@ -150,6 +152,124 @@ select is((public.validate_coupon(
 )->>'valid'), 'false', 'coupon per-user redemption limit is enforced');
 select is((select count(*)::integer from public.customer_available_coupons()), 0,
   'redeemed voucher is no longer offered to that customer');
+
+update eat60_test_fixture
+set game_session = public.start_game_session('snake');
+reset role;
+update public.game_sessions
+set started_at = now() - interval '3 seconds'
+where id = (select game_session from eat60_test_fixture);
+set local role authenticated;
+select is((public.submit_game_score(
+  (select game_session from eat60_test_fixture), 150
+)->>'xp')::integer, 35,
+  '15 Snake food scores earn 35 XP');
+reset role;
+update public.game_sessions set started_at = now() - interval '6 seconds'
+where user_id = (select customer_id from eat60_test_fixture);
+set local role authenticated;
+update eat60_test_fixture
+set game_session = public.start_game_session('burger');
+reset role;
+update public.game_sessions
+set started_at = now() - interval '12 seconds'
+where id = (select game_session from eat60_test_fixture);
+set local role authenticated;
+select is((public.submit_game_score(
+  (select game_session from eat60_test_fixture), 80
+)->>'xp')::integer, 30,
+  '8 Flying Burger pipes earn 30 XP');
+reset role;
+update public.game_sessions set started_at = now() - interval '6 seconds'
+where user_id = (select customer_id from eat60_test_fixture);
+set local role authenticated;
+update eat60_test_fixture
+set game_session = public.start_game_session('qmaths');
+reset role;
+update public.game_sessions
+set started_at = now() - interval '10 seconds'
+where id = (select game_session from eat60_test_fixture);
+set local role authenticated;
+select throws_ok(
+  $$select public.submit_game_score(
+    (select game_session from eat60_test_fixture), 0
+  )$$,
+  'P0001', 'Game session ended too early',
+  'Quick Maths cannot be submitted before its timed round finishes'
+);
+reset role;
+update public.game_sessions set started_at = now() - interval '6 seconds'
+where user_id = (select customer_id from eat60_test_fixture);
+set local role authenticated;
+update eat60_test_fixture
+set game_session = public.start_game_session('qmaths');
+reset role;
+update public.game_sessions
+set started_at = now() - interval '117 seconds'
+where id = (select game_session from eat60_test_fixture);
+set local role authenticated;
+select is((public.submit_game_score(
+  (select game_session from eat60_test_fixture), 10
+)->>'xp')::integer, 43,
+  '10 Quick Maths answers earn 43 XP');
+reset role;
+update public.game_sessions set started_at = now() - interval '6 seconds'
+where user_id = (select customer_id from eat60_test_fixture);
+set local role authenticated;
+update eat60_test_fixture
+set game_session = public.start_game_session('snake');
+reset role;
+update public.game_sessions
+set started_at = now() - interval '6 seconds'
+where id = (select game_session from eat60_test_fixture);
+set local role authenticated;
+select is((public.submit_game_score(
+  (select game_session from eat60_test_fixture), 400
+)->>'xp')::integer, 60,
+  'Snake XP is capped at 60 after the target score');
+reset role;
+update public.game_sessions set started_at = now() - interval '6 seconds'
+where user_id = (select customer_id from eat60_test_fixture);
+set local role authenticated;
+update eat60_test_fixture
+set game_session = public.start_game_session('qmaths');
+reset role;
+update public.game_sessions
+set started_at = now() - interval '117 seconds'
+where id = (select game_session from eat60_test_fixture);
+set local role authenticated;
+select is((public.submit_game_score(
+  (select game_session from eat60_test_fixture), 0
+)->>'xp')::integer, 10,
+  'a valid completed game awards 10 participation XP');
+select throws_ok(
+  $$select public.submit_game_score(
+    (select game_session from eat60_test_fixture), 0
+  )$$,
+  'P0001', 'Game session is invalid or already used',
+  'completed game sessions cannot be claimed a second time'
+);
+select is((select xp from public.profiles
+  where id = (select customer_id from eat60_test_fixture)), 178,
+  'game XP awards are added to the customer profile');
+select is((select sum(coins)::integer from public.game_scores
+  where user_id = (select customer_id from eat60_test_fixture)), 125,
+  'game coin rewards stop at the 125-coin IST daily cap');
+select is((select xp from public.get_leaderboard() where is_me), 138::bigint,
+  'only the three highest-XP plays per day count on the weekly board');
+reset role;
+update public.game_scores
+set played_at = (date_trunc('week', now() at time zone 'Asia/Kolkata') - interval '1 week'
+  + interval '1 hour') at time zone 'Asia/Kolkata'
+where user_id = (select customer_id from eat60_test_fixture);
+select is(public.settle_weekly_game_rewards(), 1,
+  'weekly settlement credits the top eligible player');
+select is(public.settle_weekly_game_rewards(), 0,
+  're-running weekly settlement does not pay winners twice');
+select is((select count(*)::integer from public.weekly_game_rewards
+  where user_id = (select customer_id from eat60_test_fixture)), 1,
+  'settlement records one idempotency row per winner and week');
+
 select throws_ok(
   $$select public.place_order_with_coupon(
     (select jsonb_build_array(jsonb_build_object('variant_id',variant_id,'qty',1)) from eat60_test_fixture),

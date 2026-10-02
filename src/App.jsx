@@ -1,11 +1,15 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { isSupabaseConfigured, sb } from './lib/supabase'
 import PoweredFooter from './components/PoweredFooter'
+import LoadingIndicator from './components/LoadingIndicator'
 import { resolveAdminAccess } from './lib/adminAccess'
+import { updateRouteMetadata } from './lib/routeMetadata'
+import { isNetworkError, readOfflineCache, writeOfflineCache } from './lib/offlineCache'
 
 const Customer = lazy(() => import('./features/customer/Customer'))
 const Admin = lazy(() => import('./features/admin/Admin'))
 const DownloadPage = lazy(() => import('./components/DownloadPage'))
+const AboutPage = lazy(() => import('./features/customer/Customer').then((module) => ({ default: module.AboutPage })))
 
 function Login({ adminOnly = false }) {
   const [mode, setMode] = useState('login')
@@ -119,7 +123,7 @@ function Login({ adminOnly = false }) {
           </form>
 
           {msg && <p className={`auth-message ${messageType}`} role="status">{msg}</p>}
-          {adminOnly ? <p className="auth-switch admin-auth-note">Admin access is granted to approved accounts only.</p> : <p className="auth-switch">{signup ? 'Already have an account?' : 'Don’t have an account?'} <button type="button" onClick={() => changeMode(signup ? 'login' : 'signup')}>{signup ? 'Log in' : 'Sign up'}</button></p>}
+          {adminOnly ? <><p className="auth-switch admin-auth-note">Admin access is granted to approved accounts only.</p><p className="auth-switch"><a href="/download-adminapp">Install the EAT60 admin app</a></p></> : <p className="auth-switch">{signup ? 'Already have an account?' : 'Don’t have an account?'} <button type="button" onClick={() => changeMode(signup ? 'login' : 'signup')}>{signup ? 'Log in' : 'Sign up'}</button></p>}
         </section>
       </div>
       <PoweredFooter className={adminOnly ? 'admin-auth-mobile-footnote' : 'auth-mobile-footnote'} />
@@ -137,6 +141,8 @@ export default function App() {
   const [profileError, setProfileError] = useState('')
   const [adminRoute, setAdminRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/admineat60')
   const [downloadRoute, setDownloadRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/download')
+  const [adminDownloadRoute, setAdminDownloadRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/download-adminapp')
+  const [aboutRoute, setAboutRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/about')
   const [adminAccess, setAdminAccess] = useState({ status: 'checking' })
   const [adminCheck, setAdminCheck] = useState(0)
   const [installPrompt, setInstallPrompt] = useState(null)
@@ -207,19 +213,44 @@ export default function App() {
       const pathname = window.location.pathname.replace(/\/$/, '') || '/'
       setAdminRoute(pathname === '/admineat60')
       setDownloadRoute(pathname === '/download')
+      setAdminDownloadRoute(pathname === '/download-adminapp')
+      setAboutRoute(pathname === '/about')
+      updateRouteMetadata(pathname)
     }
     window.addEventListener('popstate', syncRoute)
+    updateRouteMetadata(window.location.pathname)
+    const schema = document.getElementById('eat60-organization-schema')
+    if (schema) {
+      schema.textContent = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'Organization',
+        name: 'EAT60',
+        alternateName: 'EAT60 by Foodverse Kitchen',
+        description: 'Local food ordering and delivery app serving Ballia, Uttar Pradesh, India.',
+        url: window.location.origin,
+        areaServed: { '@type': 'City', name: 'Ballia' }
+      })
+    }
     return () => window.removeEventListener('popstate', syncRoute)
   }, [])
-
-  const openDownloadPage = () => {
-    window.history.pushState({}, '', '/download')
-    setDownloadRoute(true)
-  }
 
   const closeDownloadPage = () => {
     window.history.pushState({}, '', '/')
     setDownloadRoute(false)
+    updateRouteMetadata('/')
+  }
+
+  const closeAdminDownloadPage = () => {
+    window.history.pushState({}, '', '/admineat60')
+    setAdminDownloadRoute(false)
+    setAdminRoute(true)
+    updateRouteMetadata('/admineat60')
+  }
+
+  const closeAboutPage = () => {
+    window.history.pushState({}, '', '/')
+    setAboutRoute(false)
+    updateRouteMetadata('/')
   }
 
   useEffect(() => {
@@ -246,18 +277,36 @@ export default function App() {
       if (error) throw error
       if (!data) throw new Error('PROFILE_ROW_MISSING')
       setMe(data)
+      writeOfflineCache(`profile:${session.user.id}`, data)
     } catch (error) {
-      setMe(null)
-      setProfileError(error.message || 'Could not load your profile.')
+      const cachedProfile = readOfflineCache(`profile:${session.user.id}`)
+      if (cachedProfile && isNetworkError(error)) {
+        setMe(cachedProfile)
+        setProfileError('')
+      } else {
+        setMe(null)
+        setProfileError(error.message || 'Could not load your profile.')
+      }
     }
   }, [session])
 
   useEffect(() => { if (session) loadMe() }, [loadMe, session])
+  useEffect(() => {
+    if (!session) return
+    const retryProfileWhenOnline = () => loadMe()
+    window.addEventListener('online', retryProfileWhenOnline)
+    return () => window.removeEventListener('online', retryProfileWhenOnline)
+  }, [loadMe, session])
 
   if (!isSupabaseConfigured) return <main className="app setup-page"><div className="card"><h2>App setup required</h2><p>Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to the environment, then restart the app.</p></div><PoweredFooter /></main>
+  if (adminDownloadRoute) return <main className="app download-route"><Suspense fallback={<p className="empty">Loading admin app details…</p>}><DownloadPage adminApp onBack={closeAdminDownloadPage} onInstall={installApp} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense></main>
   if (downloadRoute) return <main className="app download-route"><Suspense fallback={<p className="empty">Loading EAT60 app details…</p>}><DownloadPage onBack={closeDownloadPage} onInstall={installApp} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense></main>
-  if (session === undefined) return <main className="app setup-page"><p className="empty">Loading...</p><PoweredFooter /></main>
+  if (aboutRoute) return <main className="app about-route"><Suspense fallback={<p className="empty">Loading About EAT60…</p>}><AboutPage onBack={closeAboutPage} /></Suspense></main>
+  if (session === undefined) return <main className="app setup-page"><LoadingIndicator label="Loading EAT60…" /><PoweredFooter /></main>
   if (!session) return adminRoute ? <AdminLogin /> : <Login />
+  if (profileError && isNetworkError(new Error(profileError)) && !navigator.onLine) {
+    return <main className="app setup-page offline-profile-wait"><LoadingIndicator label="Waiting for a network connection…" /><p>Your profile will load automatically when the connection returns.</p></main>
+  }
   if (profileError) {
     const missingSchema = profileError.includes('PGRST205') || profileError.includes("Could not find the table 'public.profiles'")
     const missingProfile = profileError === 'PROFILE_ROW_MISSING' || profileError.includes('Cannot coerce the result to a single JSON object')
@@ -296,13 +345,13 @@ export default function App() {
       </main>
     )
   }
-  if (!me) return <p className="empty">Loading your profile...</p>
+  if (!me) return <main className="app setup-page"><LoadingIndicator label="Loading your profile…" /><PoweredFooter /></main>
 
   if (adminRoute) {
-    if (adminAccess.status === 'checking') return <main className="app setup-page"><p className="empty">Verifying administrator access...</p><PoweredFooter /></main>
+    if (adminAccess.status === 'checking') return <main className="app setup-page"><LoadingIndicator label="Verifying administrator access…" /><PoweredFooter /></main>
     if (adminAccess.status === 'error') return <main className="app account-error"><section className="card"><p className="auth-eyebrow">ADMIN ACCESS CHECK</p><h1>Could not verify administrator access</h1><p>{adminAccess.message}</p><div className="row"><button className="pill" onClick={() => setAdminCheck((current) => current + 1)}>Try again</button><button className="pill g" onClick={() => sb.auth.signOut()}>Sign out</button></div></section><PoweredFooter /></main>
     if (adminAccess.status === 'denied') return <main className="app admin-denied"><section className="card"><p className="auth-eyebrow">RESTRICTED AREA</p><h1>Admin access required</h1><p>Your account does not have permission to open this page.</p><div className="row"><button className="pill" onClick={() => { window.history.replaceState({}, '', '/'); setAdminRoute(false) }}>Back to EAT60</button><button className="pill g" onClick={() => sb.auth.signOut()}>Sign out</button></div></section><PoweredFooter /></main>
     return <Suspense fallback={<main className="app setup-page"><p className="empty">Loading admin dashboard…</p><PoweredFooter /></main>}><Admin onBack={() => { window.history.replaceState({}, '', '/'); setAdminRoute(false) }} /></Suspense>
   }
-  return <Suspense fallback={<main className="app setup-page"><p className="empty">Loading your storefront…</p><PoweredFooter /></main>}><Customer me={me} email={session.user.email || ''} reload={loadMe} onOpenDownload={openDownloadPage} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense>
+  return <Suspense fallback={<main className="app setup-page"><p className="empty">Loading your storefront…</p><PoweredFooter /></main>}><Customer me={me} email={session.user.email || ''} reload={loadMe} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense>
 }

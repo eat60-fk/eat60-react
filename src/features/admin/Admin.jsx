@@ -3,7 +3,50 @@ import { sb } from '../../lib/supabase'
 import PoweredFooter from '../../components/PoweredFooter'
 
 const LABEL = { pending: 'Pending', accepted: 'Accepted', preparing: 'Preparing', ready: 'Ready', out_for_delivery: 'Out for delivery', payment_received: 'Payment received', delivered: 'Delivered', rejected: 'Rejected', cancelled: 'Cancelled' }
-const TABS = [['overview', 'Overview'], ['orders', 'Orders'], ['menu', 'Menu'], ['outlets', 'Outlets'], ['promos', 'Promos'], ['rewards', 'Rewards'], ['feed', 'Feed']]
+const TABS = [['overview', 'Overview'], ['settings', 'Settings'], ['orders', 'Orders'], ['menu', 'Menu'], ['outlets', 'Outlets'], ['promos', 'Promos'], ['rewards', 'Rewards'], ['feed', 'Feed']]
+
+function ConfirmDialog({ title, message, onCancel, onConfirm }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const cancelRef = useRef(null)
+
+  useEffect(() => {
+    cancelRef.current?.focus()
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape' && !busy) onCancel()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [busy, onCancel])
+
+  const confirm = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await onConfirm()
+      if (result) setError(result)
+      else onCancel()
+    } catch (confirmError) {
+      setError(confirmError.message || 'The action could not be completed. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <div className="admin-confirm-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busy && onCancel()}>
+    <section className="admin-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" aria-describedby="admin-confirm-message">
+      <div className="admin-confirm-icon" aria-hidden="true">!</div>
+      <p className="admin-confirm-kicker">PLEASE CONFIRM</p>
+      <h2 id="admin-confirm-title">{title}</h2>
+      <p id="admin-confirm-message">{message}</p>
+      {error && <p className="admin-confirm-error" role="alert">{error}</p>}
+      <div className="admin-confirm-actions">
+        <button ref={cancelRef} className="admin-secondary" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button className="admin-confirm-delete" disabled={busy} onClick={confirm}>{busy ? 'Deleting…' : 'Delete'}</button>
+      </div>
+    </section>
+  </div>
+}
 
 export default function Admin({ onBack }) {
   const [tab, setTab] = useState('overview')
@@ -118,6 +161,7 @@ export default function Admin({ onBack }) {
       {ordersError && <div className="admin-error" role="alert"><b>Orders could not be loaded</b><span>{ordersError}</span><button onClick={loadOrders}>Retry</button></div>}
       {alert && <div className="admin-alert" role="status"><span>🔔</span><p>{alert}</p><button aria-label="Dismiss notification" onClick={() => setAlert('')}>×</button></div>}
       {tab === 'overview' && <><Overview orders={orders} onViewOrders={() => setTab('orders')} online={storeOnline} setOnline={async (value) => { const { error } = await sb.from('settings').update({ store_online: value }).eq('id', 1); if (!error) setStoreOnline(value); else setAlert(error.message) }} /><DeliverySettings /></>}
+      {tab === 'settings' && <AboutPageSettings />}
       {tab === 'orders' && <Orders rows={orders} refresh={loadOrders} />}
       {tab === 'menu' && <Menu />}
       {tab === 'outlets' && <Outlets />}
@@ -127,6 +171,92 @@ export default function Admin({ onBack }) {
       <PoweredFooter className="admin-footer" />
     </main>
   )
+}
+
+function AboutPageSettings() {
+  const [form, setForm] = useState({
+    about_founder_name: '',
+    about_founder_photo_url: '',
+    about_founder_instagram_url: '',
+    about_founder_portfolio_url: ''
+  })
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    let active = true
+    sb.from('settings')
+      .select('about_founder_name,about_founder_photo_url,about_founder_instagram_url,about_founder_portfolio_url')
+      .eq('id', 1).maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return
+        if (error) setMessage(error.message)
+        else if (data) setForm((current) => ({ ...current, ...data }))
+      })
+    return () => { active = false }
+  }, [])
+
+  const change = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }))
+  const uploadFounderPhoto = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) return setMessage('Choose an image file for the founder photo.')
+    if (file.size > 5 * 1024 * 1024) return setMessage('Founder photos must be 5 MB or smaller.')
+    setBusy(true)
+    setMessage('')
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const { data, error } = await sb.storage.from('menu-images')
+        .upload(`about/founder-${crypto.randomUUID()}.${extension}`, file, { cacheControl: '3600', contentType: file.type })
+      if (error) return setMessage(error.message)
+      const { data: publicData } = sb.storage.from('menu-images').getPublicUrl(data.path)
+      setForm((current) => ({ ...current, about_founder_photo_url: publicData.publicUrl }))
+      setMessage('Photo uploaded. Save the About page settings to publish it.')
+    } catch (uploadError) {
+      setMessage(uploadError.message || 'The founder photo could not be uploaded.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const save = async () => {
+    const values = {
+      ...form,
+      about_founder_name: form.about_founder_name.trim(),
+      about_founder_photo_url: form.about_founder_photo_url.trim(),
+      about_founder_instagram_url: form.about_founder_instagram_url.trim(),
+      about_founder_portfolio_url: form.about_founder_portfolio_url.trim()
+    }
+    const urls = [
+      values.about_founder_photo_url,
+      values.about_founder_instagram_url,
+      values.about_founder_portfolio_url
+    ].filter(Boolean)
+    if (urls.some((url) => !/^https?:\/\/\S+$/i.test(url))) return setMessage('Enter full links beginning with https:// or http://.')
+    setBusy(true)
+    setMessage('')
+    const { error } = await sb.from('settings').update(values).eq('id', 1)
+    setBusy(false)
+    if (error) setMessage(error.message)
+    else { setForm(values); setMessage('About page settings saved.') }
+  }
+
+  return <section className="admin-content admin-about-settings">
+    <div className="admin-page-heading"><div><p>PUBLIC ABOUT PAGE</p><h2>About page settings</h2><span>Update the founder profile, social links, and ordering links shown on /about.</span></div></div>
+    <div className="admin-feed-editor">
+      <h3>Founder profile</h3>
+      <div className="admin-form-grid">
+        <label>Founder name<input maxLength={100} value={form.about_founder_name} onChange={change('about_founder_name')} placeholder="Your name" /></label>
+        <label>Founder photo URL<input type="url" value={form.about_founder_photo_url} onChange={change('about_founder_photo_url')} placeholder="https://…" /></label>
+        <label className="admin-about-photo-upload">Upload founder photo<input type="file" accept="image/*" onChange={uploadFounderPhoto} /></label>
+        <label>Instagram URL<input type="url" value={form.about_founder_instagram_url} onChange={change('about_founder_instagram_url')} placeholder="https://instagram.com/…" /></label>
+        <label>Portfolio URL<input type="url" value={form.about_founder_portfolio_url} onChange={change('about_founder_portfolio_url')} placeholder="https://…" /></label>
+      </div>
+      <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save About page'} <span>→</span></button>
+      {message && <p className="admin-feedback" role="status">{message}</p>}
+    </div>
+  </section>
 }
 
 function DeliverySettings() {
@@ -303,6 +433,7 @@ function Menu() {
   const [filter, setFilter] = useState('all')
   const [saving, setSaving] = useState(null)
   const [editing, setEditing] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const load = useCallback(async () => {
     const [{ data, error: itemError }, { data: brandData, error: brandError }] = await Promise.all([
       sb.from('menu_items').select('*, item_variants(*), item_extras(*)').order('name'),
@@ -319,19 +450,28 @@ function Menu() {
     setSaving(null)
   }
   const visible = items.filter((item) => (filter === 'all' || item.brand_id === filter) && `${item.name} ${item.category}`.toLowerCase().includes(query.toLowerCase()))
-  const remove = async (item) => {
-    if (!window.confirm(`Delete ${item.name} and its sizes/extras?`)) return
+  const remove = async () => {
+    if (!deleteTarget) return 'The menu item could not be found.'
     setError('')
-    await sb.from('settings').update({offer_variant_id:null,offer_price:null,offer_date:null}).in('offer_variant_id',(item.item_variants||[]).map(v=>v.id))
-    const {error:e}=await sb.from('menu_items').delete().eq('id',item.id)
-    if(e)setError(e.message);else setItems(rows=>rows.filter(r=>r.id!==item.id))
+    const variantIds = (deleteTarget.item_variants || []).map((variant) => variant.id)
+    if (variantIds.length) {
+      const { error: settingsError } = await sb.from('settings')
+        .update({ offer_variant_id: null, offer_price: null, offer_date: null })
+        .in('offer_variant_id', variantIds)
+      if (settingsError) return settingsError.message
+    }
+    const { error: deleteError } = await sb.from('menu_items').delete().eq('id', deleteTarget.id)
+    if (deleteError) return deleteError.message
+    setItems((rows) => rows.filter((row) => row.id !== deleteTarget.id))
+    return null
   }
   return <section className="admin-content">
     <div className="admin-page-heading"><div><p>CATALOG</p><h2>Menu & availability</h2><span>Manage descriptions, food photos, sizes, prices and extras.</span></div><button className="admin-primary" onClick={()=>setEditing({})}>Add menu item <span>＋</span></button></div>
     <div className="admin-catalog-tools"><label className="admin-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a dish" /></label><select aria-label="Filter by outlet" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All outlets</option>{brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
-    <div className="admin-menu-grid">{visible.map((item) => <article className="admin-menu-card" key={item.id}>{item.image_url?<img className="admin-menu-art admin-menu-photo" src={item.image_url} alt=""/>:<div className="admin-menu-art">{brands.find((brand) => brand.id === item.brand_id)?.emoji || '🍽️'}</div>}<div className="admin-menu-info"><span>{item.category} · {brands.find((brand) => brand.id === item.brand_id)?.name || item.brand_id}</span><h3>{item.name}</h3><p>{item.description || 'No description added.'}</p><div className="admin-variant-prices">{item.item_variants?.map((variant) => <span key={variant.id}>{variant.label} <b>₹{variant.price}</b></span>)}{(item.item_extras||[]).map(x=><span key={x.id}>+ {x.name} <b>₹{x.price}</b></span>)}</div><div className="admin-card-actions"><button onClick={()=>setEditing(item)}>Edit</button><button onClick={()=>remove(item)}>Delete</button></div></div><button className={`admin-toggle ${item.is_available ? 'on' : ''}`} disabled={saving === item.id} onClick={() => toggle(item)}><i />{saving === item.id ? 'Saving' : item.is_available ? 'Available' : 'Hidden'}</button></article>)}</div>
+    <div className="admin-menu-grid">{visible.map((item) => <article className="admin-menu-card" key={item.id}>{item.image_url?<img className="admin-menu-art admin-menu-photo" src={item.image_url} alt=""/>:<div className="admin-menu-art">{brands.find((brand) => brand.id === item.brand_id)?.emoji || '🍽️'}</div>}<div className="admin-menu-info"><span>{item.category} · {brands.find((brand) => brand.id === item.brand_id)?.name || item.brand_id}</span><h3>{item.name}</h3><p>{item.description || 'No description added.'}</p><div className="admin-variant-prices">{item.item_variants?.map((variant) => <span key={variant.id}>{variant.label} <b>₹{variant.price}</b></span>)}{(item.item_extras||[]).map(x=><span key={x.id}>+ {x.name} <b>₹{x.price}</b></span>)}</div><div className="admin-card-actions"><button onClick={()=>setEditing(item)}>Edit</button><button onClick={()=>setDeleteTarget(item)}>Delete</button></div></div><button className={`admin-toggle ${item.is_available ? 'on' : ''}`} disabled={saving === item.id} onClick={() => toggle(item)}><i />{saving === item.id ? 'Saving' : item.is_available ? 'Available' : 'Hidden'}</button></article>)}</div>
     {editing&&<MenuEditor item={editing} brands={brands} close={()=>setEditing(null)} saved={load} />}
+    {deleteTarget && <ConfirmDialog title={`Delete ${deleteTarget.name}?`} message="This will permanently delete this menu item, including its sizes and extras." onCancel={() => setDeleteTarget(null)} onConfirm={remove} />}
   </section>
 }
 
@@ -364,6 +504,7 @@ function MenuEditor({item,brands,close,saved}){
 function Outlets() {
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const [form,setForm]=useState({id:'',name:'',emoji:'🍽️'});const [busy,setBusy]=useState(false)
   const load = useCallback(async () => {
     const { data, error: queryError } = await sb.from('brands').select('*').order('name')
@@ -377,12 +518,39 @@ function Outlets() {
     else setRows((current) => current.map((row) => row.id === brand.id ? { ...row, is_open: !brand.is_open } : row))
   }
   const add=async()=>{if(!form.id.trim()||!form.name.trim())return setError('Add an outlet ID and name.');setBusy(true);const {error:e}=await sb.from('brands').insert({id:form.id.trim().toLowerCase().replace(/\s+/g,'-'),name:form.name.trim(),emoji:form.emoji,is_open:true});if(e)setError(e.message);else{setForm({id:'',name:'',emoji:'🍽️'});await load()}setBusy(false)}
-  const remove=async(brand)=>{if(!window.confirm(`Delete ${brand.name}, its menu and its variants?`))return;setError('');const {error:e}=await sb.rpc('admin_delete_outlet',{p_id:brand.id});if(e)setError(e.message);else setRows(r=>r.filter(x=>x.id!==brand.id))}
+  const updateDetails = async (brand) => {
+    const urls = [brand.zomato_url || '', brand.swiggy_url || ''].filter(Boolean)
+    if (urls.some((url) => !/^https?:\/\/\S+$/i.test(url))) return setError('Outlet listing links must begin with https:// or http://.')
+    setError('')
+    const { error: updateError } = await sb.from('brands').update({
+      about_category: brand.about_category || '',
+      about_tagline: brand.about_tagline || '',
+      zomato_url: brand.zomato_url || '',
+      swiggy_url: brand.swiggy_url || ''
+    }).eq('id', brand.id)
+    if (updateError) setError(updateError.message)
+    else setRows((current) => current.map((row) => row.id === brand.id ? { ...row, ...brand } : row))
+  }
+  const remove=async()=>{if(!deleteTarget)return 'The outlet could not be found.';setError('');const {error:deleteError}=await sb.rpc('admin_delete_outlet',{p_id:deleteTarget.id});if(deleteError)return deleteError.message;setRows(rows=>rows.filter(row=>row.id!==deleteTarget.id));return null}
   return <section className="admin-content">
     <div className="admin-page-heading"><div><p>STORE LOCATIONS</p><h2>Outlet controls</h2><span>Pause or resume ordering by kitchen.</span></div><span className="admin-total-chip">{rows.filter((row) => row.is_open).length} open</span></div>
     <div className="admin-create-row"><input placeholder="Outlet ID (e.g. eat60-cafe)" value={form.id} onChange={e=>setForm({...form,id:e.target.value})}/><input placeholder="Outlet name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><input aria-label="Outlet emoji" value={form.emoji} onChange={e=>setForm({...form,emoji:e.target.value})}/><button className="admin-primary" disabled={busy} onClick={add}>Add outlet ＋</button></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
-    <div className="admin-outlet-grid">{rows.map((brand) => <article className={`admin-outlet-card ${brand.is_open ? 'is-open' : ''}`} key={brand.id}><div className="admin-outlet-icon">{brand.emoji || '🍽️'}</div><div><span>OUTLET</span><h3>{brand.name}</h3><small>{brand.is_open ? 'Accepting new orders' : 'Orders are paused'}</small></div><button className={`admin-toggle ${brand.is_open ? 'on' : ''}`} onClick={() => toggle(brand)}><i />{brand.is_open ? 'Open' : 'Closed'}</button><button className="admin-cancel-order" onClick={()=>remove(brand)}>Delete</button></article>)}</div>
+    <div className="admin-outlet-grid">{rows.map((brand) => <article className={`admin-outlet-card ${brand.is_open ? 'is-open' : ''}`} key={brand.id}>
+      <div className="admin-outlet-icon">{brand.emoji || '🍽️'}</div>
+      <div className="admin-outlet-main"><span>OUTLET · {brand.id}</span><h3>{brand.name}</h3><small>{brand.is_open ? 'Visible on About · accepting orders' : 'Hidden from About · orders paused'}</small>
+        <div className="admin-outlet-about-fields">
+          <label>About category<input value={brand.about_category || ''} onChange={(event) => setRows((current) => current.map((row) => row.id === brand.id ? { ...row, about_category: event.target.value } : row))} placeholder="Cuisine or menu type" /></label>
+          <label>About tagline<input value={brand.about_tagline || ''} onChange={(event) => setRows((current) => current.map((row) => row.id === brand.id ? { ...row, about_tagline: event.target.value } : row))} placeholder="A short outlet description" /></label>
+          <label>Zomato URL<input type="url" value={brand.zomato_url || ''} onChange={(event) => setRows((current) => current.map((row) => row.id === brand.id ? { ...row, zomato_url: event.target.value } : row))} placeholder="https://…" /></label>
+          <label>Swiggy URL<input type="url" value={brand.swiggy_url || ''} onChange={(event) => setRows((current) => current.map((row) => row.id === brand.id ? { ...row, swiggy_url: event.target.value } : row))} placeholder="https://…" /></label>
+        </div>
+        <button className="admin-secondary admin-outlet-save" onClick={() => updateDetails(brand)}>Save About details</button>
+      </div>
+      <button className={`admin-toggle ${brand.is_open ? 'on' : ''}`} onClick={() => toggle(brand)}><i />{brand.is_open ? 'Open' : 'Closed'}</button>
+      <button className="admin-cancel-order" onClick={()=>setDeleteTarget(brand)}>Delete</button>
+    </article>)}</div>
+    {deleteTarget && <ConfirmDialog title={`Delete ${deleteTarget.name}?`} message="This will permanently delete the outlet, its menu items, and their sizes." onCancel={() => setDeleteTarget(null)} onConfirm={remove} />}
   </section>
 }
 
@@ -393,6 +561,7 @@ function AdminFeed() {
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const [posts,setPosts]=useState([])
+  const [deleteTarget,setDeleteTarget]=useState(null)
   const [comments,setComments]=useState([]);const [likes,setLikes]=useState([]);const [userId,setUserId]=useState('');const [reply,setReply]=useState({})
   const load=useCallback(async()=>{const [p,c,l,u]=await Promise.all([sb.from('feed_posts').select('id,kind,body,image_url,created_at').order('created_at',{ascending:false}),sb.from('feed_comments').select('*').order('created_at'),sb.from('reaction_counts').select('*').eq('emoji','❤️'),sb.auth.getUser()]);if(p.error)setMsg(p.error.message);else setPosts(p.data||[]);if(!c.error)setComments(c.data||[]);if(!l.error)setLikes(l.data||[]);setUserId(u.data?.user?.id||'')},[])
   useEffect(()=>{load()},[load])
@@ -411,21 +580,26 @@ function AdminFeed() {
     setBody(''); setOpts('');setImageUrl(''); setMsg('Published successfully.'); await load(); setBusy(false)
   }
   const sendReply=async(commentId)=>{const text=(reply[commentId]||'').trim();if(!text||!userId)return;const {error}=await sb.from('comments').insert({post_id:comments.find(c=>c.id===commentId)?.post_id,user_id:userId,parent_comment_id:commentId,body:text});if(error)setMsg(error.message);else{setReply(r=>({...r,[commentId]:''}));await load()}}
-  return <section className="admin-content"><div className="admin-page-heading"><div><p>CUSTOMER COMMUNITY</p><h2>Feed studio</h2><span>Publish announcements for live in-app alerts, share posts, and reply to customers.</span></div><span className="admin-total-chip">{posts.length} posts</span></div><div className="admin-feed-editor"><div className="admin-feed-editor-heading"><div className="admin-feed-icon">✳</div><div><b>Write an announcement or post</b><small>News announcements appear as a live full-screen alert for customers</small></div></div><label>YOUR POST<textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={1000} placeholder="Share an announcement, offer, or question…" /></label><div className="admin-feed-count">{body.length} / 1000</div><label>IMAGE URL <span>(optional)</span><input value={imageUrl} onChange={e=>setImageUrl(e.target.value)} placeholder="https://…"/></label><label>POLL OPTIONS <span>(optional, comma-separated)</span><input value={opts} onChange={(event) => setOpts(event.target.value)} placeholder="For a poll: Pizza, Burger, Wraps" /></label><button className="admin-primary" disabled={busy || !body.trim()} onClick={publish}>{busy ? 'Publishing…' : 'Publish to feed'} <span>→</span></button>{msg && <p className="admin-feedback" role="status">{msg}</p>}</div><h3 className="admin-list-title">Live feed and conversations</h3><div className="admin-feed-list">{posts.map(p=>{const postComments=comments.filter(c=>c.post_id===p.id);const topComments=postComments.filter(c=>!c.parent_comment_id);return <article className="admin-feed-post-card" key={p.id}><div><span>{p.kind==='poll'?'POLL':'POST'} · {new Date(p.created_at).toLocaleDateString()}</span><p>{p.body}</p>{p.image_url&&<img className="admin-feed-preview" src={p.image_url} alt=""/>}<div className="admin-feed-stats"><b>♥ {likes.find(x=>x.post_id===p.id)?.total||0} likes</b><b>▢ {postComments.length} comments</b></div>{topComments.map(c=><div className="admin-comment-thread" key={c.id}><p><b>{c.author}</b><span>{c.body}</span></p>{postComments.filter(r=>r.parent_comment_id===c.id).map(r=><p className="admin-comment-reply" key={r.id}><b>{r.author} · EAT60</b><span>{r.body}</span></p>)}<div className="admin-reply-form"><input maxLength={300} value={reply[c.id]||''} onChange={e=>setReply(r=>({...r,[c.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&sendReply(c.id)} placeholder={`Reply to ${c.author}…`}/><button onClick={()=>sendReply(c.id)}>Reply</button></div></div>)}</div><button className="admin-cancel-order" onClick={async()=>{if(!window.confirm('Delete this feed post and its comments?'))return;const {error:e}=await sb.from('feed_posts').delete().eq('id',p.id);if(e)setMsg(e.message);else{setPosts(a=>a.filter(x=>x.id!==p.id));setComments(c=>c.filter(x=>x.post_id!==p.id))}}}>Delete post</button></article>})}</div></section>
+  const removePost=async()=>{if(!deleteTarget)return 'The feed post could not be found.';const {error:deleteError}=await sb.from('feed_posts').delete().eq('id',deleteTarget.id);if(deleteError)return deleteError.message;setPosts(current=>current.filter(post=>post.id!==deleteTarget.id));setComments(current=>current.filter(comment=>comment.post_id!==deleteTarget.id));return null}
+  return <><section className="admin-content"><div className="admin-page-heading"><div><p>CUSTOMER COMMUNITY</p><h2>Feed studio</h2><span>Publish announcements for live in-app alerts, share posts, and reply to customers.</span></div><span className="admin-total-chip">{posts.length} posts</span></div><div className="admin-feed-editor"><div className="admin-feed-editor-heading"><div className="admin-feed-icon">✳</div><div><b>Write an announcement or post</b><small>News announcements appear as a live full-screen alert for customers</small></div></div><label>YOUR POST<textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={1000} placeholder="Share an announcement, offer, or question…" /></label><div className="admin-feed-count">{body.length} / 1000</div><label>IMAGE URL <span>(optional)</span><input value={imageUrl} onChange={e=>setImageUrl(e.target.value)} placeholder="https://…"/></label><label>POLL OPTIONS <span>(optional, comma-separated)</span><input value={opts} onChange={(event) => setOpts(event.target.value)} placeholder="For a poll: Pizza, Burger, Wraps" /></label><button className="admin-primary" disabled={busy || !body.trim()} onClick={publish}>{busy ? 'Publishing…' : 'Publish to feed'} <span>→</span></button>{msg && <p className="admin-feedback" role="status">{msg}</p>}</div><h3 className="admin-list-title">Live feed and conversations</h3><div className="admin-feed-list">{posts.map(p=>{const postComments=comments.filter(c=>c.post_id===p.id);const topComments=postComments.filter(c=>!c.parent_comment_id);return <article className="admin-feed-post-card" key={p.id}><div><span>{p.kind==='poll'?'POLL':'POST'} · {new Date(p.created_at).toLocaleDateString()}</span><p>{p.body}</p>{p.image_url&&<img className="admin-feed-preview" src={p.image_url} alt=""/>}<div className="admin-feed-stats"><b>♥ {likes.find(x=>x.post_id===p.id)?.total||0} likes</b><b>▢ {postComments.length} comments</b></div>{topComments.map(c=><div className="admin-comment-thread" key={c.id}><p><b>{c.author}</b><span>{c.body}</span></p>{postComments.filter(r=>r.parent_comment_id===c.id).map(r=><p className="admin-comment-reply" key={r.id}><b>{r.author} · EAT60</b><span>{r.body}</span></p>)}<div className="admin-reply-form"><input maxLength={300} value={reply[c.id]||''} onChange={e=>setReply(r=>({...r,[c.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&sendReply(c.id)} placeholder={`Reply to ${c.author}…`}/><button onClick={()=>sendReply(c.id)}>Reply</button></div></div>)}</div><button className="admin-cancel-order" onClick={()=>setDeleteTarget(p)}>Delete post</button></article>})}</div></section>{deleteTarget && <ConfirmDialog title="Delete this feed post?" message="This will permanently delete the post and its comments." onCancel={() => setDeleteTarget(null)} onConfirm={removePost} />}</>
 }
 
 function Promos(){
  const empty={code:'',description:'',discount_type:'percent',discount_value:'10',minimum_order:'0',maximum_discount:'',usage_limit:'',per_user_limit:'1',starts_at:'',expires_at:'',is_active:true}
  const [rows,setRows]=useState([]),[form,setForm]=useState(empty),[edit,setEdit]=useState(null),[msg,setMsg]=useState('')
+ const [deleteTarget,setDeleteTarget]=useState(null)
  const load=useCallback(async()=>{const {data,error}=await sb.from('coupons').select('*').order('created_at',{ascending:false});if(error)setMsg(error.message);else setRows(data||[])},[]);useEffect(()=>{load()},[load])
  const save=async()=>{const val={code:form.code.trim().toUpperCase(),description:form.description||'',discount_type:form.discount_type,discount_value:Number(form.discount_value),minimum_order:Number(form.minimum_order||0),maximum_discount:form.maximum_discount===''?null:Number(form.maximum_discount),usage_limit:form.usage_limit===''?null:Number(form.usage_limit),per_user_limit:Number(form.per_user_limit||1),starts_at:form.starts_at?new Date(form.starts_at).toISOString():null,expires_at:form.expires_at?new Date(form.expires_at).toISOString():null,is_active:form.is_active!==false};const {error}=edit?await sb.from('coupons').update(val).eq('id',edit):await sb.from('coupons').insert(val);if(error)setMsg(error.message);else{setForm(empty);setEdit(null);setMsg('Promo saved.');load()}}
  const change=(k,v)=>setForm(f=>({...f,[k]:v}))
- return <section className="admin-content"><div className="admin-page-heading"><div><p>OFFERS & CAMPAIGNS</p><h2>Coupons and promos</h2><span>Set discount, minimum cart, campaign dates and redemption caps.</span></div></div><div className="admin-feed-editor"><div className="admin-form-grid"><label>Coupon code<input value={form.code} onChange={e=>change('code',e.target.value.toUpperCase())} placeholder="EAT60WELCOME"/></label><label>Description<input value={form.description} onChange={e=>change('description',e.target.value)}/></label><label>Discount type<select value={form.discount_type} onChange={e=>change('discount_type',e.target.value)}><option value="percent">Percent</option><option value="fixed">Fixed amount ₹</option></select></label><label>Discount value<input type="number" min="1" value={form.discount_value} onChange={e=>change('discount_value',e.target.value)}/></label><label>Minimum order ₹<input type="number" min="0" value={form.minimum_order} onChange={e=>change('minimum_order',e.target.value)}/></label><label>Maximum discount ₹<input type="number" min="1" value={form.maximum_discount} onChange={e=>change('maximum_discount',e.target.value)} placeholder="No cap"/></label><label>Total redemptions<input type="number" min="1" value={form.usage_limit} onChange={e=>change('usage_limit',e.target.value)} placeholder="Unlimited"/></label><label>Uses per user<input type="number" min="1" value={form.per_user_limit} onChange={e=>change('per_user_limit',e.target.value)}/></label><label>Starts<input type="datetime-local" value={form.starts_at} onChange={e=>change('starts_at',e.target.value)}/></label><label>Expires<input type="datetime-local" value={form.expires_at} onChange={e=>change('expires_at',e.target.value)}/></label></div><button className="admin-primary" onClick={save}>{edit?'Update promo':'Create promo'}</button>{msg&&<p className="admin-feedback">{msg}</p>}</div><div className="admin-promo-list">{rows.map(c=><article key={c.id}><div><b>{c.code}</b><p>{c.description||`${c.discount_value}${c.discount_type==='percent'?'%':'₹'} off`} · min ₹{c.minimum_order} · {c.used_count}/{c.usage_limit||'∞'} uses · {c.per_user_limit} per user</p><small>{c.starts_at?new Date(c.starts_at).toLocaleString():'Anytime'} — {c.expires_at?new Date(c.expires_at).toLocaleString():'No expiry'}</small></div><button className={`admin-toggle ${c.is_active?'on':''}`} onClick={async()=>{const {error}=await sb.from('coupons').update({is_active:!c.is_active}).eq('id',c.id);if(error)setMsg(error.message);else setRows(r=>r.map(x=>x.id===c.id?{...x,is_active:!x.is_active}:x))}}><i/>{c.is_active?'Active':'Paused'}</button><button className="admin-secondary" onClick={()=>{setEdit(c.id);setForm({...empty,...c,starts_at:c.starts_at?new Date(c.starts_at).toISOString().slice(0,16):'',expires_at:c.expires_at?new Date(c.expires_at).toISOString().slice(0,16):'',maximum_discount:c.maximum_discount??'',usage_limit:c.usage_limit??''})}}>Edit</button><button className="admin-cancel-order" onClick={async()=>{if(!window.confirm(`Delete ${c.code}?`))return;const {error}=await sb.from('coupons').delete().eq('id',c.id);if(error)setMsg(error.message);else setRows(r=>r.filter(x=>x.id!==c.id))}}>Delete</button></article>)}</div></section>
+ const remove=async()=>{if(!deleteTarget)return 'The coupon could not be found.';const {error}=await sb.from('coupons').delete().eq('id',deleteTarget.id);if(error)return error.message;setRows(rows=>rows.filter(row=>row.id!==deleteTarget.id));return null}
+ return <><section className="admin-content"><div className="admin-page-heading"><div><p>OFFERS & CAMPAIGNS</p><h2>Coupons and promos</h2><span>Set discount, minimum cart, campaign dates and redemption caps.</span></div></div><div className="admin-feed-editor"><div className="admin-form-grid"><label>Coupon code<input value={form.code} onChange={e=>change('code',e.target.value.toUpperCase())} placeholder="EAT60WELCOME"/></label><label>Description<input value={form.description} onChange={e=>change('description',e.target.value)}/></label><label>Discount type<select value={form.discount_type} onChange={e=>change('discount_type',e.target.value)}><option value="percent">Percent</option><option value="fixed">Fixed amount ₹</option></select></label><label>Discount value<input type="number" min="1" value={form.discount_value} onChange={e=>change('discount_value',e.target.value)}/></label><label>Minimum order ₹<input type="number" min="0" value={form.minimum_order} onChange={e=>change('minimum_order',e.target.value)}/></label><label>Maximum discount ₹<input type="number" min="1" value={form.maximum_discount} onChange={e=>change('maximum_discount',e.target.value)} placeholder="No cap"/></label><label>Total redemptions<input type="number" min="1" value={form.usage_limit} onChange={e=>change('usage_limit',e.target.value)} placeholder="Unlimited"/></label><label>Uses per user<input type="number" min="1" value={form.per_user_limit} onChange={e=>change('per_user_limit',e.target.value)}/></label><label>Starts<input type="datetime-local" value={form.starts_at} onChange={e=>change('starts_at',e.target.value)}/></label><label>Expires<input type="datetime-local" value={form.expires_at} onChange={e=>change('expires_at',e.target.value)}/></label></div><button className="admin-primary" onClick={save}>{edit?'Update promo':'Create promo'}</button>{msg&&<p className="admin-feedback">{msg}</p>}</div><div className="admin-promo-list">{rows.map(c=><article key={c.id}><div><b>{c.code}</b><p>{c.description||`${c.discount_value}${c.discount_type==='percent'?'%':'₹'} off`} · min ₹{c.minimum_order} · {c.used_count}/{c.usage_limit||'∞'} uses · {c.per_user_limit} per user</p><small>{c.starts_at?new Date(c.starts_at).toLocaleString():'Anytime'} — {c.expires_at?new Date(c.expires_at).toLocaleString():'No expiry'}</small></div><button className={`admin-toggle ${c.is_active?'on':''}`} onClick={async()=>{const {error}=await sb.from('coupons').update({is_active:!c.is_active}).eq('id',c.id);if(error)setMsg(error.message);else setRows(r=>r.map(x=>x.id===c.id?{...x,is_active:!x.is_active}:x))}}><i/>{c.is_active?'Active':'Paused'}</button><button className="admin-secondary" onClick={()=>{setEdit(c.id);setForm({...empty,...c,starts_at:c.starts_at?new Date(c.starts_at).toISOString().slice(0,16):'',expires_at:c.expires_at?new Date(c.expires_at).toISOString().slice(0,16):'',maximum_discount:c.maximum_discount??'',usage_limit:c.usage_limit??''})}}>Edit</button><button className="admin-cancel-order" onClick={()=>setDeleteTarget(c)}>Delete</button></article>)}</div></section>{deleteTarget&&<ConfirmDialog title={`Delete coupon ${deleteTarget.code}?`} message="This coupon will no longer be available to customers." onCancel={()=>setDeleteTarget(null)} onConfirm={remove}/>}</>
 }
 
 function Rewards(){
  const [rows,setRows]=useState([]),[form,setForm]=useState({milestone:'',gift:''}),[msg,setMsg]=useState('')
+ const [deleteTarget,setDeleteTarget]=useState(null)
  const load=useCallback(async()=>{const {data,error}=await sb.from('streak_rewards').select('*').order('milestone');if(error)setMsg(error.message);else setRows(data||[])},[]);useEffect(()=>{load()},[load])
  const save=async()=>{const {error}=await sb.from('streak_rewards').upsert({milestone:Number(form.milestone),gift:form.gift.trim(),is_active:true});if(error)setMsg(error.message);else{setForm({milestone:'',gift:''});setMsg('Reward saved.');load()}}
- return <section className="admin-content"><div className="admin-page-heading"><div><p>LOYALTY PROGRAM</p><h2>Streak rewards</h2><span>Choose the order streak milestones and customer rewards.</span></div></div><div className="admin-create-row"><input type="number" min="1" placeholder="Order streak milestone" value={form.milestone} onChange={e=>setForm({...form,milestone:e.target.value})}/><input placeholder="Reward description" value={form.gift} onChange={e=>setForm({...form,gift:e.target.value})}/><button className="admin-primary" onClick={save}>Save reward ＋</button></div>{msg&&<p className="admin-feedback">{msg}</p>}<div className="admin-promo-list">{rows.map(r=><article key={r.milestone}><div><b>{r.milestone} order streak</b><p>{r.gift}</p></div><button className={`admin-toggle ${r.is_active?'on':''}`} onClick={async()=>{const {error}=await sb.from('streak_rewards').update({is_active:!r.is_active}).eq('milestone',r.milestone);if(error)setMsg(error.message);else setRows(a=>a.map(x=>x.milestone===r.milestone?{...x,is_active:!x.is_active}:x))}}><i/>{r.is_active?'Active':'Paused'}</button><button className="admin-cancel-order" onClick={async()=>{if(!window.confirm('Delete this streak reward?'))return;const {error}=await sb.from('streak_rewards').delete().eq('milestone',r.milestone);if(error)setMsg(error.message);else setRows(a=>a.filter(x=>x.milestone!==r.milestone))}}>Delete</button></article>)}</div></section>
+ const remove=async()=>{if(!deleteTarget)return 'The streak reward could not be found.';const {error}=await sb.from('streak_rewards').delete().eq('milestone',deleteTarget.milestone);if(error)return error.message;setRows(rows=>rows.filter(row=>row.milestone!==deleteTarget.milestone));return null}
+ return <><section className="admin-content"><div className="admin-page-heading"><div><p>LOYALTY PROGRAM</p><h2>Streak rewards</h2><span>Choose the order streak milestones and customer rewards.</span></div></div><div className="admin-create-row"><input type="number" min="1" placeholder="Order streak milestone" value={form.milestone} onChange={e=>setForm({...form,milestone:e.target.value})}/><input placeholder="Reward description" value={form.gift} onChange={e=>setForm({...form,gift:e.target.value})}/><button className="admin-primary" onClick={save}>Save reward ＋</button></div>{msg&&<p className="admin-feedback">{msg}</p>}<div className="admin-promo-list">{rows.map(r=><article key={r.milestone}><div><b>{r.milestone} order streak</b><p>{r.gift}</p></div><button className={`admin-toggle ${r.is_active?'on':''}`} onClick={async()=>{const {error}=await sb.from('streak_rewards').update({is_active:!r.is_active}).eq('milestone',r.milestone);if(error)setMsg(error.message);else setRows(a=>a.map(x=>x.milestone===r.milestone?{...x,is_active:!x.is_active}:x))}}><i/>{r.is_active?'Active':'Paused'}</button><button className="admin-cancel-order" onClick={()=>setDeleteTarget(r)}>Delete</button></article>)}</div></section>{deleteTarget&&<ConfirmDialog title={`Delete ${deleteTarget.milestone}-day reward?`} message="Customers will no longer be able to earn this streak reward." onCancel={()=>setDeleteTarget(null)} onConfirm={remove}/>}</>
 }

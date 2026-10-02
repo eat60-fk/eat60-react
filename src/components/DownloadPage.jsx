@@ -20,34 +20,43 @@ function PlayStoreIcon() {
   </svg>
 }
 
-export default function DownloadPage({ onBack, onInstall, installAvailable, installMessage }) {
+export default function DownloadPage({ onBack, onInstall, installAvailable, installMessage, adminApp = false }) {
   return <>
     <section className="more-subpage download-page">
       <header className="download-page-header">
-        <button className="download-back" type="button" onClick={onBack} aria-label="Back to EAT60">←</button>
-        <h1>GET THE APP</h1>
+        <button className="download-back" type="button" onClick={onBack} aria-label={adminApp ? 'Back to admin sign in' : 'Back to EAT60'}>←</button>
+        <h1>{adminApp ? 'ADMIN APP' : 'GET THE APP'}</h1>
       </header>
       <section className="download-hero">
         <img className="download-app-icon" src="/pwa-192.svg" alt="EAT60 app logo" />
-        <p className="download-eyebrow">GOOD FOOD. JUST A TAP AWAY.</p>
-        <h2>Take EAT60 with you</h2>
-        <p className="download-description">Install the EAT60 app on your device for a quicker way to order your local favourites.</p>
+        <p className="download-eyebrow">{adminApp ? 'MANAGE EAT60 ON THE GO' : 'GOOD FOOD. JUST A TAP AWAY.'}</p>
+        <h2>{adminApp ? 'EAT60 Admin app' : 'Take EAT60 with you'}</h2>
+        <p className="download-description">{adminApp
+          ? 'Install the admin app for quick access to orders, menu controls, and your dashboard. Sign in with an authorized admin account.'
+          : 'Install the EAT60 app on your device for a quicker way to order your local favourites.'}</p>
         <button type="button" className="download-pwa-button" onClick={onInstall}>
           <DownloadIcon />
-          {installAvailable ? 'INSTALL EAT60 APP' : 'ADD EAT60 TO HOME SCREEN'}
+          {installAvailable ? `INSTALL EAT60${adminApp ? ' ADMIN' : ''} APP` : `ADD EAT60${adminApp ? ' ADMIN' : ''} TO HOME SCREEN`}
         </button>
         {installMessage && <p className="download-install-message" role="status">{installMessage}</p>}
       </section>
-      <section className="download-coin-offer">
+      {adminApp
+        ? <section className="download-store-card admin-app-destination">
+          <div className="download-coin-icon"><span aria-hidden="true">↗</span></div>
+          <div className="download-store-copy"><b>Admin dashboard</b><span>Installed app opens /admineat60</span></div>
+          <span className="download-coming-soon">ADMIN SIGN-IN</span>
+        </section>
+        : <section className="download-coin-offer">
         <div className="download-coin-icon"><CoinIcon /></div>
         <div><span>NEW MEMBER OFFER</span><h3>Get 2,500 coins</h3><p>Install EAT60 and register a new account to get 2,500 coins.</p></div>
         <strong>2,500</strong>
       </section>
-      <section className="download-store-card" aria-label="Android app availability">
+      }
+      {!adminApp && <section className="download-store-card" aria-label="Android app availability">
         <PlayStoreIcon />
         <div className="download-store-copy"><b>Android app</b><span>Google Play Store</span></div>
         <span className="download-coming-soon">COMING SOON</span>
-      </section>
+      </section>}
     </section>
     <PoweredFooter />
   </>

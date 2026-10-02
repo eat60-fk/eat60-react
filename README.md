@@ -11,14 +11,22 @@
 - Run `eat60_supabase.sql` in the Supabase SQL Editor (once).
 - On an existing database, run `profile_fields.sql` in the Supabase SQL Editor once. It adds editable profile fields, enforces unique usernames, repairs missing profile rows, and updates the signup trigger.
 - Run `profile_avatar_gender.sql` on an existing database to enable saved gender and avatar choices. New databases get these columns from `eat60_supabase.sql`.
-- For an existing database, run `extend_game_types.sql` in the Supabase SQL Editor to enable Flying Burger and allow the 2-minute Quick Maths round to submit scores. Re-run it after updating this app. New projects get this support from `eat60_supabase.sql`.
-- Run `weekly_leaderboard.sql` in the Supabase SQL Editor on existing installations to enable weekly rank movement compared with the previous week. New databases get it from `eat60_supabase.sql`.
+- For an existing database, apply the game/leaderboard updates in this order: `admin_operations.sql`, `extend_game_types.sql`, then `weekly_leaderboard.sql`. New projects get these features from `eat60_supabase.sql` plus `admin_operations.sql`.
+- Game rounds use one-use server-timed sessions; the submitted score is checked against elapsed time and cannot exceed the game’s plausible score rate. Quick Maths must reach the end of its two-minute round, and Snake/Burger sessions must last at least two seconds. XP is awarded on the server: 10 participation XP plus up to 50 performance XP, rounded to the nearest integer and capped at 60. Targets are 30 Snake food, 20 Burger pipes, or 15 correct Quick Maths answers; Snake and Burger game scores count 10 points per food/pipe. Game coins are separately capped at 125 per customer per IST day.
+- Weekly standings count each player's best three plays per IST day, while profile XP remains the separate all-time total. Weekly top-10 prizes (500/300/200 coins for the top three and 100 coins for ranks 4–10) are credited after the week ends.
+- Automatic weekly prize settlement uses Supabase `pg_cron`. Ensure the `pg_cron` extension is enabled for the project before applying the setup/migration SQL; weekly settlement is scheduled for Monday 00:05 IST. If project policy does not permit `pg_cron`, schedule `settle_weekly_game_rewards()` using an authorized server-side scheduler.
 - Run `claim_streak_rewards.sql` in the Supabase SQL Editor on existing installations to enable secure streak reward claims. New databases get it from `eat60_supabase.sql`.
 - Run `feed_engagement.sql` in the Supabase SQL Editor on existing installations to enable feed heart likes and view counts. New databases get it from `eat60_supabase.sql`.
 - Run `order_reviews.sql` in the Supabase SQL Editor on existing installations to enable customer ratings and feedback. Then rerun `admin_operations.sql` so new orders are linked to menu items for rating aggregates. New databases get the required tables and functions from `eat60_supabase.sql` and `admin_operations.sql`.
 - Run `admin_operations.sql` after `eat60_supabase.sql` on new projects and on existing installations before using the admin route. Re-run it after this update to add delivery pricing controls, distance-based checkout pricing, customer voucher listing, order tax/customer detail fields, and realtime announcement delivery. The admin can set the minimum order, a base fee covering the included distance, a per-kilometre rate beyond it, the service radius, a free-delivery threshold, or free delivery for all orders.
+- The admin Settings tab manages the founder photo/name/social links and each outlet's Zomato and Swiggy links for the public `/about` page. Existing databases should rerun `admin_operations.sql` to add the About page settings fields; founder photos upload to the existing public `menu-images` storage bucket.
+- About lists only outlets currently marked Open in Admin > Outlets. Edit each outlet's About category, tagline, Zomato link, and Swiggy link there; new admin-created outlets can be configured the same way. Existing databases should rerun `admin_operations.sql` before using these fields.
+- The public `/about` page is indexable and is also linked from More after sign-in.
+- The customer app caches the public menu/About content and public Supabase images for unstable connections, shows a reconnect state when no saved catalog is available, and uses pull-down-to-refresh plus reduced-motion-aware page transitions.
 - Checkout uses device GPS for an estimated straight-line delivery distance when available; customers can enter an address and continue with the base delivery fee if location is unavailable. GST is shown as 5% included in item prices, not added to the total. Active eligible promo coupons are selectable from More > Rewards and are revalidated on the server at order time.
 - Admin news posts published in Feed studio are sent as live in-app announcements to customers with the app open. Customers also get animated full-screen order placed/delivered updates; install EAT60 from More > Download EAT60 or open `/download` directly.
+- The separate administrator PWA is available at `/download-adminapp`; its installed app opens `/admineat60` and requires an authorized administrator account.
+- Customer destinations have shareable paths such as `/wallet`, `/order-history`, `/games`, `/leaderboard`, `/order`, `/cart`, `/profile`, and `/setting`. Private account routes require sign-in and are marked `noindex`; the public `/download` page is indexable. The site publishes Organization structured data for EAT60 serving Ballia, without inventing a street address or phone number.
 - Supabase > Authentication > Providers: turn on Google (and Email).
 - Supabase > Authentication > URL Configuration: add your site address
   (http://localhost:5173 for testing, and your live address later).
@@ -39,6 +47,8 @@ Redeploy after changing environment variables. Do not use the Supabase
 More > Download EAT60. The project includes SVG install icons; you can replace
 `public/pwa-192.svg` and `public/pwa-512.svg` with your own EAT60 branding.
 The public `/download` route opens the install page without requiring sign-in.
+The admin install page at `/download-adminapp` uses a separate manifest and
+launches the restricted admin sign-in route at `/admineat60`.
 
 ## Files
 - `src/App.jsx` authentication and screen switching
@@ -51,4 +61,4 @@ The app requires both `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`; copy `.e
 
 ## Tests
 - Run `npm test` for the local administrator-route access checks.
-- For database regression tests, apply `eat60_supabase.sql` and `admin_operations.sql` to a disposable Supabase database, then run `tests/database/business_rules.sql` in the SQL Editor. The script uses pgTAP, creates temporary test accounts/data, and rolls all test changes back.
+- For database regression tests, apply `eat60_supabase.sql` and `admin_operations.sql` to a disposable Supabase database, then run `tests/database/business_rules.sql` in the SQL Editor. The script uses pgTAP, creates temporary test accounts/data, verifies server-timed game XP, best-three weekly standings, idempotent weekly coin settlement, and rolls all test changes back.

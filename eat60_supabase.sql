@@ -29,7 +29,11 @@ create table brands (
   id text primary key,
   name text not null,
   emoji text,
-  is_open boolean not null default true
+  is_open boolean not null default true,
+  about_category text not null default '',
+  about_tagline text not null default '',
+  zomato_url text not null default '',
+  swiggy_url text not null default ''
 );
 
 create table menu_items (
@@ -59,9 +63,14 @@ create table settings (
   delivery_free boolean not null default false,
   max_delivery_km numeric(6,2) not null default 5,
   max_coin_pct int not null default 20,      -- coins can pay at most this % of the items total
-  daily_coin_cap int not null default 50,    -- max coins a player can earn from games per day
+  daily_coin_cap int not null default 125,   -- max coins a player can earn from games per day
   streak_break_days int not null default 30, -- streak resets after this many days with no order
   tiffin_url text,
+  about_founder_name text not null default '',
+  about_founder_photo_url text not null default '',
+  about_founder_instagram_url text not null default '',
+  about_founder_portfolio_url text not null default '',
+  about_outlet_links jsonb not null default '{}'::jsonb,
   offer_variant_id bigint references item_variants(id),
   offer_price int,
   offer_date date                            -- offer of the day is valid only on this date
@@ -174,6 +183,27 @@ create table game_scores (
   played_at timestamptz not null default now()
 );
 
+create table game_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  game text not null check (game in ('snake','burger','qmaths')),
+  started_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  completed_at timestamptz
+);
+create index game_sessions_user_started_idx on game_sessions(user_id, started_at desc);
+
+create table weekly_game_rewards (
+  week_start date not null,
+  user_id uuid not null references profiles(id) on delete cascade,
+  rank int not null check (rank between 1 and 10),
+  coins int not null check (coins > 0),
+  awarded_at timestamptz not null default now(),
+  primary key (week_start, user_id),
+  unique (week_start, rank)
+);
+
+
 -- ========== 2. HELPERS ==========
 create function today_ist() returns date language sql stable as
 $$ select (now() at time zone 'Asia/Kolkata')::date $$;
@@ -232,6 +262,8 @@ alter table reactions enable row level security;
 alter table feed_views enable row level security;
 alter table comments enable row level security;
 alter table game_scores enable row level security;
+alter table game_sessions enable row level security;
+alter table weekly_game_rewards enable row level security;
 alter table order_reviews enable row level security;
 
 -- Customers can change only their own name and phone, never coins, xp, streak or role
@@ -290,6 +322,7 @@ create policy "comment" on comments for insert with check (user_id = auth.uid())
 create policy "delete own or admin" on comments for delete using (user_id = auth.uid() or is_admin());
 
 create policy "own scores" on game_scores for select using (user_id = auth.uid() or is_admin());
+revoke all on game_sessions, weekly_game_rewards from public, anon, authenticated;
 
 -- Public summary views (counts only, no user ids). They run with owner rights on purpose.
 create view poll_results as
@@ -396,67 +429,156 @@ begin
   end if;
 end $$;
 
--- Save a game score. XP and coins are decided here, with limits against fake scores.
-create function submit_game_score(p_game text, p_score int, p_duration_ms int)
-returns json language plpgsql security definer set search_path = public as $$
-declare s settings%rowtype; v_xp int; v_coins int; v_today int; v_max int;
+-- Game starts and completion durations are recorded by the server.
+create function start_game_session(p_game text)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare v_session_id uuid;
 begin
   if auth.uid() is null then raise exception 'Please log in first'; end if;
-  select * into s from settings where id = 1;
-  if p_game not in ('snake','burger','qmaths') or p_score < 0 or p_duration_ms < 1000 then raise exception 'Invalid score'; end if;
-  -- A score is only believable if the player had enough time to reach it
-  v_max := case p_game when 'snake' then p_duration_ms / 140 else p_duration_ms / 600 end;
-  if p_game = 'burger' and p_duration_ms > 25000 then raise exception 'Invalid score'; end if;
-  if p_game = 'qmaths' and p_duration_ms > 125000 then raise exception 'Invalid score'; end if;
-  if p_score > v_max then raise exception 'Invalid score'; end if;
-  if exists (select 1 from game_scores where user_id = auth.uid() and played_at > now() - interval '5 seconds') then
+  if p_game not in ('snake','burger','qmaths') then raise exception 'Invalid game'; end if;
+  perform 1 from profiles where id = auth.uid() for update;
+  if not found then raise exception 'Player profile not found'; end if;
+  if exists (select 1 from game_sessions where user_id = auth.uid() and started_at > now() - interval '5 seconds') then
     raise exception 'Slow down a little';
   end if;
-
-  select coalesce(sum(coins), 0) into v_today from game_scores
-  where user_id = auth.uid() and (played_at at time zone 'Asia/Kolkata')::date = today_ist();
-  v_xp := p_score * 10;
-  v_coins := greatest(0, least(p_score, s.daily_coin_cap - v_today));
-
-  insert into game_scores (user_id, game, score, duration_ms, xp, coins)
-  values (auth.uid(), p_game, p_score, p_duration_ms, v_xp, v_coins);
-  update profiles set xp = xp + v_xp, coins = coins + v_coins where id = auth.uid();
-  return json_build_object('xp', v_xp, 'coins', v_coins);
+  insert into game_sessions (user_id, game, started_at, expires_at)
+  values (
+    auth.uid(), p_game, now() + interval '5 seconds',
+    now() + interval '5 seconds' + case p_game when 'snake' then interval '2 minutes' when 'burger' then interval '40 seconds' else interval '140 seconds' end
+  )
+  returning id into v_session_id;
+  return v_session_id;
 end $$;
 
--- Weekly Ballia leaderboard, ranked by XP only (coins never decide rank)
+create function submit_game_score(p_session_id uuid, p_score int)
+returns json language plpgsql security definer set search_path = public as $$
+declare s settings%rowtype; p profiles%rowtype; v_session game_sessions%rowtype;
+        v_xp int; v_coins int; v_today int; v_max int; v_target_score int; v_duration_ms int;
+begin
+  if auth.uid() is null then raise exception 'Please log in first'; end if;
+  if p_session_id is null or p_score is null or p_score < 0 then raise exception 'Invalid score'; end if;
+  select * into v_session from game_sessions where id = p_session_id and user_id = auth.uid() for update;
+  if not found or v_session.completed_at is not null then raise exception 'Game session is invalid or already used'; end if;
+  if now() > v_session.expires_at then raise exception 'Game session expired'; end if;
+  v_duration_ms := floor(extract(epoch from (now() - v_session.started_at)) * 1000)::int;
+  if (v_session.game = 'qmaths' and v_duration_ms < 115000)
+    or (v_session.game <> 'qmaths' and v_duration_ms < 2000) then
+    raise exception 'Game session ended too early';
+  end if;
+  v_max := case v_session.game
+    when 'snake' then (v_duration_ms / 140) * 10
+    when 'burger' then (v_duration_ms / 1200) * 10
+    else v_duration_ms / 600
+  end;
+  if p_score > v_max then raise exception 'Invalid score'; end if;
+
+  select * into p from profiles where id = auth.uid() for update;
+  select * into s from settings where id = 1;
+  select coalesce(sum(coins), 0) into v_today from game_scores
+  where user_id = auth.uid() and (played_at at time zone 'Asia/Kolkata')::date = today_ist();
+  -- Snake and Burger store 10 points per food or pipe; Maths stores answers.
+  v_target_score := case v_session.game when 'snake' then 300 when 'burger' then 200 else 15 end;
+  v_xp := 10 + round(50 * least(p_score::numeric / v_target_score, 1))::integer;
+  v_coins := greatest(0, least(p_score, s.daily_coin_cap - v_today));
+
+  update game_sessions set completed_at = now() where id = v_session.id;
+  insert into game_scores (user_id, game, score, duration_ms, xp, coins)
+  values (auth.uid(), v_session.game, p_score, v_duration_ms, v_xp, v_coins);
+  update profiles set xp = xp + v_xp, coins = coins + v_coins where id = auth.uid();
+  return json_build_object('xp', v_xp, 'coins', v_coins, 'duration_ms', v_duration_ms);
+end $$;
+
+revoke all on function start_game_session(text) from public, anon;
+revoke all on function submit_game_score(uuid, int) from public, anon;
+grant execute on function start_game_session(text) to authenticated;
+grant execute on function submit_game_score(uuid, int) to authenticated;
+
+-- Weekly leaderboard counts each player's three highest-XP plays per IST day.
 create function get_leaderboard()
 returns table (rank bigint, previous_rank bigint, name text, xp bigint, is_me boolean)
 language sql stable security definer set search_path = public as $$
   with week_bounds as (
     select date_trunc('week', now() at time zone 'Asia/Kolkata') at time zone 'Asia/Kolkata' as this_week,
            (date_trunc('week', now() at time zone 'Asia/Kolkata') - interval '7 days') at time zone 'Asia/Kolkata' as last_week
+  ), ranked_plays as (
+    select g.user_id, g.xp, g.played_at, g.id,
+      row_number() over (
+        partition by g.user_id, (g.played_at at time zone 'Asia/Kolkata')::date
+        order by g.xp desc, g.played_at, g.id
+      ) as daily_play
+    from game_scores g
   ), current_scores as (
     select g.user_id, p.name, sum(g.xp)::bigint as xp
-    from game_scores g join profiles p on p.id = g.user_id cross join week_bounds w
-    where g.played_at >= w.this_week
+    from ranked_plays g join profiles p on p.id = g.user_id cross join week_bounds w
+    where g.played_at >= w.this_week and g.daily_play <= 3
     group by g.user_id, p.name
   ), previous_scores as (
-    select g.user_id, rank() over (order by sum(g.xp) desc) as previous_rank
-    from game_scores g cross join week_bounds w
-    where g.played_at >= w.last_week and g.played_at < w.this_week
+    select g.user_id, row_number() over (order by sum(g.xp) desc, g.user_id) as previous_rank
+    from ranked_plays g cross join week_bounds w
+    where g.played_at >= w.last_week and g.played_at < w.this_week and g.daily_play <= 3
     group by g.user_id
   )
-  select rank() over (order by c.xp desc), ps.previous_rank, c.name, c.xp, (c.user_id = auth.uid())
+  select rank() over (order by c.xp desc, c.user_id), ps.previous_rank, c.name, c.xp, (c.user_id = auth.uid())
   from current_scores c left join previous_scores ps on ps.user_id = c.user_id
   order by 1 limit 20 $$;
+
+create function settle_weekly_game_rewards()
+returns integer language plpgsql security definer set search_path = public as $$
+declare v_week_start date; v_previous_week date; v_awarded integer;
+begin
+  v_week_start := date_trunc('week', now() at time zone 'Asia/Kolkata')::date;
+  v_previous_week := v_week_start - 7;
+  with week_bounds as (
+    select v_previous_week::timestamp at time zone 'Asia/Kolkata' as week_start,
+           v_week_start::timestamp at time zone 'Asia/Kolkata' as week_end
+  ), ranked_plays as (
+    select g.user_id, g.xp, g.played_at, g.id,
+      row_number() over (
+        partition by g.user_id, (g.played_at at time zone 'Asia/Kolkata')::date
+        order by g.xp desc, g.played_at, g.id
+      ) as daily_play
+    from game_scores g cross join week_bounds w
+    where g.played_at >= w.week_start and g.played_at < w.week_end
+  ), totals as (
+    select user_id, sum(xp)::integer as total_xp
+    from ranked_plays where daily_play <= 3 group by user_id
+  ), winners as (
+    select user_id, row_number() over (order by total_xp desc, user_id)::integer as place, total_xp
+    from totals
+  ), inserted as (
+    insert into weekly_game_rewards(week_start, user_id, rank, coins)
+    select v_previous_week, user_id, place,
+      case place when 1 then 500 when 2 then 300 when 3 then 200 else 100 end
+    from winners where place <= 10
+    on conflict (week_start, user_id) do nothing
+    returning user_id, coins
+  )
+  update profiles p set coins = p.coins + i.coins
+  from inserted i where p.id = i.user_id;
+  get diagnostics v_awarded = row_count;
+  return v_awarded;
+end $$;
 
 -- Only logged-in users may call these
 revoke all on function place_order(jsonb, boolean, text, text) from public, anon;
 revoke all on function set_order_status(bigint, order_status) from public, anon;
-revoke all on function submit_game_score(text, int, int) from public, anon;
 revoke all on function get_leaderboard() from public, anon;
+revoke all on function settle_weekly_game_rewards() from public, anon, authenticated;
 revoke all on function claim_streak_reward(int) from public, anon;
 grant execute on function place_order(jsonb, boolean, text, text) to authenticated;
 grant execute on function set_order_status(bigint, order_status) to authenticated;
-grant execute on function submit_game_score(text, int, int) to authenticated;
 grant execute on function get_leaderboard() to authenticated;
 grant execute on function claim_streak_reward(int) to authenticated;
+
+create extension if not exists pg_cron with schema pg_catalog;
+do $$
+declare v_job record;
+begin
+  for v_job in select jobid from cron.job where jobname = 'eat60-weekly-game-rewards' loop
+    perform cron.unschedule(v_job.jobid);
+  end loop;
+  perform cron.schedule('eat60-weekly-game-rewards', '35 18 * * 0', 'select public.settle_weekly_game_rewards();');
+end $$;
 
 -- Admin screen gets new orders live
 alter publication supabase_realtime add table orders;
@@ -465,6 +587,11 @@ alter publication supabase_realtime add table orders;
 insert into brands (id, name, emoji) values
   ('pg','The Pizza Galaxy','🍕'), ('ro','The Red Oven','🔥'), ('ct','Cheesy Town','🍔'),
   ('ws','Wok Story','🥡'), ('wr','Wrap n Roll','🌯');
+update brands set about_category='Pizza',about_tagline='Out-of-this-world cheese.' where id='pg';
+update brands set about_category='Pizza',about_tagline='Hot, fresh and always glowing.' where id='ro';
+update brands set about_category='Burgers, sandwiches, Maggie',about_tagline='The town where cheese is the mayor.' where id='ct';
+update brands set about_category='Chinese',about_tagline='Every wok has a tale to toss.' where id='ws';
+update brands set about_category='Wraps and kathi rolls',about_tagline='Roll up, roll in.' where id='wr';
 
 insert into menu_items (id, brand_id, category, name, description) values
   (1,'pg','Pizza','Margherita','Cheese, tomato, basil'),

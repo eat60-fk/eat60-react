@@ -11,7 +11,23 @@ alter table public.settings
   add column if not exists delivery_per_km int not null default 5,
   add column if not exists free_delivery_minimum int not null default 0,
   add column if not exists delivery_free boolean not null default false,
-  add column if not exists max_delivery_km numeric(6,2) not null default 5;
+  add column if not exists max_delivery_km numeric(6,2) not null default 5,
+  add column if not exists about_founder_name text not null default '',
+  add column if not exists about_founder_photo_url text not null default '',
+  add column if not exists about_founder_instagram_url text not null default '',
+  add column if not exists about_founder_portfolio_url text not null default '',
+  add column if not exists about_outlet_links jsonb not null default '{}'::jsonb;
+
+alter table public.brands
+  add column if not exists about_category text not null default '',
+  add column if not exists about_tagline text not null default '',
+  add column if not exists zomato_url text not null default '',
+  add column if not exists swiggy_url text not null default '';
+update public.brands set about_category='Pizza',about_tagline='Out-of-this-world cheese.' where id='pg' and about_category='';
+update public.brands set about_category='Pizza',about_tagline='Hot, fresh and always glowing.' where id='ro' and about_category='';
+update public.brands set about_category='Burgers, sandwiches, Maggie',about_tagline='The town where cheese is the mayor.' where id='ct' and about_category='';
+update public.brands set about_category='Chinese',about_tagline='Every wok has a tale to toss.' where id='ws' and about_category='';
+update public.brands set about_category='Wraps and kathi rolls',about_tagline='Roll up, roll in.' where id='wr' and about_category='';
 
 alter table public.orders
   add column if not exists customer_name text,
@@ -184,26 +200,6 @@ begin
   return jsonb_build_object('milestone',p_milestone,'gift',v_gift,'claimed',true);
 end $$;
 grant execute on function public.claim_streak_reward(int) to authenticated;
-
-create or replace function public.submit_game_score(p_game text,p_score int,p_duration_ms int)
-returns json language plpgsql security definer set search_path=public as $$
-declare s settings%rowtype; v_xp int; v_coins int; v_today int; v_max int;
-begin
-  if auth.uid() is null then raise exception 'Please log in first'; end if;
-  select * into s from settings where id=1;
-  if p_game not in ('snake','burger','qmaths') or p_score<0 or p_duration_ms<1000 then raise exception 'Invalid score'; end if;
-  v_max:=case p_game when 'snake' then (p_duration_ms/140)*10 when 'burger' then (p_duration_ms/1200)*10 else p_duration_ms/600 end;
-  if p_game='burger' and p_duration_ms>25000 then raise exception 'Invalid score'; end if;
-  if p_game='qmaths' and p_duration_ms>125000 then raise exception 'Invalid score'; end if;
-  if p_score>v_max then raise exception 'Invalid score'; end if;
-  if exists(select 1 from game_scores where user_id=auth.uid() and played_at>now()-interval '5 seconds') then raise exception 'Slow down a little'; end if;
-  select coalesce(sum(coins),0) into v_today from game_scores where user_id=auth.uid() and (played_at at time zone 'Asia/Kolkata')::date=today_ist();
-  v_xp:=p_score*10;v_coins:=greatest(0,least(p_score,s.daily_coin_cap-v_today));
-  insert into game_scores(user_id,game,score,duration_ms,xp,coins) values(auth.uid(),p_game,p_score,p_duration_ms,v_xp,v_coins);
-  update profiles set xp=xp+v_xp,coins=coins+v_coins where id=auth.uid();
-  return json_build_object('xp',v_xp,'coins',v_coins);
-end $$;
-grant execute on function public.submit_game_score(text,int,int) to authenticated;
 
 create or replace function public.validate_coupon(p_code text, p_subtotal int)
 returns jsonb language plpgsql security definer set search_path = public as $$

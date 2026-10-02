@@ -1,6 +1,11 @@
 import { Fragment, useEffect, useState, useCallback, useRef, useId } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { sb } from '../../lib/supabase'
 import PoweredFooter from '../../components/PoweredFooter'
+import LoadingIndicator from '../../components/LoadingIndicator'
+import { CUSTOMER_TAB_PATHS, pathForMorePage, resolveCustomerRoute } from '../../lib/customerRoutes'
+import { isNetworkError, readOfflineCache, writeOfflineCache } from '../../lib/offlineCache'
+import { updateRouteMetadata } from '../../lib/routeMetadata'
 
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 const CATS = ['Pizza', 'Burger', 'Sandwich', 'Maggie', 'Chinese', 'Wraps']
@@ -88,16 +93,24 @@ function ActionIcon({ name }) {
   return <svg {...props}><path d="M7 10h34v7a4 4 0 0 0 0 8v7H7v-7a4 4 0 0 0 0-8v-7Z"/><path d="M25 12v3m0 6v3m0 6v3"/></svg>
 }
 
-export default function Customer({ me, email, reload, onOpenDownload, installAvailable, installMessage }) {
-  const [tab, setTab] = useState('home')
-  const [gameView, setGameView] = useState('games')
+export default function Customer({ me, email, reload, installAvailable, installMessage }) {
+  const [initialRoute] = useState(() => resolveCustomerRoute(window.location.pathname))
+  const [tab, setTab] = useState(initialRoute.tab)
+  const [gameView, setGameView] = useState(initialRoute.gameView || 'games')
   const [gameFocus,setGameFocus]=useState(false)
-  const [moreInitialPage, setMoreInitialPage] = useState(null)
+  const [moreInitialPage, setMoreInitialPage] = useState(initialRoute.morePage || null)
   const [cart, setCart] = useState([])
   const [selectedVoucher, setSelectedVoucher] = useState('')
   const [rank, setRank] = useState(null)
   const [fullscreenNotice, setFullscreenNotice] = useState(null)
-  const [data, setData] = useState({ brands: [], items: [], cfg: {}, ratings: {}, ratingError: '' })
+  const [data, setData] = useState(() => readOfflineCache('catalog') || { brands: [], items: [], cfg: {}, ratings: {}, ratingError: '' })
+  const [catalogLoaded, setCatalogLoaded] = useState(() => Boolean(readOfflineCache('catalog')))
+  const [catalogError, setCatalogError] = useState('')
+  const [online, setOnline] = useState(() => navigator.onLine)
+  const [refreshing, setRefreshing] = useState(false)
+  const touchStartY = useRef(null)
+  const contentRef = useRef(null)
+  const reduceMotion = useReducedMotion()
   const [toast, setToast] = useState('')
   const [locationStatus, setLocationStatus] = useState('idle')
   const [locationLabel, setLocationLabel] = useState('Harpur, Ballia')
@@ -121,23 +134,76 @@ export default function Customer({ me, email, reload, onOpenDownload, installAva
     }))
   }, [])
 
-  useEffect(() => {
-    (async () => {
-      const [b, i, s, ratings] = await Promise.all([
+  const loadCatalog = useCallback(async () => {
+    const [b, i, s, ratings] = await Promise.all([
         sb.from('brands').select('*').order('name'),
         sb.from('menu_items').select('*, item_variants(*), item_extras(*)').order('id'),
         sb.from('settings').select('*').single(),
         sb.from('menu_item_ratings').select('menu_item_id,average_rating,review_count')
-      ])
-      setData({
+    ])
+    const failed = [b, i, s, ratings].find((result) => result.error)
+    if (failed) {
+      const cached = readOfflineCache('catalog')
+      if (cached && isNetworkError(failed.error)) {
+        setData(cached)
+        setCatalogLoaded(true)
+        setCatalogError('Could not refresh the menu. Showing saved content instead.')
+      } else {
+        setCatalogError(failed.error.message)
+      }
+      return
+    }
+    const nextData = {
         brands: b.data || [],
         items: i.data || [],
         cfg: s.data || {},
         ratings: Object.fromEntries((ratings.data || []).map((rating) => [rating.menu_item_id, rating])),
-        ratingError: ratings.error?.message || ''
-      })
-    })()
+        ratingError: ''
+    }
+    setData(nextData)
+    setCatalogLoaded(true)
+    setCatalogError('')
+    writeOfflineCache('catalog', nextData)
   }, [])
+
+  useEffect(() => { loadCatalog() }, [loadCatalog])
+
+  useEffect(() => {
+    const handleOnline = () => { setOnline(true); loadCatalog() }
+    const handleOffline = () => setOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [loadCatalog])
+
+  const refreshApp = useCallback(async () => {
+    if (!navigator.onLine) { setOnline(false); return }
+    setRefreshing(true)
+    try {
+      const results = await Promise.allSettled([loadCatalog(), reload(), reloadRatings()])
+      const failed = results.find((result) => result.status === 'rejected')
+      if (failed) setCatalogError(failed.reason?.message || 'Some EAT60 content could not be refreshed.')
+    } finally {
+      setRefreshing(false)
+    }
+  }, [loadCatalog, reload, reloadRatings])
+
+  const onTouchStart = (event) => {
+    if (!gameFocus && window.scrollY <= 0 && event.touches.length === 1) touchStartY.current = event.touches[0].clientY
+    else touchStartY.current = null
+  }
+  const onTouchEnd = (event) => {
+    if (touchStartY.current === null) return
+    const pullDistance = event.changedTouches[0].clientY - touchStartY.current
+    touchStartY.current = null
+    if (pullDistance > 86 && window.scrollY <= 0 && !refreshing) {
+      if (!reduceMotion && navigator.vibrate) navigator.vibrate(10)
+      refreshApp()
+    }
+  }
 
   useEffect(() => { reload() }, [tab]) // refresh coins and streak when switching tabs
 
@@ -191,9 +257,40 @@ export default function Customer({ me, email, reload, onOpenDownload, installAva
     ? 0
     : Number(data.cfg.delivery_fee || 0)
   const floatingCartTotal = cartSubtotal + floatingDeliveryFee
-  const go = (t) => { if(t!=='games')setGameFocus(false);setTab(t); window.scrollTo(0, 0) }
-  const goGames = (view = 'games') => { setGameView(view); go('games') }
-  const goMore = (page = null) => { setMoreInitialPage(page); go('more') }
+  const navigatePath = (path) => {
+    if (window.location.pathname !== path) window.history.pushState({}, '', path)
+    updateRouteMetadata(path)
+  }
+  const go = (t, path = CUSTOMER_TAB_PATHS[t]) => {
+    if(t!=='games')setGameFocus(false)
+    setTab(t)
+    if (t !== 'more') setMoreInitialPage(null)
+    navigatePath(path)
+    window.scrollTo(0, 0)
+  }
+  const goGames = (view = 'games') => {
+    setGameView(view)
+    go('games', view === 'rankings' ? '/leaderboard' : view === 'scores' ? '/game-scores' : '/games')
+  }
+  const goMore = (page = null) => {
+    setMoreInitialPage(page)
+    go('more', pathForMorePage(page))
+  }
+  useEffect(() => {
+    const syncCustomerRoute = () => {
+      const route = resolveCustomerRoute(window.location.pathname)
+      setTab(route.tab)
+      setGameView(route.gameView || 'games')
+      setMoreInitialPage(route.morePage || null)
+      setGameFocus(false)
+      updateRouteMetadata(window.location.pathname)
+      window.scrollTo(0, 0)
+    }
+    window.addEventListener('popstate', syncCustomerRoute)
+    updateRouteMetadata(window.location.pathname)
+    return () => window.removeEventListener('popstate', syncCustomerRoute)
+  }, [])
+  const navigateMorePage = (page) => navigatePath(pathForMorePage(page))
   const checkDeliveryArea = () => {
     if (!navigator.geolocation) {
       setLocationStatus('error')
@@ -227,34 +324,59 @@ export default function Customer({ me, email, reload, onOpenDownload, installAva
   }
 
   return (
-    <div className={`app customer-app${gameFocus?' game-focus-app':''}`}>
-      <header className="customer-header">
-        <button className="wordmark-button" onClick={() => go('home')} aria-label="EAT60 home">
-          <span className="logo">EAT<b>60</b></span>
-          <small>Ballia’s first food delivery app</small>
-        </button>
-        <button className={`location-button location-${locationStatus}`} onClick={checkDeliveryArea} aria-label="Check delivery availability using your location" disabled={locationStatus === 'checking'}>
-          <span>{locationStatus === 'checking' ? 'Checking location…' : locationLabel}</span><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" fill="currentColor"/><circle cx="12" cy="10" r="2.5" fill="#171717"/></svg></i>
-        </button>
-      </header>
-      <div className="stat-pills">
-        <button className="stat-wallet" onClick={() => go('wallet')}><i><CoinIcon /></i><span><small>YOUR WALLET</small><b>{me.coins} COINS</b></span></button>
-        <button className="stat-streak" onClick={() => goMore('rewards')}><i><FlameAnimation /></i><span><small>ORDER STREAK</small><b>{me.streak} DAYS</b></span></button>
-        <button className="stat-rank" onClick={() => goGames('rankings')}><i><MoreIcon name="ranks" /></i><span><small>WEEKLY LEAGUE</small><b>{rank ? `#${rank} RANK` : 'PLAY TO RANK'}</b></span></button>
-        <button className="stat-track" onClick={() => go('hist')}><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 12 18-9-7 18-3-7-8-2Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/><path d="m11 14 5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg></i><span><small>YOUR DELIVERY</small><b>TRACK ORDER</b></span></button>
-      </div>
+    <div className={`app customer-app${gameFocus?' game-focus-app':''}`} ref={contentRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      <AnimatePresence>
+        {refreshing && <motion.div className="pull-refresh-indicator" initial={{ opacity: 0, y: -36 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><LoadingIndicator label="Refreshing EAT60…" compact /></motion.div>}
+      </AnimatePresence>
+      {(!online || catalogError) && <motion.div className={`network-status-banner${online ? ' has-error' : ''}`} initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
+        <span className="network-status-dot" />{!online ? 'Offline mode · showing saved content' : catalogError}
+        {online && catalogError && <button onClick={refreshApp}>RETRY</button>}
+      </motion.div>}
+      {tab === 'home' && <>
+        <header className="customer-header">
+          <button className="wordmark-button" onClick={() => go('home')} aria-label="EAT60 home">
+            <span className="logo">EAT<b>60</b></span>
+            <small>Ballia’s first food delivery app</small>
+          </button>
+          <button className={`location-button location-${locationStatus}`} onClick={checkDeliveryArea} aria-label="Check delivery availability using your location" disabled={locationStatus === 'checking'}>
+            <span>{locationStatus === 'checking' ? 'Checking location…' : locationLabel}</span><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" fill="currentColor"/><circle cx="12" cy="10" r="2.5" fill="#171717"/></svg></i>
+          </button>
+        </header>
+        <div className="stat-pills">
+          <button className="stat-wallet" onClick={() => go('wallet')}><i><CoinIcon /></i><span><small>YOUR WALLET</small><b>{me.coins} COINS</b></span></button>
+          <button className="stat-streak" onClick={() => goMore('rewards')}><i><FlameAnimation /></i><span><small>ORDER STREAK</small><b>{me.streak} DAYS</b></span></button>
+          <button className="stat-rank" onClick={() => goGames('rankings')}><i><MoreIcon name="ranks" /></i><span><small>WEEKLY LEAGUE</small><b>{rank ? `#${rank} RANK` : 'PLAY TO RANK'}</b></span></button>
+          <button className="stat-track" onClick={() => go('hist')}><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 12 18-9-7 18-3-7-8-2Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/><path d="m11 14 5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg></i><span><small>YOUR DELIVERY</small><b>TRACK ORDER</b></span></button>
+        </div>
+      </>}
 
-      {tab === 'home' && <Home data={data} add={add} price={price} go={go} goMore={goMore} goGames={goGames} say={say} me={me} reloadRatings={reloadRatings} />}
-      {tab === 'cart' && (
-        <Cart cart={cart} setCart={setCart} cfg={data.cfg} me={me} say={say} voucherCode={selectedVoucher}
-          done={(orderId) => { setSelectedVoucher(''); reload(); setFullscreenNotice({ type: 'order-placed', id: orderId }) }} />
-      )}
-      {tab === 'hist' && <History me={me} />}
-      {tab === 'feed' && <Feed me={me} say={say} />}
-      {tab === 'games' && <div className={`game-focus-surface${gameFocus?' focused':''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} /></div>}
-      {tab === 'wallet' && <Wallet me={me} onBack={() => go('home')} />}
-      {tab === 'more' && <More me={me} email={email} reload={reload} go={go} goGames={goGames} say={say} initialPage={moreInitialPage}
-        onSelectVoucher={(code) => { setSelectedVoucher(code); go('cart') }} installAvailable={installAvailable} installMessage={installMessage} />}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={`${tab}:${tab === 'more' ? moreInitialPage || 'index' : tab === 'games' ? gameView : ''}`}
+          className="customer-screen-transition"
+          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduceMotion ? undefined : { opacity: 0, y: -7 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+        >
+          {tab === 'home' && <Home data={data} add={add} price={price} go={go} goMore={goMore} goGames={goGames} say={say} me={me} reloadRatings={reloadRatings} />}
+          {tab === 'cart' && (
+            <Cart cart={cart} setCart={setCart} cfg={data.cfg} me={me} say={say} voucherCode={selectedVoucher}
+              done={(orderId) => { setSelectedVoucher(''); reload(); setFullscreenNotice({ type: 'order-placed', id: orderId }) }} />
+          )}
+          {tab === 'hist' && <History me={me} />}
+          {tab === 'feed' && <Feed me={me} say={say} />}
+          {tab === 'games' && <div className={`game-focus-surface${gameFocus?' focused':''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} onViewChange={goGames} /></div>}
+          {tab === 'wallet' && <Wallet me={me} onBack={() => go('home')} />}
+          {tab === 'more' && <More me={me} email={email} reload={reload} go={go} goGames={goGames} say={say} initialPage={moreInitialPage} onNavigatePath={navigateMorePage}
+            onSelectVoucher={(code) => { setSelectedVoucher(code); go('cart') }} installAvailable={installAvailable} installMessage={installMessage} />}
+        </motion.div>
+      </AnimatePresence>
+      {!catalogLoaded && (!online || catalogError) && <div className="offline-wait-screen">
+        <LoadingIndicator label={online ? 'Waiting for EAT60 data…' : 'Waiting for a network connection…'} />
+        <p>{online ? catalogError : 'Your saved app shell is ready. We’ll reconnect and load your menu automatically.'}</p>
+        {online && <button className="pill" onClick={loadCatalog}>TRY AGAIN</button>}
+      </div>}
 
       <PoweredFooter />
 
@@ -262,7 +384,7 @@ export default function Customer({ me, email, reload, onOpenDownload, installAva
         {[
           ['home', 'Home'], ['hist', 'History'], ['cart', 'Cart'], ['feed', 'Feed'], ['more', 'More']
         ].map(([k, l]) => (
-          <button key={k} className={tab === k || (tab === 'wallet' && k === 'home') ? 'on' : ''} onClick={() => { if (k === 'more') setMoreInitialPage(null); go(k) }} aria-current={tab === k ? 'page' : undefined}>
+          <button key={k} className={tab === k || (tab === 'wallet' && k === 'home') ? 'on' : ''} onClick={() => k === 'more' ? goMore() : go(k)} aria-current={tab === k ? 'page' : undefined}>
             <i><NavigationIcon name={k} /></i><span>{l}</span>{k === 'cart' && n > 0 && <b>{n}</b>}
           </button>
         ))}
@@ -337,7 +459,7 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
   return (
     <>
       <div className="quick-actions">
-        <button onClick={() => goMore()}><i className="quick-icon profile-icon"><ProfileAvatar avatarId={me.avatar_id} /></i><span>{me.username || me.name || 'My Profile'}</span></button>
+        <button onClick={() => goMore('profile')}><i className="quick-icon profile-icon"><ProfileAvatar avatarId={me.avatar_id} /></i><span>{me.username || me.name || 'My Profile'}</span></button>
         <button onClick={() => goGames()}><i className="quick-icon game-icon"><ActionIcon name="game" /></i><span>Play Game</span></button>
         <button onClick={scrollToOffer}><i className="quick-icon offer-icon">50<small>%<br />OFF</small></i><span>Offers & Coupon</span></button>
         <button onClick={() => data.cfg.tiffin_url ? window.open(data.cfg.tiffin_url, '_blank', 'noopener,noreferrer') : say('Tiffin service details are coming soon')}><i className="quick-icon tiffin-icon"><ActionIcon name="tiffin" /></i><span>Tiffin Service</span></button>
@@ -993,44 +1115,68 @@ function FlyingBurger({ onEnd, onQuit }) {
   return <div className="game-stage burger-game-stage"><div className="game-stage-head"><button className="game-exit" onClick={onQuit} aria-label="Exit game">←</button><b>FLYING BURGER</b><span>♥ {state.lives}</span><span>{state.left}s</span><strong>{state.score} pts</strong></div><div className="burger-arena" onPointerDown={flap} role="button" tabIndex={0} aria-label="Tap anywhere to fly upward"><div className="burger-ground"/><div className="burger-bird" style={{top:`${state.bird}%`}}>🍔</div>{state.pipes.map(pipe=><Fragment key={pipe.id}><i className="burger-pipe top" style={{left:`${pipe.x}%`,height:`${pipe.gap-15}%`}}/><i className="burger-pipe bottom" style={{left:`${pipe.x}%`,top:`${pipe.gap+15}%`,height:`${85-pipe.gap}%`}}/></Fragment>)}<span className="burger-tap-hint">TAP TO FLY</span></div><p className="game-hint">Tap or press ↑ / Space to flap. Fly between the pipes. Two lives.</p>{state.over&&<div className="game-over-overlay"><small>GAME OVER</small><b>{state.score} POINTS</b><button className="math-submit" onClick={onQuit}>BACK TO GAMES</button></div>}</div>
 }
 
-function Games({ reload, say, me, initialView, onFocus = () => {} }) {
+function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange = () => {} }) {
   const [playing, setPlaying] = useState(null)
   const [countdown,setCountdown]=useState(null)
   const [lb, setLb] = useState([])
   const [res, setRes] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [starting, setStarting] = useState(false)
   const [rank, setRank] = useState(null)
+  const sessionId = useRef(null)
   const [view, setView] = useState(initialView || 'games')
   useEffect(() => setView(initialView || 'games'), [initialView])
   useEffect(()=>{if(countdown===null)return;const timer=setInterval(()=>setCountdown(n=>{if(n<=1){clearInterval(timer);return null}return n-1}),1000);return()=>clearInterval(timer)},[countdown])
-  const loadLb = () => sb.rpc('get_leaderboard').then(({ data }) => {
+  const loadLb = async () => {
+    const { data, error } = await sb.rpc('get_leaderboard')
+    if (error) return say(error.message)
     setLb(data || [])
     setRank(data?.find((row) => row.is_me)?.rank ?? null)
-  })
+  }
   useEffect(() => { loadLb() }, [])
 
-  const finish = async (game, score, ms) => {
+  const finish = async (game, score) => {
+    const currentSessionId = sessionId.current
+    sessionId.current = null
     setPlaying(null)
     setCountdown(null)
     onFocus(false)
     setBusy(true)
-    const { data, error } = await sb.rpc('submit_game_score', { p_game: game, p_score: score, p_duration_ms: ms })
+    if (!currentSessionId) {
+      setBusy(false)
+      return say('Game session missing. Please start a new game.')
+    }
+    const { data, error } = await sb.rpc('submit_game_score', { p_session_id: currentSessionId, p_score: score })
     setBusy(false)
     if (error) return say(error.message)
     setRes({ game, score, ...data })
     reload()
     loadLb()
   }
-  const startGame=(id)=>{setRes(null);setPlaying(id);setCountdown(5);onFocus(true)}
-  const quitGame=()=>{setPlaying(null);setCountdown(null);onFocus(false)}
+  const startGame = async (id) => {
+    setRes(null)
+    setStarting(true)
+    const { data, error } = await sb.rpc('start_game_session', { p_game: id })
+    setStarting(false)
+    if (error) return say(error.message)
+    sessionId.current = data
+    setPlaying(id)
+    setCountdown(5)
+    onFocus(true)
+  }
+  const quitGame=()=>{sessionId.current=null;setPlaying(null);setCountdown(null);onFocus(false)}
+  const changeView = (nextView) => {
+    setView(nextView)
+    onViewChange(nextView)
+  }
 
   if(countdown!==null)return <div className="game-countdown-screen"><button onClick={quitGame} aria-label="Leave game">×</button><small>GET READY</small><h1>{countdown}</h1><p>{playing==='snake'?'Hungry Snakes':playing==='burger'?'Flying Burger':'Quick Maths'}</p></div>
   if (playing === 'snake') return <SnakeGame onEnd={(score, ms) => finish('snake', score, ms)} onQuit={quitGame} />
   if (playing === 'burger') return <FlyingBurger onEnd={(score, ms) => finish('burger', score, ms)} onQuit={quitGame} />
   if (playing === 'qmaths') return <Maths onEnd={(score, ms) => finish('qmaths', score, ms)} onQuit={quitGame} />
   const daysLeft = 7 - new Date().getDay()
-  if (view === 'rankings') return <WeeklyLeague rows={lb} daysLeft={daysLeft || 7} onBack={() => setView('games')} />
-  if (view === 'scores') return <MyGameScores me={me} onBack={() => setView('games')} />
+  if (view === 'rankings') return <WeeklyLeague rows={lb} daysLeft={daysLeft || 7} onBack={() => changeView('games')} />
+  if (view === 'scores') return <MyGameScores me={me} onBack={() => changeView('games')} />
   const games = [
     { id: 'snake', title: 'Hungry Snakes', subtitle: 'Improve rank, earn rewards & coins', icon: '🐍', color: 'snake' },
     { id: 'burger', title: 'Flying Burger', subtitle: 'Improve rank, earn rewards & coins', icon: '🍔', color: 'burger' },
@@ -1040,19 +1186,20 @@ function Games({ reload, say, me, initialView, onFocus = () => {} }) {
     <section className="games-page">
       <header className="games-hero">
         <div><p className="games-eyebrow">GAMES</p><h2>GETTING BORED?<br /><span>TIRED OF DOOM SCROLLING?</span></h2></div>
-        <button className="rank-display" onClick={() => setView('rankings')} aria-label="Open weekly league standings"><b>#{rank ?? '—'}</b><span>RANK <small>VIEW LEAGUE ↗</small></span></button>
+        <button className="rank-display" onClick={() => changeView('rankings')} aria-label="Open weekly league standings"><b>#{rank ?? '—'}</b><span>RANK <small>VIEW LEAGUE ↗</small></span></button>
         <div className="week-pill">◷ &nbsp; {daysLeft || 7} DAYS LEFT THIS WEEK</div>
       </header>
       <div className="game-hub-links">
-        <button onClick={() => setView('rankings')}><span className="hub-link-icon rank">♜</span><span><b>WEEKLY RANKINGS</b><small>See your league position</small></span><strong>#{rank ?? '—'} →</strong></button>
-        <button onClick={() => setView('scores')}><span className="hub-link-icon score">✦</span><span><b>MY SCORES & BADGES</b><small>Personal bests and achievements</small></span><strong>{me?.xp ?? 0} XP →</strong></button>
+        <button onClick={() => changeView('rankings')}><span className="hub-link-icon rank">♜</span><span><b>WEEKLY RANKINGS</b><small>See your league position</small></span><strong>#{rank ?? '—'} →</strong></button>
+        <button onClick={() => changeView('scores')}><span className="hub-link-icon score">✦</span><span><b>MY SCORES & BADGES</b><small>Personal bests and achievements</small></span><strong>{me?.xp ?? 0} XP →</strong></button>
       </div>
       <h3 className="games-list-title">PLAY THESE GAMES</h3>
       {res && <div className="game-result"><b>{games.find((game) => game.id === res.game)?.title}: {res.score}</b><span>+{res.xp} XP · +{res.coins} coins</span></div>}
       {busy && <p className="game-saving">Saving your score…</p>}
+      {starting && <p className="game-saving">Starting a secure game session…</p>}
       <div className="games-list">
         {games.map((game, index) => (
-          <button key={game.id} className={`game-card ${game.color}`} disabled={busy} onClick={() => startGame(game.id)}>
+          <button key={game.id} className={`game-card ${game.color}`} disabled={busy || starting} onClick={() => startGame(game.id)}>
             <span className="game-card-number">GAME {String(index + 1).padStart(2, '0')}</span>
             <span className="game-card-copy"><b>{game.title}</b><small>{game.subtitle}</small><span className="game-card-play">PLAY NOW <i>→</i></span></span>
             <span className="game-card-art">{game.icon}</span>
@@ -1141,6 +1288,7 @@ function WeeklyLeague({ rows, daysLeft, onBack }) {
       <div className="league-emblem"><span>#{me?.rank ?? '—'}</span></div>
       <h1 className="league-title">WEEKLY LEAGUE</h1>
       {me && <p className="league-your-rank">YOU ARE RANKED <b>#{me.rank}</b> · <strong className={`movement ${movement(me).type}`}>{movement(me).text} THIS WEEK</strong></p>}
+      <p className="league-prize-rules">Weekly prizes: 1st 500 · 2nd 300 · 3rd 200 · ranks 4–10 100 coins. Only your best 3 plays per day count.</p>
       <div className="league-rule" />
       <div className="league-standings">
         {rows.map((row, index) => <Fragment key={`${row.rank}-${row.name}`}>
@@ -1151,7 +1299,7 @@ function WeeklyLeague({ rows, daysLeft, onBack }) {
             <span className="league-avatar">{String(row.name || '?').slice(0, 1).toUpperCase()}</span>
             <b className="league-name">{row.name}{row.is_me ? ' · YOU' : ''}</b>
             <strong className="league-xp">{row.xp} XP</strong>
-            <span className={`movement ${movement(row).type}`}>{movement(row).text}</span>
+            <span className={`movement ${movement(row).type}`}>{row.rank <= 3 ? `${[500, 300, 200][row.rank - 1]} 🪙` : row.rank <= 10 ? '100 🪙' : movement(row).text}</span>
           </div>
         </Fragment>)}
         {rows.length === 0 && <div className="league-empty">No weekly scores yet. Play a game to enter the league.</div>}
@@ -1212,7 +1360,7 @@ function MoreIcon({ name }) {
   return <svg {...props}>{icon[name] || icon.about}</svg>
 }
 
-function More({ me, email, reload, go, goGames, say, initialPage, onSelectVoucher, installAvailable, installMessage }) {
+function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath, onSelectVoucher, installAvailable, installMessage }) {
   const [rewards, setRewards] = useState([])
   const [claimedRewards, setClaimedRewards] = useState([])
   const [availableCoupons, setAvailableCoupons] = useState([])
@@ -1221,9 +1369,23 @@ function More({ me, email, reload, go, goGames, say, initialPage, onSelectVouche
   const [rewardMessage, setRewardMessage] = useState('')
   const [celebration, setCelebration] = useState(null)
   const [claimPrompt, setClaimPrompt] = useState(null)
-  const [editing, setEditing] = useState(false)
-  const [subPage, setSubPage] = useState(initialPage || null)
-  useEffect(() => { setSubPage(initialPage || null) }, [initialPage])
+  const [editing, setEditing] = useState(initialPage === 'profile')
+  const [subPage, setSubPage] = useState(initialPage && initialPage !== 'profile' ? initialPage : null)
+  useEffect(() => {
+    setEditing(initialPage === 'profile')
+    setSubPage(initialPage && initialPage !== 'profile' ? initialPage : null)
+  }, [initialPage])
+  const openProfile = () => {
+    setEditing(true)
+    setSubPage(null)
+    onNavigatePath('profile')
+  }
+  const openMorePage = (page) => {
+    setEditing(false)
+    setSubPage(page)
+    onNavigatePath(page)
+  }
+  const backToMore = () => openMorePage(null)
   useEffect(() => {
     Promise.all([
       sb.from('streak_rewards').select('milestone,gift').eq('is_active',true).order('milestone'),
@@ -1248,18 +1410,17 @@ function More({ me, email, reload, go, goGames, say, initialPage, onSelectVouche
     setCelebration({ milestone, gift })
     reload()
   }
-  if (editing) return <ProfileEditor me={me} email={email} reload={reload} onBack={() => setEditing(false)} />
+  if (editing) return <ProfileEditor me={me} email={email} reload={reload} onBack={backToMore} />
   const tiles = {
     Funzone: [['rewards', 'Rewards'], ['ranks', 'Ranks'], ['coupons', 'Coupons'], ['scorecard', 'Scorecard']],
     Community: [['refer', 'Refer'], ['socials', 'Socials'], ['about', 'About']],
     'Setting & Supports': [['support', 'Supports'], ['bugs', 'Report bugs'], ['rate', 'Rate us'], ['download', installAvailable ? 'Install app' : 'Download app']]
   }
   const action = async (id) => {
-    if (id === 'download') return onOpenDownload()
-    if (id === 'rewards') return setSubPage('rewards')
+    if (id === 'rewards') return openMorePage('rewards')
     if (id === 'ranks') return goGames('rankings')
     if (id === 'scorecard') return goGames('scores')
-    if (id === 'coupons') return setSubPage('coupons')
+    if (id === 'coupons') return openMorePage('coupons')
     if (id === 'refer') {
       const message = `Join me on EAT60! Use my username ${me.username} when you sign up. ${window.location.origin}`
       try {
@@ -1269,7 +1430,7 @@ function More({ me, email, reload, go, goGames, say, initialPage, onSelectVouche
       return
     }
     if (id === 'rate') { say('Thanks for supporting EAT60!'); return }
-    setSubPage(id)
+    openMorePage(id)
   }
   const journey = <section className="streak-journey">
     <div className="streak-journey-head"><div><p>YOUR REWARDS PATH</p><h3>Streak achievements</h3><small>{me.streak} day current streak · {me.longest_streak || me.streak} day best</small></div><span className="streak-flame"><FlameAnimation /></span></div>
@@ -1322,33 +1483,141 @@ function More({ me, email, reload, go, goGames, say, initialPage, onSelectVouche
         <button className="pill" onClick={() => onSelectVoucher(voucher.code)}>Use voucher</button>
       </article>)}</div>}
   </section>
-  if (subPage === 'rewards') return <><FloatingBack onClick={() => setSubPage(null)} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>REWARDS</h1><span /></header>{voucherSection}{journey}</section>{celebrationPopup}{claimPromptPopup}</>
-  if (subPage === 'coupons') return <><FloatingBack onClick={() => setSubPage(null)} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>VOUCHERS</h1><span /></header>{voucherSection}</section></>
+  if (subPage === 'rewards') return <><FloatingBack onClick={backToMore} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>REWARDS</h1><span /></header>{voucherSection}{journey}</section>{celebrationPopup}{claimPromptPopup}</>
+  if (subPage === 'coupons') return <><FloatingBack onClick={backToMore} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>VOUCHERS</h1><span /></header>{voucherSection}</section></>
+  if (subPage === 'about') return <AboutPage onBack={backToMore} />
   if (subPage && subPage !== 'rewards') {
     const pages = {
       socials: ['Socials', 'Our social channels will be added here soon.'],
-      about: ['About EAT60', 'Ballia’s first food delivery app. Browse local food, place an order, and build your daily streak.'],
       support: ['Support', 'For order updates, open History. For help with food or delivery, contact the restaurant handling your order.'],
       bugs: ['Report a bug', 'Bug reporting is being prepared. If a problem affected an order, open History and contact the restaurant handling it.']
     }
     const [title, detail] = pages[subPage] || ['More', '']
-    return <><FloatingBack onClick={() => setSubPage(null)} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>{title.toUpperCase()}</h1><span /></header><article className="more-info-card"><div className="more-info-icon"><MoreIcon name={subPage === 'support' ? 'support' : subPage === 'bugs' ? 'bugs' : subPage} /></div><h2>{title}</h2><p>{detail}</p>{subPage === 'support' && <button className="pill g" onClick={() => go('hist')}>VIEW ORDER HISTORY</button>}</article></section></>
+    return <><FloatingBack onClick={backToMore} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>{title.toUpperCase()}</h1><span /></header><article className="more-info-card"><div className="more-info-icon"><MoreIcon name={subPage === 'support' ? 'support' : subPage === 'bugs' ? 'bugs' : subPage} /></div><h2>{title}</h2><p>{detail}</p>{subPage === 'support' && <button className="pill g" onClick={() => go('hist')}>VIEW ORDER HISTORY</button>}</article></section></>
   }
   return (
     <>
       <section className="more-dashboard">
         <h1 className="more-title">MORE</h1>
         <section className="more-profile-hero">
-          <div className="more-profile-row"><span>UPDATE</span><button className="more-profile-avatar" onClick={() => setEditing(true)} aria-label="Update profile"><ProfileAvatar avatarId={me.avatar_id} /></button><span>PROFILE</span></div>
-          <div className="more-profile-name"><b>{me.username || me.name || 'User Name'}</b><button onClick={() => setEditing(true)} aria-label="Edit profile"><MoreIcon name="edit" /></button></div>
+          <div className="more-profile-row"><span>UPDATE</span><button className="more-profile-avatar" onClick={openProfile} aria-label="Update profile"><ProfileAvatar avatarId={me.avatar_id} /></button><span>PROFILE</span></div>
+          <div className="more-profile-name"><b>{me.username || me.name || 'User Name'}</b><button onClick={openProfile} aria-label="Edit profile"><MoreIcon name="edit" /></button></div>
         </section>
-        {Object.entries(tiles).map(([group, items]) => <section className="more-tile-section" key={group}><h2>{group.toUpperCase()}</h2><div className={`more-tiles more-tiles-${items.length}`}>{items.map(([id, label]) => <button className="more-tile" key={id} onClick={() => action(id)}><span className={`more-tile-icon icon-${id}`}><MoreIcon name={id} /></span><b>{label.toUpperCase()}</b></button>)}</div>{group === 'Setting & Supports' && installMessage && <p className="more-install-message" role="status">{installMessage}</p>}</section>)}
+        {Object.entries(tiles).map(([group, items]) => <section className="more-tile-section" key={group}><h2>{group.toUpperCase()}</h2><div className={`more-tiles more-tiles-${items.length}`}>{items.map(([id, label]) => id === 'download'
+          ? <a className="more-tile" href="/download" key={id}><span className={`more-tile-icon icon-${id}`}><MoreIcon name={id} /></span><b>{label.toUpperCase()}</b></a>
+          : <button className="more-tile" key={id} onClick={() => action(id)}><span className={`more-tile-icon icon-${id}`}><MoreIcon name={id} /></span><b>{label.toUpperCase()}</b></button>)}</div>{group === 'Setting & Supports' && installMessage && <p className="more-install-message" role="status">{installMessage}</p>}</section>)}
         <section className="more-account-actions"><div><b>{me.xp} XP</b><span>{me.coins} coins · {email}</span></div><div><button className="pill g" onClick={() => sb.auth.signOut()}>LOG OUT</button></div></section>
       </section>
       {celebrationPopup}
       {claimPromptPopup}
     </>
   )
+}
+
+export function AboutPage({ onBack }) {
+  const [aboutData, setAboutData] = useState(() => readOfflineCache('about'))
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    Promise.all([
+      sb.from('settings')
+        .select('about_founder_name,about_founder_photo_url,about_founder_instagram_url,about_founder_portfolio_url')
+        .eq('id', 1).maybeSingle(),
+      sb.from('brands')
+        .select('id,name,emoji,is_open,about_category,about_tagline,zomato_url,swiggy_url')
+        .order('name')
+    ]).then(([{ data: settings, error: settingsError }, { data: brands, error: brandsError }]) => {
+        if (!active) return
+        const queryError = settingsError || brandsError
+        if (queryError) {
+          setError(queryError.message.includes('does not exist')
+            ? 'About page settings are not set up yet. Run admin_operations.sql in Supabase, then update founder and outlet details in Admin.'
+            : queryError.message)
+          if (aboutData && isNetworkError(queryError)) setError('')
+          return
+        }
+        const nextData = { settings: settings || {}, brands: (brands || []).filter((brand) => brand.is_open) }
+        setAboutData(nextData)
+        writeOfflineCache('about', nextData)
+      })
+    return () => { active = false }
+  }, [])
+
+  const linkButton = (label, url, className = '') => /^https?:\/\//i.test(url || '')
+    ? <a className={`about-link-button ${className}`} href={url} target="_blank" rel="noopener noreferrer">{label}<span aria-hidden="true">↗</span></a>
+    : <button className={`about-link-button ${className}`} type="button" disabled title="This link will be added soon">{label}<span aria-hidden="true">↗</span></button>
+
+  return <div className="about-page">
+    <button className="about-back" type="button" onClick={onBack}><span aria-hidden="true">←</span> BACK</button>
+    {error && <p className="about-load-error" role="alert">About page settings could not be loaded: {error}</p>}
+    {!aboutData && !error && <LoadingIndicator label="Loading About EAT60…" compact />}
+    <header className="about-hero">
+      <div className="about-founder-photo">
+        {aboutData?.settings?.about_founder_photo_url
+          ? <img src={aboutData.settings.about_founder_photo_url} alt={`${aboutData.settings.about_founder_name || 'Founder'} of EAT60`} />
+          : <div className="about-founder-placeholder" aria-label="Founder photo coming soon"><span>👨‍💻</span><small>FOOD · CODE · COMMUNITY</small></div>}
+      </div>
+      <div className="about-founder-copy">
+        <p className="about-eyebrow">THE PERSON BEHIND EAT60</p>
+        <h1>{aboutData?.settings?.about_founder_name || 'Your Name'}</h1>
+        <p className="about-founder-role">CEO &amp; Founder, Foodverse Kitchen Pvt Ltd</p>
+        <p className="about-founder-job">Software Engineer</p>
+        <div className="about-founder-links">
+          {linkButton('Instagram', aboutData?.settings?.about_founder_instagram_url, 'instagram')}
+          {linkButton('Portfolio', aboutData?.settings?.about_founder_portfolio_url, 'portfolio')}
+        </div>
+      </div>
+    </header>
+
+    <section className="about-intro">
+      <p className="about-eyebrow">OUR STORY</p>
+      <h2>Built by an engineer who got tired of paying fees.</h2>
+    </section>
+
+    <section className="about-story">
+      <h2>Once upon a time...</h2>
+      <p>...there was a mechanical engineer. He studied engines, gears and machines. He was sure his career would run smoothly.</p>
+      <p>It didn’t. The engine stalled, and nobody could fix it, not even him.</p>
+      <p>So he did what every sensible person does: he learned to code. Mechanical engineer to software engineer. Different tools, same habit of staring at things that don’t work until they work.</p>
+      <h3>Then he got into food.</h3>
+      <p>Soon he was cooking, delivering and, most of all, paying. Commission here, fee there, ads to be seen. He helped Zomato and Swiggy grow so much that, at one point, they were doing better from his kitchen than he was.</p>
+      <p>His accounts were in loss. His kitchen was full of orders. Something was wrong with this picture.</p>
+      <p>So he combined the two things he knew: <strong>food and technology</strong>. He built an app where the kitchen and the customer meet directly, with no one standing in the middle holding out a hand.</p>
+      <p>That app is <strong>EAT60.</strong></p>
+    </section>
+
+    <section className="about-no-fees">
+      <p className="about-eyebrow">A BETTER KIND OF CHECKOUT</p>
+      <h2>What you pay is the food price.<br /><span>Nothing else.</span></h2>
+      <ul><li>No extra service fee</li><li>No platform fee</li><li>No ads fee</li></ul>
+      <p className="about-no-fees-note">No surprise at checkout. Even our bill believes in a happy ending.</p>
+    </section>
+
+    <section className="about-company">
+      <p className="about-eyebrow">WHO WE ARE</p>
+      <h2>Three ways to bring good food closer.</h2>
+      <div className="about-company-grid">
+        <article><span>🏠</span><h3>Foodverse Kitchen Pvt Ltd</h3><small>PARENT COMPANY</small><p>A multibrand cloud kitchen under one roof, where each taste has its own story. Started in September 2025.</p></article>
+        <article><span>📱</span><h3>EAT60</h3><small>OUR APP</small><p>Order from all our brands in one place. Play games, earn coins, climb the leaderboard, and use your coins for a discount on food.</p></article>
+        <article><span>🍱</span><h3>The Mealo</h3><small>OUR TIFFIN SERVICE</small><p>Ghar ka khana, delivered to you. Because sometimes you just want food that tastes like home.</p></article>
+      </div>
+    </section>
+
+    <section className="about-outlets">
+      <p className="about-eyebrow">OUR OUTLETS</p>
+      <h2>Every brand has its own story, and its own menu.</h2>
+      <div className="about-outlet-list">
+        {(aboutData?.brands || []).map((outlet) => {
+          return <article className="about-outlet" key={outlet.id}>
+            <div className="about-outlet-copy"><span>{outlet.about_category || outlet.emoji || 'EAT60 OUTLET'}</span><h3>{outlet.name}</h3><p>{outlet.about_tagline || 'A taste worth coming back for.'}</p></div>
+            <div className="about-outlet-links">{linkButton('Zomato', outlet.zomato_url, 'zomato')}{linkButton('Swiggy', outlet.swiggy_url, 'swiggy')}</div>
+          </article>
+        })}
+        {aboutData && aboutData.brands.length === 0 && <p className="about-no-outlets">Our outlets will appear here when they are available.</p>}
+      </div>
+    </section>
+  </div>
 }
 
 function ProfileEditor({ me, email, reload, onBack }) {
