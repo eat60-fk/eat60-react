@@ -313,7 +313,10 @@ begin
   if coalesce(trim(p_address),'')='' then raise exception 'Delivery address is required'; end if;
   if coalesce(trim(p_phone),'')='' then raise exception 'Phone number is required'; end if;
   if coalesce(trim(p_customer_name),trim(p.name),'')='' then raise exception 'Customer name is required'; end if;
-  if p_distance_km is not null and (p_distance_km<0 or p_distance_km>s.max_delivery_km) then
+  if p_distance_km is null then
+    raise exception 'Confirm your delivery location before placing the order';
+  end if;
+  if p_distance_km<0 or p_distance_km>s.max_delivery_km then
     raise exception 'Delivery is available only within % km',s.max_delivery_km;
   end if;
 

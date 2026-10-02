@@ -808,6 +808,7 @@ function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
     if (!navigator.onLine) return say('You’re offline. Your cart and checkout details are saved; reconnect to place the order.')
     if (!customerName.trim() || !ph.trim() || !addr.trim()) return say('Enter your name, phone number, and delivery address.')
     if (!minimumOrderMet) return say(`Minimum order is ₹${minimumOrder}.`)
+    if (deliveryDistance === null) return say('Confirm your delivery location before placing the order.')
     if (beyondDeliveryRadius) return say(`Delivery is available only within ${deliveryRadius} km.`)
     setBusy(true)
     try {
@@ -861,7 +862,7 @@ function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
   }, [me.id, me.name, me.address, me.area, me.city, me.phone])
   const checkDeliveryDistance = () => {
     if (!navigator.geolocation) {
-      setLocationMessage('Location is not supported. Enter your delivery address to continue with the base fee.')
+      setLocationMessage('Location is not supported. Enable location services to confirm delivery availability.')
       return
     }
     setLocationMessage('Finding your location…')
@@ -874,8 +875,8 @@ function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
     }, (error) => {
       setDeliveryDistance(null)
       setLocationMessage(error.code === error.PERMISSION_DENIED
-        ? 'Location permission was denied. Enter your address to continue with the base fee.'
-        : 'Could not detect your location. Enter your address to continue with the base fee.')
+        ? 'Location permission was denied. Allow location access to confirm delivery availability.'
+        : 'Could not detect your location. Try again to confirm delivery availability.')
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 })
   }
 
@@ -923,7 +924,7 @@ function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
           <div className="row between"><h3>Total</h3><h3>₹{total}</h3></div>
         </div>
         {!cfg.store_online&&<p className="offline-banner">{cfg.offline_message||'Ordering is offline right now. Please try later.'}</p>}
-        <button className="pill wide" disabled={busy || !customerName.trim() || !ph.trim() || !addr.trim() || !minimumOrderMet || beyondDeliveryRadius || cfg.store_online===false} onClick={place}>{busy ? 'Placing order…' : cfg.store_online===false ? 'Ordering unavailable' : beyondDeliveryRadius ? 'Outside delivery area' : !minimumOrderMet ? `Minimum order ₹${minimumOrder}` : 'Place order, pay on delivery'}</button>
+        <button className="pill wide" disabled={busy || !customerName.trim() || !ph.trim() || !addr.trim() || !minimumOrderMet || deliveryDistance === null || beyondDeliveryRadius || cfg.store_online===false} onClick={place}>{busy ? 'Placing order…' : cfg.store_online===false ? 'Ordering unavailable' : beyondDeliveryRadius ? 'Outside delivery area' : !minimumOrderMet ? `Minimum order ₹${minimumOrder}` : deliveryDistance === null ? 'Confirm delivery location' : 'Place order, pay on delivery'}</button>
       </div>
     </>
   )
