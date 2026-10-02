@@ -2,6 +2,7 @@ const metadata = {
   '/': ['EAT60 | Food delivery in Ballia', 'Order local favourites with EAT60, Ballia’s food ordering and delivery app.'],
   '/download': ['Download the EAT60 App', 'Install EAT60 on your device and order local food in Ballia. Android app coming soon.'],
   '/download-adminapp': ['Download the EAT60 Admin App', 'Install the EAT60 admin app for quick access to orders and dashboard controls.'],
+  '/admin/install': ['Install EAT60 Kitchen Admin', 'Install EAT60 Kitchen Admin as a separate app for orders and store management.'],
   '/admineat60': ['EAT60 Admin Sign In', 'Sign in to the EAT60 administrator dashboard.'],
   '/admin': ['Orders | EAT60 Admin', 'Review and manage new EAT60 customer orders.'],
   '/admin/orders': ['Orders | EAT60 Admin', 'Review and manage new EAT60 customer orders.'],
@@ -39,8 +40,16 @@ const metadata = {
 export function updateRouteMetadata(pathname) {
   const path = pathname.replace(/\/+$/, '') || '/';
   const [title, description] = metadata[path] || ['EAT60 | Food delivery in Ballia', metadata['/'][1]];
-  const publicPage = path === '/download' || path === '/download-adminapp' || path === '/about' || path === '/careers';
+  const adminAppPage = path.startsWith('/admin/') || path === '/admineat60' || path === '/download-adminapp';
+  const publicPage = path === '/download' || path === '/download-adminapp' || path === '/admin/install' || path === '/about' || path === '/careers';
   document.title = title;
+  let manifestLink = document.head.querySelector('link[rel="manifest"]');
+  if (!manifestLink) {
+    manifestLink = document.createElement('link');
+    manifestLink.rel = 'manifest';
+    document.head.appendChild(manifestLink);
+  }
+  manifestLink.href = adminAppPage ? '/eat60-admin.webmanifest' : '/manifest.webmanifest';
   const setMeta = (selector, attribute, key, content) => {
     let element = document.head.querySelector(selector);
     if (!element) {

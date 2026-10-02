@@ -3,6 +3,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/admin/install",
+      "destination": "/admin-install.html"
+    },
+    {
       "source": "/download-adminapp",
       "destination": "/admin-install.html"
     },

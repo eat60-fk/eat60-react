@@ -164,7 +164,7 @@ function Login({
           </form>
 
           {msg && !signupSuccess && <p className={`auth-message ${messageType}`} role="status">{msg}</p>}
-          {adminOnly ? <><p className="auth-switch admin-auth-note">Admin access is granted to approved accounts only.</p><p className="auth-switch"><a href="/download-adminapp">Install the EAT60 admin app</a></p></> : <p className="auth-switch">{signup ? 'Already have an account?' : 'Don’t have an account?'} <button type="button" onClick={() => changeMode(signup ? 'login' : 'signup')}>{signup ? 'Log in' : 'Sign up'}</button></p>}
+          {adminOnly ? <><p className="auth-switch admin-auth-note">Admin access is granted to approved accounts only.</p><p className="auth-switch"><a href="/admin/install">Install the EAT60 admin app</a></p></> : <p className="auth-switch">{signup ? 'Already have an account?' : 'Don’t have an account?'} <button type="button" onClick={() => changeMode(signup ? 'login' : 'signup')}>{signup ? 'Log in' : 'Sign up'}</button></p>}
         </section>
       </div>
       <PoweredFooter className={adminOnly ? 'admin-auth-mobile-footnote' : 'auth-mobile-footnote'} />
@@ -190,7 +190,7 @@ export default function App() {
   const [profileError, setProfileError] = useState('');
   const [adminRoute, setAdminRoute] = useState(() => isAdminPath(window.location.pathname));
   const [downloadRoute, setDownloadRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/download');
-  const [adminDownloadRoute, setAdminDownloadRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/download-adminapp');
+  const [adminDownloadRoute, setAdminDownloadRoute] = useState(['/download-adminapp', '/admin/install'].includes(window.location.pathname.replace(/\/$/, '')));
   const [aboutRoute, setAboutRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/about');
   const [careersRoute, setCareersRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/careers');
   const [adminAccess, setAdminAccess] = useState({
@@ -207,7 +207,7 @@ export default function App() {
     };
     const markInstalled = () => {
       setInstallPrompt(null);
-      setInstallMessage('EAT60 is installed on your device.');
+      setInstallMessage(`${adminDownloadRoute ? 'EAT60 Kitchen Admin' : 'EAT60'} is installed on your device.`);
     };
     window.addEventListener('beforeinstallprompt', captureInstallPrompt);
     window.addEventListener('appinstalled', markInstalled);
@@ -215,13 +215,14 @@ export default function App() {
       window.removeEventListener('beforeinstallprompt', captureInstallPrompt);
       window.removeEventListener('appinstalled', markInstalled);
     };
-  }, []);
+  }, [adminDownloadRoute]);
   const installApp = async () => {
+    const appName = adminDownloadRoute ? 'EAT60 Kitchen Admin' : 'EAT60';
     if (installPrompt) {
       try {
         await installPrompt.prompt();
         const choice = await installPrompt.userChoice;
-        setInstallMessage(choice.outcome === 'accepted' ? 'EAT60 installation started.' : 'You can install EAT60 later from your browser menu.');
+        setInstallMessage(choice.outcome === 'accepted' ? `${appName} installation started.` : `You can install ${appName} later from your browser menu.`);
         setInstallPrompt(null);
       } catch (error) {
         setInstallMessage(error.message || 'Could not start installation. Use your browser menu to install EAT60.');
@@ -265,7 +266,7 @@ export default function App() {
       const pathname = window.location.pathname.replace(/\/$/, '') || '/';
       setAdminRoute(isAdminPath(pathname));
       setDownloadRoute(pathname === '/download');
-      setAdminDownloadRoute(pathname === '/download-adminapp');
+      setAdminDownloadRoute(['/download-adminapp', '/admin/install'].includes(pathname));
       setAboutRoute(pathname === '/about');
       setCareersRoute(pathname === '/careers');
       updateRouteMetadata(pathname);

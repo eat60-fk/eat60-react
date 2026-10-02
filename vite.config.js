@@ -15,7 +15,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
-        navigateFallbackDenylist: [/^\/download-adminapp\/?$/],
+        navigateFallbackDenylist: [/^\/download-adminapp\/?$/, /^\/admin\/install\/?$/],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.hostname.endsWith('.supabase.co') && url.pathname.includes('/storage/v1/object/public/'),
@@ -48,16 +48,16 @@ export default defineConfig({
       },
       configureServer(server) {
         server.middlewares.use((request, _response, next) => {
-          if (request.url?.split('?')[0] === '/download-adminapp') {
-            request.url = request.url.replace('/download-adminapp', '/admin-install.html')
+          if (['/download-adminapp', '/admin/install'].includes(request.url?.split('?')[0])) {
+            request.url = request.url.replace(/^\/(download-adminapp|admin\/install)/, '/admin-install.html')
           }
           next()
         })
       },
       configurePreviewServer(server) {
         server.middlewares.use((request, _response, next) => {
-          if (request.url?.split('?')[0] === '/download-adminapp') {
-            request.url = request.url.replace('/download-adminapp', '/admin-install.html')
+          if (['/download-adminapp', '/admin/install'].includes(request.url?.split('?')[0])) {
+            request.url = request.url.replace(/^\/(download-adminapp|admin\/install)/, '/admin-install.html')
           }
           next()
         })

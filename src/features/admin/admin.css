@@ -175,71 +175,53 @@
 }
 
 .admin-app .admin-setting-picker {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #34362f;
+  border-radius: 13px;
+  background: #191a17;
   margin: 0 0 22px;
 }
 
 .admin-app .admin-setting-picker > button {
+  position: relative;
   min-width: 0;
-  min-height: 104px;
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 18px;
-  align-items: start;
-  gap: 11px;
-  padding: 15px;
-  border: 1px solid #34362f;
-  border-radius: 15px;
-  background: #191a17;
-  color: #f0f1ec;
-  text-align: left;
-  transition: background .18s, border-color .18s, transform .18s;
+  min-height: 44px;
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #aeb2a6;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: background .18s, color .18s;
 }
 
 .admin-app .admin-setting-picker > button:hover {
-  transform: translateY(-1px);
-  border-color: #667a49;
   background: #20221c;
+  color: #f0f1ec;
 }
 
 .admin-app .admin-setting-picker > button.active {
-  border-color: #90b75a;
-  background: #252d1e;
-  box-shadow: inset 0 0 0 1px #90b75a33;
+  background: #303827;
+  color: #d5f69b;
+  box-shadow: inset 0 0 0 1px #90b75a;
 }
 
 .admin-app .admin-setting-icon {
-  width: 36px;
-  height: 36px;
-  display: grid;
+  display: inline-grid;
   place-items: center;
-  border-radius: 11px;
-  background: #292c25;
   color: #c8f17b;
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 850;
-}
-
-.admin-app .admin-setting-option-copy {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.admin-app .admin-setting-option-copy > b {
-  font-size: 13px;
-}
-
-.admin-app .admin-setting-option-copy > small {
-  color: #9b9e94;
-  font-size: 10px;
-  line-height: 1.45;
-}
-
-.admin-app .admin-setting-arrow {
-  color: #92968a;
-  font-size: 16px;
 }
 
 .admin-app .admin-setting-active-heading {
@@ -513,22 +495,22 @@
   }
 
   .admin-app .admin-setting-picker {
-    grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 3px;
     margin-bottom: 17px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-app .admin-setting-picker::-webkit-scrollbar {
+    display: none;
   }
 
   .admin-app .admin-setting-picker > button {
-    min-height: 76px;
-    padding: 11px;
-  }
-
-  .admin-app .admin-setting-option-copy > b {
-    font-size: 12px;
-  }
-
-  .admin-app .admin-setting-option-copy > small {
-    font-size: 10px;
+    min-height: 42px;
+    flex: 0 0 auto;
+    padding: 8px 10px;
+    font-size: 11px;
   }
 
   .admin-app .admin-setting-active-heading {

@@ -1,5 +1,5 @@
 {
-  "id": "/admin/orders",
+  "id": "/admin/app",
   "name": "EAT60 Admin by Foodverse Kitchen",
   "short_name": "EAT60 Admin",
   "description": "EAT60 administrator dashboard for orders and store management.",
@@ -7,19 +7,19 @@
   "background_color": "#141414",
   "display": "standalone",
   "start_url": "/admin/orders",
-  "scope": "/",
+  "scope": "/admin/",
   "icons": [
     {
-      "src": "/pwa-192.svg",
+      "src": "/pwa-admin-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "any"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
-      "src": "/pwa-512.svg",
+      "src": "/pwa-admin-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

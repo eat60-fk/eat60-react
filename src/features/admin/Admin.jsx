@@ -721,26 +721,29 @@ function SettingsWorkspace({ section, onSelect }) {
         <span>Choose one area to update. Each section saves independently.</span>
       </div>
     </div>
-    <nav className="admin-setting-picker" aria-label="Settings sections">
+    <nav className="admin-setting-picker" role="tablist" aria-label="Settings sections">
       {SETTINGS_SECTIONS.map(item => <button
         key={item.id}
         type="button"
         className={section === item.id ? 'active' : ''}
+        id={`settings-tab-${item.id}`}
+        role="tab"
+        aria-selected={section === item.id}
+        aria-controls={`settings-panel-${item.id}`}
         aria-current={section === item.id ? 'page' : undefined}
         onClick={() => onSelect(item.id)}
       >
         <span className="admin-setting-icon" aria-hidden="true">{item.icon}</span>
-        <span className="admin-setting-option-copy"><b>{item.title}</b><small>{item.description}</small></span>
-        <span className="admin-setting-arrow" aria-hidden="true">→</span>
+        <span>{item.title}</span>
       </button>)}
     </nav>
     <div className="admin-setting-active-heading">
       <div><span>EDITING</span><h3>{activeSection.title}</h3></div>
       <p>{activeSection.description}</p>
     </div>
-    <div hidden={section !== 'delivery'}><DeliverySettings /></div>
-    <div hidden={section !== 'business'}><AdBannerSettings /></div>
-    <div hidden={section !== 'about'}><AboutPageSettings /></div>
+    <div id="settings-panel-delivery" role="tabpanel" aria-labelledby="settings-tab-delivery" tabIndex={0} hidden={section !== 'delivery'}><DeliverySettings /></div>
+    <div id="settings-panel-business" role="tabpanel" aria-labelledby="settings-tab-business" tabIndex={0} hidden={section !== 'business'}><AdBannerSettings /></div>
+    <div id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about" tabIndex={0} hidden={section !== 'about'}><AboutPageSettings /></div>
   </section>;
 }
 

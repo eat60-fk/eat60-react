@@ -27,7 +27,7 @@
 - The app caches the public menu/About content, customer order history, profile, feed, cart, checkout and profile drafts, leaderboard/game scores, and public Supabase images for unstable connections. Visited customer and admin screens stay mounted when switching tabs, preserving in-progress forms and filters. Orders, coupon validation, referral claims, and game score submissions still require a connection and are not shown as completed while offline.
 - Checkout uses device GPS for an estimated straight-line delivery distance when available; customers can enter an address and continue with the base delivery fee if location is unavailable. GST is shown as 5% included in item prices, not added to the total. Active eligible promo coupons are selectable from More > Rewards and are revalidated on the server at order time.
 - Admin news posts published in Feed studio are sent as live in-app announcements to customers with the app open. Customers also get animated full-screen order placed/delivered updates; install EAT60 from More > Download EAT60 or open `/download` directly.
-- The separate administrator PWA is available at `/download-adminapp`; its installed app opens the protected `/admin/orders` workspace. `/admineat60` remains available as a sign-in and legacy entry route.
+- Install the separate administrator PWA at `/admin/install`; it opens the protected `/admin/orders` workspace and can be installed beside EAT60. `/download-adminapp` remains a legacy install URL, and `/admineat60` remains a sign-in entry route.
 - Admin workspaces have protected direct links: `/admin/orders`, `/admin/dashboard`, `/admin/menu`, `/admin/outlets`, `/admin/growth`, `/admin/promos`, `/admin/rewards`, `/admin/feed`, `/admin/more`, and `/admin/setting`. Settings sections are available at `/admin/setting`, `/admin/setting/business`, and `/admin/setting/about`; `/admin/settings` remains a supported alias.
 - Customer destinations have shareable paths such as `/wallet`, `/order-history`, `/games`, `/leaderboard`, `/order`, `/cart`, `/profile`, and `/setting`. Private account routes require sign-in and are marked `noindex`; the public `/download` page is indexable. The site publishes Organization structured data for EAT60 serving Ballia, without inventing a street address or phone number.
 - Supabase > Authentication > Providers: turn on Google (and Email).
@@ -50,9 +50,11 @@ Redeploy after changing environment variables. Do not use the Supabase
 More > Download EAT60. The project includes SVG install icons; you can replace
 `public/pwa-192.svg` and `public/pwa-512.svg` with your own EAT60 branding.
 The public `/download` route opens the install page without requiring sign-in.
-The admin install page at `/download-adminapp` uses a separate manifest and
-launches the protected admin orders route at `/admin/orders`; the legacy
-`/admineat60` route remains available as a sign-in entry point.
+The admin install page at `/admin/install` uses a distinct manifest ID, icon,
+and `/admin/` app scope, so EAT60 Kitchen Admin can be installed beside the
+customer EAT60 app. It launches the protected orders route at `/admin/orders`.
+`/download-adminapp` remains as a legacy install link, and `/admineat60` remains
+available as a sign-in entry point.
 
 ## Files
 - `src/App.jsx` authentication and screen switching
