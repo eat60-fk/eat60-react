@@ -568,6 +568,7 @@ function FullscreenNotice({ notice, onClose, onTrackOrder, onViewFeed }) {
 function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings }) {
   const [b, setB] = useState('')
   const [c, setC] = useState('')
+  const reduceMotion = useReducedMotion()
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(null)
   const [selectedExtras,setSelectedExtras]=useState([])
@@ -672,10 +673,15 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
         </div>
       </section>
 
-      {open && (
+      <AnimatePresence>
+        {open && (
         <>
-          <div className="bk" onClick={() => setOpen(null)} />
-          <div className="sheet" role="dialog" aria-modal="true" aria-label={`${open.name} options`}>
+          <motion.div className="bk" onClick={() => setOpen(null)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0 : 0.18 }} />
+          <motion.div className="sheet" role="dialog" aria-modal="true" aria-label={`${open.name} options`}
+            initial={reduceMotion ? false : { y: '100%' }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={reduceMotion ? { opacity: 0 } : { y: '100%' }}
+            transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}>
             <button type="button" className="grab" onClick={() => setOpen(null)} aria-label="Close item options" />
             <div className="sheet-item-heading">
               {open.image_url && <img className="sheet-item-image" src={open.image_url} alt={open.name} />}
@@ -691,9 +697,10 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
                 <button className="pill" onClick={() => { add(open, v, selectedExtras); setOpen(null) }}>Add +</button>
               </div>
             ))}
-          </div>
+          </motion.div>
         </>
-      )}
+        )}
+      </AnimatePresence>
     </>
   )
 }

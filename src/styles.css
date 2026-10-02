@@ -32,8 +32,8 @@ nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-w
 nav div{text-align:center;font-size:11px;color:var(--mu);cursor:pointer;position:relative;min-width:56px}
 nav div.on{color:var(--ac)}nav i{display:block;font-style:normal;font-size:20.24px}
 nav b{position:absolute;top:-2px;right:8px;background:var(--pk);color:#fff;border-radius:9px;font-size:10px;padding:0 5px}
-.bk{position:fixed;inset:0;background:#000a;z-index:5}
-.sheet{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;max-height:min(84dvh,680px);overflow-y:auto;background:#1d1d1d;border-radius:24px 24px 0 0;padding:12px 18px calc(22px + env(safe-area-inset-bottom,0px));z-index:6}
+.bk{position:fixed;inset:0;background:#000a;z-index:20}
+.sheet{position:fixed;right:0;bottom:0;left:0;width:100%;max-width:680px;max-height:100dvh;margin:0 auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;background:#1d1d1d;border:0;border-radius:24px 24px 0 0;padding:12px 18px calc(128px + env(safe-area-inset-bottom,0px));z-index:21;box-shadow:0 18px 55px #0009}
 .grab{width:56px;height:26px;display:block;padding:0;margin:0 auto 10px;border:0;background:transparent;cursor:pointer}
 .grab:before{content:'';display:block;width:50px;height:5px;margin:auto;border-radius:4px;background:#666;transition:background .16s,width .16s}
 .grab:hover:before,.grab:focus-visible:before{width:56px;background:var(--ac)}
@@ -45,7 +45,7 @@ nav b{position:absolute;top:-2px;right:8px;background:var(--pk);color:#fff;borde
 .sheet-item-copy small{font-size:13px;line-height:1.45}
 .vr{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #333}
 @media(max-width:700px){
-  .sheet{max-height:88dvh;padding:14px 20px calc(26px + env(safe-area-inset-bottom,0px))}
+  .sheet{bottom:0;max-height:100dvh;padding:14px 20px calc(100px + env(safe-area-inset-bottom,0px));border-radius:24px 24px 0 0}
   .sheet-item-heading{gap:14px;margin-bottom:18px}
   .sheet-item-image{width:76px;height:76px;border-radius:14px}
   .sheet-item-copy h2{font-size:21px}
