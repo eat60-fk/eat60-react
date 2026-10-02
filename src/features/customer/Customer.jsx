@@ -1182,13 +1182,15 @@ function EmbeddedGame({ game, title, onEnd, onQuit }) {
   const onEndRef = useRef(onEnd)
   const onQuitRef = useRef(onQuit)
   const endedRef = useRef(false)
+  const [saving, setSaving] = useState(false)
+  const [result, setResult] = useState(null)
   const gameAsset = game === 'snake' ? 'hungry-snakes-chilli' : 'flying-burger'
   const gameMessage = game === 'snake' ? 'hungry-snakes' : 'flying-burger'
   onEndRef.current = onEnd
   onQuitRef.current = onQuit
 
   useEffect(() => {
-    const receiveGameEvent = (event) => {
+    const receiveGameEvent = async (event) => {
       if (event.source !== frameRef.current?.contentWindow || event.origin !== window.location.origin) return
       if (event.data?.type === `eat60-${gameMessage}-quit`) {
         onQuitRef.current()
@@ -1196,7 +1198,20 @@ function EmbeddedGame({ game, title, onEnd, onQuit }) {
         const { score, elapsedMs } = event.data
         if (!Number.isInteger(score) || score < 0 || !Number.isFinite(elapsedMs) || elapsedMs < 0) return
         endedRef.current = true
-        onEndRef.current(score, Math.max(1000, elapsedMs))
+        setSaving(true)
+        try {
+          const outcome = await onEndRef.current(score, Math.max(1000, elapsedMs))
+          setResult({
+            score,
+            xp: outcome?.data?.xp,
+            coins: outcome?.data?.coins,
+            error: outcome?.error?.message || ''
+          })
+        } catch (error) {
+          setResult({ score, error: error.message || 'Your score could not be saved.' })
+        } finally {
+          setSaving(false)
+        }
       }
     }
     window.addEventListener('message', receiveGameEvent)
@@ -1206,6 +1221,15 @@ function EmbeddedGame({ game, title, onEnd, onQuit }) {
   return (
     <div className={`game-stage embedded-game-stage ${game}-html-stage`}>
       <iframe ref={frameRef} title={title} src={`/${gameAsset}.html?embedded=1`} allow="fullscreen" />
+      {(saving || result) && <div className="embedded-game-result" role="status" aria-live="polite">
+        {saving ? <><span className="embedded-game-result-icon">⏳</span><small>ROUND COMPLETE</small><h2>Saving your score…</h2><p>Your game will stay open while we save the result.</p></> : <>
+          <span className="embedded-game-result-icon">{result.error ? '!' : '🏆'}</span>
+          <small>{result.error ? 'SCORE NOT SAVED' : 'ROUND COMPLETE'}</small>
+          <h2>{result.score} points</h2>
+          {result.error ? <p className="embedded-game-result-error">{result.error}</p> : <p>+{result.xp} XP · +{result.coins} coins</p>}
+          <button className="math-submit" onClick={onQuit}>BACK TO GAMES <span>↗</span></button>
+        </>}
+      </div>}
     </div>
   )
 }
@@ -1233,20 +1257,23 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
   const finish = async (game, score) => {
     const currentSessionId = sessionId.current
     sessionId.current = null
-    setPlaying(null)
-    setCountdown(null)
-    onFocus(false)
     setBusy(true)
     if (!currentSessionId) {
       setBusy(false)
-      return say('Game session missing. Please start a new game.')
+      const error = new Error('Game session missing. Please start a new game.')
+      say(error.message)
+      return { error }
     }
     const { data, error } = await sb.rpc('submit_game_score', { p_session_id: currentSessionId, p_score: score })
     setBusy(false)
-    if (error) return say(error.message)
+    if (error) {
+      say(error.message)
+      return { error }
+    }
     setRes({ game, score, ...data })
     reload()
     loadLb()
+    return { data }
   }
   const startGame = async (id) => {
     setRes(null)
