@@ -450,7 +450,7 @@ begin
   insert into game_sessions (user_id, game, started_at, expires_at)
   values (
     auth.uid(), p_game, now() + interval '5 seconds',
-    now() + interval '5 seconds' + case p_game when 'snake' then interval '2 minutes' when 'burger' then interval '40 seconds' else interval '140 seconds' end
+    now() + interval '5 seconds' + case p_game when 'snake' then interval '10 minutes' when 'burger' then interval '10 minutes' else interval '140 seconds' end
   )
   returning id into v_session_id;
   return v_session_id;
