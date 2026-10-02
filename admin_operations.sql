@@ -19,7 +19,8 @@ alter table public.settings
   add column if not exists about_outlet_links jsonb not null default '{}'::jsonb,
   add column if not exists offer_title text not null default 'OFFER OF THE DAY',
   add column if not exists offer_message text not null default 'GRAB THIS OFFER BEFORE IT ENDS',
-  add column if not exists offer_ends_at timestamptz;
+  add column if not exists offer_ends_at timestamptz,
+  add column if not exists social_links jsonb not null default '{}'::jsonb;
 
 alter table public.brands
   add column if not exists about_category text not null default '',
@@ -45,6 +46,7 @@ alter table public.orders
   add column if not exists rejection_reason text,
   add column if not exists coupon_code text,
   add column if not exists coupon_discount int not null default 0;
+alter table public.orders add column if not exists prep_time_minutes int not null default 15 check (prep_time_minutes between 15 and 180);
 alter table public.orders add column if not exists dispatched_at timestamptz;
 
 update public.orders
@@ -329,8 +331,9 @@ begin
   return v_oid;
 end $$;
 
+drop function if exists public.admin_update_order(bigint,text,text,text);
 create or replace function public.admin_update_order(
-  p_id bigint,p_stage text,p_reason text default null,p_payment_type text default null
+  p_id bigint,p_stage text,p_reason text default null,p_payment_type text default null,p_prep_time_minutes int default 15
 )
 returns void language plpgsql security definer set search_path = public as $$
 declare o orders%rowtype; s settings%rowtype; p profiles%rowtype; d date; n int; v_legacy_status text;
@@ -344,6 +347,9 @@ begin
     if coalesce(trim(p_reason),'')='' then raise exception 'Enter a reason for rejecting this order'; end if;
   elsif p_stage='accepted' then
     if o.order_stage<>'pending' then raise exception 'Only pending orders can be accepted'; end if;
+    if p_prep_time_minutes is null or p_prep_time_minutes<15 or p_prep_time_minutes>180 or p_prep_time_minutes%5<>0 then
+      raise exception 'Preparation time must be between 15 and 180 minutes in 5-minute increments';
+    end if;
   elsif p_stage='preparing' then
     if o.order_stage<>'accepted' then raise exception 'Accept the order before preparing it'; end if;
   elsif p_stage='ready' then
@@ -367,6 +373,7 @@ begin
     else 'placed' end;
   update orders set order_stage=p_stage,status=v_legacy_status::order_status,
     accepted_at=case when p_stage='accepted' then now() else accepted_at end,
+    prep_time_minutes=case when p_stage='accepted' then p_prep_time_minutes else prep_time_minutes end,
     ready_at=case when p_stage='ready' then now() else ready_at end,
     payment_received_at=case when p_stage='payment_received' then now() else payment_received_at end,
     payment_type=case when p_stage='payment_received' then p_payment_type else payment_type end,
@@ -427,14 +434,14 @@ end $$;
 revoke all on function public.validate_coupon(text,int) from public,anon;
 revoke all on function public.customer_available_coupons() from public,anon;
 revoke all on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric) from public,anon;
-revoke all on function public.admin_update_order(bigint,text,text,text) from public,anon;
+revoke all on function public.admin_update_order(bigint,text,text,text,int) from public,anon;
 revoke all on function public.auto_reject_expired_orders() from public,anon,authenticated;
 revoke all on function public.admin_delete_outlet(text) from public,anon;
 revoke all on function public.set_order_status(bigint,order_status) from public,anon,authenticated;
 grant execute on function public.validate_coupon(text,int) to authenticated;
 grant execute on function public.customer_available_coupons() to authenticated;
 grant execute on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric) to authenticated;
-grant execute on function public.admin_update_order(bigint,text,text,text) to authenticated;
+grant execute on function public.admin_update_order(bigint,text,text,text,int) to authenticated;
 grant execute on function public.admin_delete_outlet(text) to authenticated;
 revoke all on function public.place_order(jsonb,boolean,text,text) from public,anon,authenticated;
 

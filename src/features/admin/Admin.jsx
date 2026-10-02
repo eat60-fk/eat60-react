@@ -3,7 +3,8 @@ import { sb } from '../../lib/supabase'
 import PoweredFooter from '../../components/PoweredFooter'
 
 const LABEL = { pending: 'Pending', accepted: 'Accepted', preparing: 'Preparing', ready: 'Ready', out_for_delivery: 'Out for delivery', payment_received: 'Payment received', delivered: 'Delivered', rejected: 'Rejected', cancelled: 'Cancelled' }
-const TABS = [['overview', 'Overview'], ['settings', 'Settings'], ['orders', 'Orders'], ['menu', 'Menu'], ['outlets', 'Outlets'], ['promos', 'Promos'], ['rewards', 'Rewards'], ['feed', 'Feed']]
+const TABS = [['overview', 'Overview'], ['orders', 'Orders'], ['menu', 'Menu'], ['outlets', 'Outlets'], ['promos', 'Promos'], ['rewards', 'Rewards'], ['feed', 'Feed']]
+const TAB_ICONS = { overview: '⌂', orders: '▤', menu: '☷', outlets: '⌖', promos: '%', rewards: '✦', feed: '▧' }
 
 function ConfirmDialog({ title, message, onCancel, onConfirm }) {
   const [busy, setBusy] = useState(false)
@@ -55,7 +56,8 @@ const emptyOfferSettings = {
   offer_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }),
   offer_ends_at: '',
   offer_title: 'OFFER OF THE DAY',
-  offer_message: 'GRAB THIS OFFER BEFORE IT ENDS'
+  offer_message: 'GRAB THIS OFFER BEFORE IT ENDS',
+  social_links: { instagram: '', facebook: '', whatsapp: '', website: '', youtube: '' }
 }
 
 function localDateTimeValue(value) {
@@ -76,7 +78,7 @@ function AdBannerSettings() {
   useEffect(() => {
     let active = true
     Promise.all([
-      sb.from('settings').select('tiffin_url,offer_variant_id,offer_price,offer_date,offer_ends_at,offer_title,offer_message').eq('id', 1).maybeSingle(),
+      sb.from('settings').select('tiffin_url,offer_variant_id,offer_price,offer_date,offer_ends_at,offer_title,offer_message,social_links').eq('id', 1).maybeSingle(),
       sb.from('item_variants').select('id,item_id,label,price'),
       sb.from('menu_items').select('id,name,is_available')
     ]).then(([settingsResult, variantsResult, itemsResult]) => {
@@ -92,7 +94,8 @@ function AdBannerSettings() {
           offer_variant_id: settings.offer_variant_id ? String(settings.offer_variant_id) : '',
           offer_price: settings.offer_price ?? '',
           offer_date: settings.offer_date || emptyOfferSettings.offer_date,
-          offer_ends_at: localDateTimeValue(settings.offer_ends_at)
+          offer_ends_at: localDateTimeValue(settings.offer_ends_at),
+          social_links: { ...emptyOfferSettings.social_links, ...(settings.social_links || {}) }
         })
         const itemsById = new Map((itemsResult.data || []).map((item) => [item.id, item]))
         setVariants((variantsResult.data || []).map((variant) => ({
@@ -106,6 +109,7 @@ function AdBannerSettings() {
   }, [])
 
   const change = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }))
+  const changeSocialLink = (field) => (event) => setForm((current) => ({ ...current, social_links: { ...current.social_links, [field]: event.target.value } }))
   const save = async () => {
     const selected = variants.find((variant) => String(variant.id) === String(form.offer_variant_id))
     const price = form.offer_price === '' ? null : Number(form.offer_price)
@@ -117,6 +121,11 @@ function AdBannerSettings() {
         setMessage('Enter a valid http or https Tiffin service URL.')
         return
       }
+    }
+    const socialLinks = Object.fromEntries(Object.entries(form.social_links).map(([key, value]) => [key, value.trim()]))
+    if (Object.values(socialLinks).some((url) => url && !/^https?:\/\/\S+$/i.test(url))) {
+      setMessage('Social and business links must begin with https:// or http://.')
+      return
     }
     if (selected && (!Number.isInteger(price) || price <= 0 || price >= Number(selected.price))) {
       setMessage('The offer price must be a whole rupee amount greater than zero and below the regular price.')
@@ -144,7 +153,8 @@ function AdBannerSettings() {
       offer_date: selected ? form.offer_date : null,
       offer_ends_at: selected && endsAt ? endsAt.toISOString() : null,
       offer_title: form.offer_title.trim() || emptyOfferSettings.offer_title,
-      offer_message: form.offer_message.trim() || emptyOfferSettings.offer_message
+      offer_message: form.offer_message.trim() || emptyOfferSettings.offer_message,
+      social_links: socialLinks
     }
     const { error } = await sb.from('settings').update(values).eq('id', 1)
     setBusy(false)
@@ -167,9 +177,10 @@ function AdBannerSettings() {
           : `${selectedVariant.item.name} · ${selectedVariant.label} is scheduled to appear on the home page now.`
 
   return <section className="admin-content">
-    <div className="admin-page-heading"><div><p>HOME PAGE</p><h2>Offer banner & Tiffin link</h2><span>Choose the discounted menu size, schedule its display date and expiry, and update the customer-facing banner text.</span></div></div>
+    <div className="admin-page-heading"><div><p>HOME PAGE & BUSINESS</p><h2>Banner and business links</h2><span>Schedule the home offer, update its countdown, and manage the public Tiffin and social links.</span></div></div>
     <div className="admin-feed-editor">
       {loading ? <p className="admin-feedback">Loading offer settings…</p> : <>
+        <h3>Offer banner</h3>
         <div className="admin-form-grid">
           <label>Offer item and size<select value={form.offer_variant_id} onChange={(event) => {
             const variant = variants.find((item) => String(item.id) === event.target.value)
@@ -180,10 +191,14 @@ function AdBannerSettings() {
           <label>Offer ends at (your local time)<input type="datetime-local" value={form.offer_ends_at || ''} onChange={change('offer_ends_at')} disabled={!form.offer_variant_id} /></label>
           <label>Banner heading<input maxLength="60" value={form.offer_title || ''} onChange={change('offer_title')} /></label>
           <label>Banner message<input maxLength="100" value={form.offer_message || ''} onChange={change('offer_message')} /></label>
-          <label>Tiffin service URL<input type="url" value={form.tiffin_url || ''} onChange={change('tiffin_url')} placeholder="https://…" /></label>
         </div>
         <p className="admin-feedback" role="status">{offerStatus}</p>
-        <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save banner & Tiffin link'} <span>→</span></button>
+        <h3>Business links</h3>
+        <div className="admin-form-grid">
+          <label>Tiffin service URL<input type="url" value={form.tiffin_url || ''} onChange={change('tiffin_url')} placeholder="https://…" /></label>
+          {Object.entries({ instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp', youtube: 'YouTube', website: 'Website' }).map(([key, label]) => <label key={key}>{label} URL<input type="url" value={form.social_links?.[key] || ''} onChange={changeSocialLink(key)} placeholder="https://…" /></label>)}
+        </div>
+        <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save settings'} <span>→</span></button>
       </>}
       {message && <p className="admin-feedback" role="status">{message}</p>}
     </div>
@@ -291,19 +306,20 @@ export default function Admin({ onBack }) {
             <span aria-hidden="true">{alertEnabled ? '✓' : '♧'}</span>{alertEnabled ? 'Alerts on' : permission === 'denied' ? 'Allow in browser' : 'Enable alerts'}
           </button>
           <button className={`admin-notify ${soundEnabled?'enabled':''}`} onClick={toggleSound}><span aria-hidden="true">{soundEnabled?'🔊':'🔈'}</span>{soundEnabled?'Sound on':'Sound off'}</button>
+          <button className={`admin-settings-button ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab(tab === 'settings' ? 'overview' : 'settings')} aria-label={tab === 'settings' ? 'Close settings' : 'Open settings'} title="Settings"><span aria-hidden="true">⚙</span><b>Settings</b></button>
           <button className="admin-exit" onClick={onBack}>Back to shop</button>
           <button className="admin-exit" onClick={() => sb.auth.signOut()}>Log out</button>
         </div>
       </header>
 
       <nav className="admin-tabs" aria-label="Admin sections">
-        {TABS.map(([key, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}{key === 'orders' && orders.filter((order) => (order.order_stage || 'pending') === 'pending').length > 0 && <b>{orders.filter((order) => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
+        {TABS.map(([key, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><span aria-hidden="true">{TAB_ICONS[key]}</span>{label}{key === 'orders' && orders.filter((order) => (order.order_stage || 'pending') === 'pending').length > 0 && <b>{orders.filter((order) => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
       </nav>
 
       {ordersError && <div className="admin-error" role="alert"><b>Orders could not be loaded</b><span>{ordersError}</span><button onClick={loadOrders}>Retry</button></div>}
       {alert && <div className="admin-alert" role="status"><span>🔔</span><p>{alert}</p><button aria-label="Dismiss notification" onClick={() => setAlert('')}>×</button></div>}
-      {tab === 'overview' && <><Overview orders={orders} onViewOrders={() => setTab('orders')} online={storeOnline} setOnline={async (value) => { const { error } = await sb.from('settings').update({ store_online: value }).eq('id', 1); if (!error) setStoreOnline(value); else setAlert(error.message) }} /><DeliverySettings /></>}
-      {tab === 'settings' && <><AdBannerSettings /><AboutPageSettings /></>}
+      {tab === 'overview' && <Overview orders={orders} onViewOrders={() => setTab('orders')} online={storeOnline} setOnline={async (value) => { const { error } = await sb.from('settings').update({ store_online: value }).eq('id', 1); if (!error) setStoreOnline(value); else setAlert(error.message) }} />}
+      {tab === 'settings' && <><DeliverySettings /><AdBannerSettings /><AboutPageSettings /></>}
       {tab === 'orders' && <Orders rows={orders} refresh={loadOrders} />}
       {tab === 'menu' && <Menu />}
       {tab === 'outlets' && <Outlets />}
@@ -471,13 +487,16 @@ function Overview({ orders, onViewOrders, online, setOnline }) {
   return <section className="admin-content">
     <div className="admin-page-heading"><div><p>YOUR STORE AT A GLANCE</p><h2>Good to see you.</h2><span>Monitor orders and keep your kitchen moving.</span></div><button className="admin-primary" onClick={onViewOrders}>View orders <span>→</span></button></div>
     <div className="admin-store-switch"><div><b>{online ? 'Store is accepting orders' : 'Store is offline'}</b><small>{online ? 'Customers can place orders now.' : 'New checkout is paused.'}</small></div><button className={`admin-toggle ${online ? 'on' : ''}`} onClick={() => setOnline(!online)}><i />{online ? 'Online' : 'Offline'}</button></div>
+    <section className="admin-dashboard-panel admin-stats-panel">
+    <div className="admin-section-heading"><div><p>PERFORMANCE</p><h3>Today’s stats</h3></div><span>India local time</span></div>
     <div className="admin-metrics">
       <Metric label="NEW ORDERS" value={placed.length} detail="Waiting for confirmation" icon="✳" tone="lime" />
       <Metric label="IN PROGRESS" value={active.length} detail="Being prepared or delivered" icon="◷" tone="blue" />
       <Metric label="TODAY’S ORDERS" value={today.length} detail="Orders placed today" icon="▤" tone="purple" />
       <Metric label="TODAY’S SALES" value={`₹${revenue.toLocaleString('en-IN')}`} detail="Excludes cancelled orders" icon="₹" tone="orange" />
     </div>
-    <div className="admin-funnel"><div className="admin-section-heading"><div><p>ORDER FLOW</p><h3>Live order funnel</h3></div><span>Across latest {orders.length} orders</span></div><div className="admin-funnel-steps">{funnel.map((item,index)=><div key={item.stage} className={`admin-funnel-step funnel-${item.stage}`}><span>{index+1}</span><b>{LABEL[item.stage]}</b><strong>{item.count}</strong></div>)}</div></div>
+    </section>
+    <section className="admin-dashboard-panel admin-funnel-panel"><div className="admin-section-heading"><div><p>ORDER FLOW</p><h3>Live order funnel</h3></div><span>Across latest {orders.length} orders</span></div><div className="admin-funnel-steps">{funnel.map((item,index)=><div key={item.stage} className={`admin-funnel-step funnel-${item.stage}`}><span>{index+1}</span><b>{LABEL[item.stage]}</b><strong>{item.count}</strong></div>)}</div></section>
     <div className="admin-section-heading"><div><p>THE LATEST</p><h3>Recent orders</h3></div><button onClick={onViewOrders}>All orders <span>→</span></button></div>
     {orders.length ? <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>ORDER</th><th>CUSTOMER</th><th>ITEMS</th><th>AMOUNT</th><th>STATUS</th><th>TIME</th></tr></thead><tbody>{orders.slice(0, 6).map((order) => <OrderRow key={order.id} order={order} compact />)}</tbody></table></div> : <div className="admin-empty"><span>⌑</span><b>No orders yet</b><small>New customer orders will show up here in real time.</small></div>}
   </section>
@@ -521,6 +540,8 @@ function Orders({ rows, refresh }) {
   const [to, setTo] = useState('')
   const [reasonId, setReasonId] = useState(null)
   const [reason, setReason] = useState('')
+  const [acceptId, setAcceptId] = useState(null)
+  const [prepMinutes, setPrepMinutes] = useState(15)
   const [paymentId, setPaymentId] = useState(null)
   const [payment, setPayment] = useState('cash')
   const stageOf = (o) => o.order_stage || (o.status === 'placed' ? 'pending' : o.status)
@@ -532,12 +553,13 @@ function Orders({ rows, refresh }) {
     (!start || dateKey(order.created_at) >= start) && (!end || dateKey(order.created_at) <= end) &&
     (`${order.id} ${order.customer_name || order.profiles?.name || ''} ${order.phone || ''}`.toLowerCase().includes(query.toLowerCase())))
 
-  const move = async (id, stage, why = null, payType = null) => {
+  const move = async (id, stage, why = null, payType = null, prepTimeMinutes = null) => {
     setBusyId(id); setError('')
-    const { error: updateError } = await sb.rpc('admin_update_order', { p_id: id, p_stage: stage, p_reason: why, p_payment_type: payType })
+    const { error: updateError } = await sb.rpc('admin_update_order', { p_id: id, p_stage: stage, p_reason: why, p_payment_type: payType, p_prep_time_minutes: prepTimeMinutes })
     if (updateError) setError(updateError.message)
     else await refresh()
     setBusyId(null)
+    return !updateError
   }
 
   return <section className="admin-content">
@@ -552,11 +574,13 @@ function Orders({ rows, refresh }) {
       <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
       {order.order_stage_events?.length>0&&<OrderJourney order={order}/>}
       {stageOf(order)==='pending'&&<PendingDecisionClock createdAt={order.created_at}/>}
+      {['accepted','preparing'].includes(stageOf(order))&&order.prep_time_minutes&&<p className="admin-prep-estimate">Kitchen preparation estimate <b>{order.prep_time_minutes} min</b></p>}
       {order.rejection_reason&&<p className="admin-rejection-reason">Reason: {order.rejection_reason}</p>}
       {stageOf(order)==='payment_received'&&<p className="admin-pending-clock">Payment received · {order.payment_type||'type not recorded'}</p>}
       {reasonId===order.id&&<div className="admin-decision-form"><input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason for rejecting"/><button className="admin-cancel-order" disabled={!reason.trim()||busyId===order.id} onClick={async()=>{await move(order.id,'rejected',reason);setReasonId(null);setReason('')}}>Confirm reject</button><button className="admin-secondary" onClick={()=>setReasonId(null)}>Cancel</button></div>}
       {paymentId===order.id&&<div className="admin-decision-form"><select value={payment} onChange={e=>setPayment(e.target.value)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="online">Online</option><option value="other">Other</option></select><button className="admin-primary" onClick={async()=>{await move(order.id,'payment_received',null,payment);setPaymentId(null)}}>Confirm payment</button></div>}
-      <div className="admin-order-actions">{stageOf(order)==='pending'&&<><button className="admin-primary" disabled={busyId===order.id} onClick={()=>move(order.id,'accepted')}>Accept order <span>→</span></button><button className="admin-cancel-order" disabled={busyId===order.id} onClick={()=>{setReasonId(order.id);setReason('')}}>Reject</button></>}{({accepted:'preparing',preparing:'ready',ready:'out_for_delivery',out_for_delivery:'payment_received',payment_received:'delivered'})[stageOf(order)]&&<button className="admin-primary" disabled={busyId===order.id} onClick={()=>stageOf(order)==='out_for_delivery'?setPaymentId(order.id):move(order.id,({accepted:'preparing',preparing:'ready',ready:'out_for_delivery',payment_received:'delivered'})[stageOf(order)])}>{stageOf(order)==='out_for_delivery'?'Record payment':`Mark ${LABEL[({accepted:'preparing',preparing:'ready',ready:'out_for_delivery',payment_received:'delivered'})[stageOf(order)]]}`} <span>→</span></button>}</div>
+      {acceptId===order.id&&<div className="admin-decision-form admin-prep-form"><label>Preparation time <span>15–180 minutes · adjust in 5-minute steps</span><div className="admin-prep-input"><input type="number" min="15" max="180" step="5" value={prepMinutes} onChange={(event)=>setPrepMinutes(event.target.value)} /><span>minutes</span></div></label><button className="admin-primary" disabled={busyId===order.id||!Number.isInteger(Number(prepMinutes))||Number(prepMinutes)<15||Number(prepMinutes)>180||Number(prepMinutes)%5!==0} onClick={async()=>{if(await move(order.id,'accepted',null,null,Number(prepMinutes)))setAcceptId(null)}}>{busyId===order.id?'Accepting…':'Confirm & accept'} <span>→</span></button><button className="admin-secondary" onClick={()=>setAcceptId(null)}>Cancel</button></div>}
+      <div className="admin-order-actions">{stageOf(order)==='pending'&&<><button className="admin-primary" disabled={busyId===order.id} onClick={()=>{setPrepMinutes(15);setAcceptId(order.id)}}>Accept order <span>→</span></button><button className="admin-cancel-order" disabled={busyId===order.id} onClick={()=>{setReasonId(order.id);setReason('')}}>Reject</button></>}{({accepted:'preparing',preparing:'ready',ready:'out_for_delivery',out_for_delivery:'payment_received',payment_received:'delivered'})[stageOf(order)]&&<button className="admin-primary" disabled={busyId===order.id} onClick={()=>stageOf(order)==='out_for_delivery'?setPaymentId(order.id):move(order.id,({accepted:'preparing',preparing:'ready',ready:'out_for_delivery',payment_received:'delivered'})[stageOf(order)])}>{stageOf(order)==='out_for_delivery'?'Record payment':`Mark ${LABEL[({accepted:'preparing',preparing:'ready',ready:'out_for_delivery',payment_received:'delivered'})[stageOf(order)]]}`} <span>→</span></button>}</div>
     </article>)}</div> : <div className="admin-empty"><span>⌕</span><b>No matching orders</b><small>Try another status or search term.</small></div>}
   </section>
 }

@@ -71,6 +71,7 @@ create table settings (
   about_founder_instagram_url text not null default '',
   about_founder_portfolio_url text not null default '',
   about_outlet_links jsonb not null default '{}'::jsonb,
+  social_links jsonb not null default '{}'::jsonb,
   offer_variant_id bigint references item_variants(id),
   offer_price int,
   offer_date date,                           -- offer of the day is valid only on this date
@@ -105,6 +106,7 @@ create table orders (
   delivery_fee int not null default 0,
   delivery_fee_before_discount int not null default 0,
   delivery_distance_km numeric(6,2),
+  prep_time_minutes int not null default 15 check (prep_time_minutes between 15 and 180),
   gst_amount int not null default 0,
   coin_discount int not null default 0,
   coins_used int not null default 0,

@@ -253,18 +253,6 @@ export default function Customer({ me, email, reload, installAvailable, installM
   useEffect(() => { loadCatalog() }, [loadCatalog])
 
   useEffect(() => {
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') loadCatalog()
-    }
-    window.addEventListener('focus', refreshWhenVisible)
-    document.addEventListener('visibilitychange', refreshWhenVisible)
-    return () => {
-      window.removeEventListener('focus', refreshWhenVisible)
-      document.removeEventListener('visibilitychange', refreshWhenVisible)
-    }
-  }, [loadCatalog])
-
-  useEffect(() => {
     const key = feedCacheKey(me.id)
     if (readOfflineCache(key)) return
     let active = true
@@ -960,7 +948,7 @@ function History({ me }) {
       <small>{new Date(o.created_at).toLocaleString()}</small>
       {o.order_stage&&!['rejected','cancelled'].includes(o.order_stage)&&<div className="stp">{STEPS.map((s, i) => <i key={s} className={i <= STEPS.indexOf(o.order_stage) ? 'on' : ''} />)}</div>}
       <CustomerOrderJourney order={o}/>
-      {!['delivered','rejected','cancelled'].includes(o.order_stage||'pending')&&<small className="customer-eta">Estimated arrival around {new Date(new Date(o.created_at).getTime()+45*60000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})} · typical delivery takes 35–50 minutes</small>}
+      {!['delivered','rejected','cancelled'].includes(o.order_stage||'pending')&&<small className="customer-eta">Estimated arrival around {new Date(new Date(o.created_at).getTime()+(Number(o.prep_time_minutes)||15)*60000+30*60000).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})} · includes {Number(o.prep_time_minutes)||15} minutes preparation</small>}
       {o.rejection_reason&&<p className="order-rejection">{o.rejection_reason}</p>}
       {o.payment_type&&<small>Paid by {o.payment_type}</small>}
       {o.order_items.map((x) => <div key={x.id}>{x.item_name} x{x.qty}</div>)}
@@ -1189,122 +1177,37 @@ function Maths({ onEnd, onQuit }) {
   )
 }
 
-const GRID_SIZE = 16
-const startSnake = () => ({
-  snake: [{ x: 8, y: 8 }, { x: 7, y: 8 }, { x: 6, y: 8 }],
-  food: { x: 11, y: 8 }, direction: { x: 1, y: 0 }, score: 0, fruit:0,lives:3,left:60,over: false
-})
-
-function SnakeGame({ onEnd, onQuit }) {
-  const gameRef = useRef(startSnake())
-  const directionRef = useRef({ x: 1, y: 0 })
-  const startedAt=useRef(Date.now());const onEndRef=useRef(onEnd);onEndRef.current=onEnd
-  const [game, setGame] = useState(gameRef.current)
-  const setGameState = (next) => { gameRef.current = next; setGame(next) }
-
-  const turn = (next) => {
-    const current = directionRef.current
-    if (next.x === -current.x && next.y === -current.y) return
-    directionRef.current = next
-    setGameState({ ...gameRef.current, direction: next })
-  }
+function EmbeddedGame({ game, title, onEnd, onQuit }) {
+  const frameRef = useRef(null)
+  const onEndRef = useRef(onEnd)
+  const onQuitRef = useRef(onQuit)
+  const endedRef = useRef(false)
+  const gameAsset = game === 'snake' ? 'hungry-snakes-chilli' : 'flying-burger'
+  const gameMessage = game === 'snake' ? 'hungry-snakes' : 'flying-burger'
+  onEndRef.current = onEnd
+  onQuitRef.current = onQuit
 
   useEffect(() => {
-    const onKey = (event) => {
-      const dirs = {
-        ArrowUp: { x: 0, y: -1 }, w: { x: 0, y: -1 },
-        ArrowDown: { x: 0, y: 1 }, s: { x: 0, y: 1 },
-        ArrowLeft: { x: -1, y: 0 }, a: { x: -1, y: 0 },
-        ArrowRight: { x: 1, y: 0 }, d: { x: 1, y: 0 }
+    const receiveGameEvent = (event) => {
+      if (event.source !== frameRef.current?.contentWindow || event.origin !== window.location.origin) return
+      if (event.data?.type === `eat60-${gameMessage}-quit`) {
+        onQuitRef.current()
+      } else if (event.data?.type === `eat60-${gameMessage}-ended` && !endedRef.current) {
+        const { score, elapsedMs } = event.data
+        if (!Number.isInteger(score) || score < 0 || !Number.isFinite(elapsedMs) || elapsedMs < 0) return
+        endedRef.current = true
+        onEndRef.current(score, Math.max(1000, elapsedMs))
       }
-      if (!dirs[event.key]) return
-      event.preventDefault()
-      turn(dirs[event.key])
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('message', receiveGameEvent)
+    return () => window.removeEventListener('message', receiveGameEvent)
   }, [])
 
-  useEffect(() => {
-    let timer;let stopped=false
-    const step=()=>{
-      if(stopped)return
-      const current = gameRef.current
-      if (current.over)return
-      const direction = directionRef.current
-      const head = { x: current.snake[0].x + direction.x, y: current.snake[0].y + direction.y }
-      const ate = head.x === current.food.x && head.y === current.food.y
-      const body = ate ? current.snake : current.snake.slice(0, -1)
-      const hit = head.x < 0 || head.y < 0 || head.x >= GRID_SIZE || head.y >= GRID_SIZE ||
-        body.some((part) => part.x === head.x && part.y === head.y)
-      if (hit) {
-        const lives=current.lives-1
-        if(lives<=0){setGameState({...current,lives:0,over:true});onEndRef.current(current.score,Math.max(1000,Date.now()-startedAt.current));return}
-        directionRef.current={x:1,y:0}
-        setGameState({...startSnake(),score:current.score,fruit:current.fruit,lives,left:current.left})
-      }else{
-        const snake = [head, ...current.snake]
-        if (!ate) snake.pop()
-        let food = current.food;let score=current.score;let fruit=current.fruit;let left=current.left
-        if (ate) {
-          fruit++;score+=10;left=Math.min(90,left+5)
-          do { food = { x: Math.floor(Math.random() * GRID_SIZE), y: Math.floor(Math.random() * GRID_SIZE) } }
-          while (snake.some((part) => part.x === food.x && part.y === food.y))
-        }
-        setGameState({ ...current, snake, food, score,fruit,left })
-      }
-      const latest=gameRef.current
-      if(!latest.over)timer=setTimeout(step,Math.max(75,220-latest.fruit*7))
-    }
-    timer=setTimeout(step,220)
-    return()=>{stopped=true;clearTimeout(timer)}
-  }, [])
-
-  useEffect(()=>{const timer=setInterval(()=>{const current=gameRef.current;if(current.over)return;const left=current.left-1;if(left<=0){const ended={...current,left:0,over:true};setGameState(ended);onEndRef.current(current.score,Math.max(1000,Date.now()-startedAt.current))}else setGameState({...current,left})},1000);return()=>clearInterval(timer)},[])
-
-  const snakeCells = new Set(game.snake.map((part) => part.y * GRID_SIZE + part.x))
-  const headCell = game.snake[0].y * GRID_SIZE + game.snake[0].x
-  const foodCell = game.food.y * GRID_SIZE + game.food.x
   return (
-    <div className="game-stage">
-      <div className="game-stage-head"><button className="game-exit" onClick={onQuit} aria-label="Exit game">←</button><b>HUNGRY SNAKES</b><span>🍎 {game.fruit}</span><span>♥ {game.lives}</span><span>{game.left}s</span><strong>{game.score} pts</strong></div>
-      <div className="snake-board" role="img" aria-label={`Snake game board. Score ${game.score}`}>
-        {Array.from({ length: GRID_SIZE * GRID_SIZE }, (_, cell) => {
-          const partIndex=game.snake.findIndex(part=>part.y*GRID_SIZE+part.x===cell)
-          return <i key={cell} className={`${partIndex>=0 ? 'snake-cell' : ''}${cell === headCell ? ' snake-head' : ''}${cell === foodCell ? ' snake-food' : ''}`} style={partIndex>=0?{'--segment-index':partIndex}:undefined}/>
-        })}
-      </div>
-      <div className="snake-controls" aria-label="Snake controls">
-        <span />
-        <button onClick={() => turn({ x: 0, y: -1 })} aria-label="Move up">↑</button>
-        <span />
-        <button onClick={() => turn({ x: -1, y: 0 })} aria-label="Move left">←</button>
-        <button onClick={() => turn({ x: 0, y: 1 })} aria-label="Move down">↓</button>
-        <button onClick={() => turn({ x: 1, y: 0 })} aria-label="Move right">→</button>
-      </div>
-      <p className="game-hint">Use arrows, WASD or touch controls. Fruit adds points and 5 seconds. Avoid walls and yourself.</p>
-      {game.over&&<div className="game-over-overlay"><small>RUN COMPLETE</small><b>{game.score} POINTS</b><span>{game.fruit} fruit · {game.lives} lives left</span><button className="math-submit" onClick={onQuit}>BACK TO GAMES</button></div>}
+    <div className={`game-stage embedded-game-stage ${game}-html-stage`}>
+      <iframe ref={frameRef} title={title} src={`/${gameAsset}.html?embedded=1`} allow="fullscreen" />
     </div>
   )
-}
-
-function FlyingBurger({ onEnd, onQuit }) {
-  const [state,setState]=useState({bird:48,score:0,lives:2,left:20,pipes:[{id:1,x:108,gap:49,passed:false}],over:false})
-  const stateRef=useRef(state);const velocity=useRef(0);const startRef=useRef(Date.now());const endRef=useRef(false);const immuneUntil=useRef(0);const onEndRef=useRef(onEnd);onEndRef.current=onEnd
-  const update=(next)=>{stateRef.current=next;setState(next)}
-  const flap=()=>{if(!stateRef.current.over)velocity.current=-1.15}
-  useEffect(()=>{const key=e=>{if(e.code==='Space'||e.key==='ArrowUp'){e.preventDefault();flap()}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[])
-  useEffect(()=>{
-    const timer=setInterval(()=>{const current=stateRef.current;if(current.over)return;const elapsed=Math.max(1000,Date.now()-startRef.current);const bird=Math.max(4,Math.min(96,current.bird+(velocity.current+=.075)));let pipes=current.pipes.map(pipe=>({...pipe,x:pipe.x-1.05}));if(pipes[pipes.length-1].x<68)pipes=[...pipes,{id:Date.now(),x:108,gap:23+Math.random()*54,passed:false}];let score=current.score;let crash=false
-      pipes=pipes.map(pipe=>{if(!pipe.passed&&pipe.x<22){score+=10;return{...pipe,passed:true}}if(Date.now()>immuneUntil.current&&pipe.x<28&&pipe.x>12&&(bird<pipe.gap-14||bird>pipe.gap+14))crash=true;return pipe})
-      if(bird<=5||bird>=95)crash=true
-      let lives=current.lives
-      if(crash){lives--;velocity.current=0;if(lives<=0){const ended={...current,score,lives:0,over:true};update(ended);if(!endRef.current){endRef.current=true;onEndRef.current(score,Math.min(24000,elapsed))}return}immuneUntil.current=Date.now()+1100;update({...current,score,lives,bird:48,pipes:pipes.filter(p=>p.x>33)})}else update({...current,score,bird,pipes:pipes.filter(p=>p.x>-15)})
-    },40)
-    const clock=setInterval(()=>{const current=stateRef.current;if(current.over)return;const left=current.left-1;if(left<=0){update({...current,left:0,over:true});if(!endRef.current){endRef.current=true;onEndRef.current(current.score,Math.min(24000,Math.max(1000,Date.now()-startRef.current)))}}else update({...current,left})},1000)
-    return()=>{clearInterval(timer);clearInterval(clock)}
-  },[])
-  return <div className="game-stage burger-game-stage"><div className="game-stage-head"><button className="game-exit" onClick={onQuit} aria-label="Exit game">←</button><b>FLYING BURGER</b><span>♥ {state.lives}</span><span>{state.left}s</span><strong>{state.score} pts</strong></div><div className="burger-arena" onPointerDown={flap} role="button" tabIndex={0} aria-label="Tap anywhere to fly upward"><div className="burger-ground"/><div className="burger-bird" style={{top:`${state.bird}%`}}>🍔</div>{state.pipes.map(pipe=><Fragment key={pipe.id}><i className="burger-pipe top" style={{left:`${pipe.x}%`,height:`${pipe.gap-15}%`}}/><i className="burger-pipe bottom" style={{left:`${pipe.x}%`,top:`${pipe.gap+15}%`,height:`${85-pipe.gap}%`}}/></Fragment>)}<span className="burger-tap-hint">TAP TO FLY</span></div><p className="game-hint">Tap or press ↑ / Space to flap. Fly between the pipes. Two lives.</p>{state.over&&<div className="game-over-overlay"><small>GAME OVER</small><b>{state.score} POINTS</b><button className="math-submit" onClick={onQuit}>BACK TO GAMES</button></div>}</div>
 }
 
 function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange = () => {}, onRequestQuit, quitRef }) {
@@ -1353,7 +1256,7 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
     if (error) return say(error.message)
     sessionId.current = data
     setPlaying(id)
-    setCountdown(5)
+    setCountdown(id === 'snake' ? null : 5)
     onFocus(true)
   }
   const quitGame=()=>{sessionId.current=null;setPlaying(null);setCountdown(null);onFocus(false)}
@@ -1365,8 +1268,8 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
   }
 
   if(countdown!==null)return <div className="game-countdown-screen"><button onClick={requestQuitGame} aria-label="Leave game">×</button><small>GET READY</small><h1>{countdown}</h1><p>{playing==='snake'?'Hungry Snakes':playing==='burger'?'Flying Burger':'Quick Maths'}</p></div>
-  if (playing === 'snake') return <SnakeGame onEnd={(score, ms) => finish('snake', score, ms)} onQuit={requestQuitGame} />
-  if (playing === 'burger') return <FlyingBurger onEnd={(score, ms) => finish('burger', score, ms)} onQuit={requestQuitGame} />
+  if (playing === 'snake') return <EmbeddedGame game="hungry-snakes" title="Hungry Snakes" onEnd={(score, ms) => finish('snake', score, ms)} onQuit={requestQuitGame} />
+  if (playing === 'burger') return <EmbeddedGame game="flying-burger" title="Flying Burger" onEnd={(score, ms) => finish('burger', score, ms)} onQuit={requestQuitGame} />
   if (playing === 'qmaths') return <Maths onEnd={(score, ms) => finish('qmaths', score, ms)} onQuit={requestQuitGame} />
   const daysLeft = 7 - new Date().getDay()
   if (view === 'rankings') return <WeeklyLeague rows={lb} daysLeft={daysLeft || 7} onBack={() => changeView('games')} />
@@ -1716,7 +1619,7 @@ export function AboutPage({ onBack }) {
     let active = true
     Promise.all([
       sb.from('settings')
-        .select('about_founder_name,about_founder_photo_url,about_founder_instagram_url,about_founder_portfolio_url')
+        .select('about_founder_name,about_founder_photo_url,about_founder_instagram_url,about_founder_portfolio_url,social_links')
         .eq('id', 1).maybeSingle(),
       sb.from('brands')
         .select('id,name,emoji,is_open,about_category,about_tagline,zomato_url,swiggy_url')
@@ -1797,6 +1700,13 @@ export function AboutPage({ onBack }) {
         <article><span>🍱</span><h3>The Mealo</h3><small>OUR TIFFIN SERVICE</small><p>Ghar ka khana, delivered to you. Because sometimes you just want food that tastes like home.</p></article>
       </div>
     </section>
+    {Object.entries({ instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp', youtube: 'YouTube', website: 'Website' })
+      .filter(([key]) => /^https?:\/\//i.test(aboutData?.settings?.social_links?.[key] || ''))
+      .length > 0 && <section className="about-business-links">
+        {Object.entries({ instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp', youtube: 'YouTube', website: 'Website' })
+          .filter(([key]) => /^https?:\/\//i.test(aboutData?.settings?.social_links?.[key] || ''))
+          .map(([key, label]) => linkButton(label, aboutData.settings.social_links[key], `business-${key}`))}
+      </section>}
 
     <section className="about-outlets">
       <p className="about-eyebrow">OUR OUTLETS</p>
