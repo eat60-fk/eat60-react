@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sb } from '../../lib/supabase';
 import PoweredFooter from '../../components/PoweredFooter';
-import { adminPathForTab, adminTabForPath, canonicalAdminPath } from '../../lib/adminRoutes';
+import {
+  adminPathForSettingsSection,
+  adminPathForTab,
+  adminSettingsSectionForPath,
+  adminTabForPath,
+  canonicalAdminPath
+} from '../../lib/adminRoutes';
 import { updateRouteMetadata } from '../../lib/routeMetadata';
 import './admin.css';
 
@@ -24,6 +30,26 @@ const NAV_GROUPS = [
   { title: 'CUSTOMERS', items: [['feed', 'Feed'], ['explore', 'More']] }
 ];
 const MOBILE_TABS = [['orders', 'Orders'], ['overview', 'Dashboard'], ['menu', 'Menu'], ['growth', 'Growth'], ['explore', 'More']];
+const SETTINGS_SECTIONS = [
+  {
+    id: 'delivery',
+    title: 'Delivery & fees',
+    description: 'Minimum order, delivery pricing, distance, and free delivery.',
+    icon: '↗'
+  },
+  {
+    id: 'business',
+    title: 'Home & business',
+    description: 'Home offer, partner ad, support contact, and social links.',
+    icon: '⌂'
+  },
+  {
+    id: 'about',
+    title: 'About page',
+    description: 'Founder details and public About page links.',
+    icon: 'ⓘ'
+  }
+];
 const ORDER_FILTERS = [
   ['new', 'New orders'],
   ['preparing', 'Preparing'],
@@ -351,8 +377,7 @@ function AdBannerSettings() {
     timeZone: 'Asia/Kolkata'
   });
   const offerStatus = !selectedVariant ? 'No menu size selected, so the offer banner is hidden.' : form.offer_date > today ? `Scheduled for ${form.offer_date}; it will appear on that date.` : form.offer_date < today ? `The selected date (${form.offer_date}) has passed. Set the display date to today to show it.` : form.offer_ends_at && new Date(form.offer_ends_at).getTime() <= Date.now() ? 'This offer has expired. Set a future end time to show it again.' : `${selectedVariant.item.name} · ${selectedVariant.label} is scheduled to appear on the home page now.`;
-  return <section className="admin-content">
-    <div className="admin-page-heading"><div><p>HOME PAGE & BUSINESS</p><h2>Banner and business links</h2><span>Schedule the home offer, update its countdown, and manage the public Tiffin and social links.</span></div></div>
+  return <section className="admin-settings-form admin-business-settings">
     <div className="admin-feed-editor">
       {loading ? <p className="admin-feedback">Loading offer settings…</p> : <>
         <h3>Offer banner</h3>
@@ -413,7 +438,7 @@ function AdBannerSettings() {
           <label>{key.replaceAll('_', ' ')} URL<input type="url" value={url || ''} onChange={changeSocialLink(key)} placeholder="https://…" /></label>
           <button className="admin-cancel-order" type="button" onClick={() => removeSocialLink(key)} aria-label={`Remove ${key.replaceAll('_', ' ')} link`}>Remove</button>
         </div>)}
-        <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save settings'} <span>→</span></button>
+        <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save home & business settings'} <span>→</span></button>
       </>}
       {message && <p className="admin-feedback" role="status">{message}</p>}
     </div>
@@ -425,6 +450,7 @@ export default function Admin({
 }) {
   const [tab, setTab] = useState(() => adminTabForPath(window.location.pathname));
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([adminTabForPath(window.location.pathname)]));
+  const [settingsSection, setSettingsSection] = useState(() => adminSettingsSectionForPath(window.location.pathname));
   const [orders, setOrders] = useState([]);
   const [ordersError, setOrdersError] = useState('');
   const [connection, setConnection] = useState('connecting');
@@ -446,6 +472,7 @@ export default function Admin({
   soundEnabledRef.current = soundEnabled;
   const visitTab = useCallback(nextTab => {
     setTab(nextTab);
+    if (nextTab === 'settings') setSettingsSection('delivery');
     setVisitedTabs(current => current.has(nextTab) ? current : new Set([...current, nextTab]));
     const nextPath = adminPathForTab(nextTab);
     if (window.location.pathname !== nextPath) {
@@ -457,14 +484,26 @@ export default function Admin({
     const syncAdminRoute = () => {
       const nextPath = canonicalAdminPath(window.location.pathname);
       const nextTab = adminTabForPath(nextPath);
+      const nextSettingsSection = adminSettingsSectionForPath(nextPath);
       if (window.location.pathname !== nextPath) window.history.replaceState({ adminTab: nextTab }, '', nextPath);
       setTab(nextTab);
+      setSettingsSection(nextSettingsSection);
       setVisitedTabs(current => current.has(nextTab) ? current : new Set([...current, nextTab]));
       updateRouteMetadata(nextPath);
     };
     syncAdminRoute();
     window.addEventListener('popstate', syncAdminRoute);
     return () => window.removeEventListener('popstate', syncAdminRoute);
+  }, []);
+  const visitSettingsSection = useCallback(section => {
+    setSettingsSection(section);
+    setTab('settings');
+    setVisitedTabs(current => current.has('settings') ? current : new Set([...current, 'settings']));
+    const nextPath = adminPathForSettingsSection(section);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({ adminTab: 'settings', settingsSection: section }, '', nextPath);
+      updateRouteMetadata(nextPath);
+    }
   }, []);
   const acknowledgeIncomingOrder = useCallback((openOrders = false) => {
     setIncomingOrders(current => current.slice(1));
@@ -661,7 +700,7 @@ export default function Admin({
       }} /></div>}
       {visitedTabs.has('growth') && <div hidden={tab !== 'growth'}><Growth orders={orders} /></div>}
       {visitedTabs.has('explore') && <div hidden={tab !== 'explore'}><Explore onNavigate={visitTab} /></div>}
-      {visitedTabs.has('settings') && <div hidden={tab !== 'settings'}><DeliverySettings /><AdBannerSettings /><AboutPageSettings /></div>}
+      {visitedTabs.has('settings') && <div hidden={tab !== 'settings'}><SettingsWorkspace section={settingsSection} onSelect={visitSettingsSection} /></div>}
       {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} /></div>}
       {visitedTabs.has('menu') && <div hidden={tab !== 'menu'}><Menu /></div>}
       {visitedTabs.has('outlets') && <div hidden={tab !== 'outlets'}><Outlets /></div>}
@@ -671,6 +710,40 @@ export default function Admin({
       <PoweredFooter className="admin-footer" />
     </main>;
 }
+
+function SettingsWorkspace({ section, onSelect }) {
+  const activeSection = SETTINGS_SECTIONS.find(item => item.id === section) || SETTINGS_SECTIONS[0];
+  return <section className="admin-content admin-settings-workspace">
+    <div className="admin-page-heading">
+      <div>
+        <p>ADMIN PREFERENCES</p>
+        <h2>Settings</h2>
+        <span>Choose one area to update. Each section saves independently.</span>
+      </div>
+    </div>
+    <nav className="admin-setting-picker" aria-label="Settings sections">
+      {SETTINGS_SECTIONS.map(item => <button
+        key={item.id}
+        type="button"
+        className={section === item.id ? 'active' : ''}
+        aria-current={section === item.id ? 'page' : undefined}
+        onClick={() => onSelect(item.id)}
+      >
+        <span className="admin-setting-icon" aria-hidden="true">{item.icon}</span>
+        <span className="admin-setting-option-copy"><b>{item.title}</b><small>{item.description}</small></span>
+        <span className="admin-setting-arrow" aria-hidden="true">→</span>
+      </button>)}
+    </nav>
+    <div className="admin-setting-active-heading">
+      <div><span>EDITING</span><h3>{activeSection.title}</h3></div>
+      <p>{activeSection.description}</p>
+    </div>
+    <div hidden={section !== 'delivery'}><DeliverySettings /></div>
+    <div hidden={section !== 'business'}><AdBannerSettings /></div>
+    <div hidden={section !== 'about'}><AboutPageSettings /></div>
+  </section>;
+}
+
 function AboutPageSettings() {
   const [form, setForm] = useState({
     about_founder_name: '',
@@ -753,8 +826,7 @@ function AboutPageSettings() {
       setMessage('About page settings saved.');
     }
   };
-  return <section className="admin-content admin-about-settings">
-    <div className="admin-page-heading"><div><p>PUBLIC ABOUT PAGE</p><h2>About page settings</h2><span>Update the founder profile, social links, and ordering links shown on /about.</span></div></div>
+  return <section className="admin-settings-form admin-about-settings">
     <div className="admin-feed-editor">
       <h3>Founder profile</h3>
       <div className="admin-form-grid">
@@ -826,8 +898,7 @@ function DeliverySettings() {
       setMessage('Delivery settings saved.');
     }
   };
-  return <section className="admin-content admin-delivery-settings">
-    <div className="admin-page-heading"><div><p>CHECKOUT & DELIVERY</p><h2>Delivery settings</h2><span>Base fee covers the minimum distance. Extra distance is charged per km; orders above the free-delivery minimum pay ₹0.</span></div></div>
+  return <section className="admin-settings-form admin-delivery-settings">
     <div className="admin-feed-editor">
       <div className="admin-form-grid">
         <label>Base delivery fee ₹<input type="number" min="0" step="1" value={form.delivery_fee} onChange={change('delivery_fee')} /></label>

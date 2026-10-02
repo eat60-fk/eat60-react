@@ -9831,8 +9831,11 @@ nav b {
     grid-template-columns: repeat(2,minmax(0,1fr))
   }
   .admin-sales-chart {
-    grid-template-columns: repeat(7,minmax(0,1fr));
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(42px, 1fr);
+    grid-template-columns: none;
     gap: 4px;
+    overflow-x: auto;
     padding: 12px 5px 2px
   }
   .admin-sales-bar-value {
