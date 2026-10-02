@@ -53,6 +53,11 @@ create table settings (
   id int primary key default 1 check (id = 1),
   delivery_fee int not null default 20,
   min_order int not null default 99,
+  min_delivery_km numeric(6,2) not null default 2,
+  delivery_per_km int not null default 5,
+  free_delivery_minimum int not null default 0,
+  delivery_free boolean not null default false,
+  max_delivery_km numeric(6,2) not null default 5,
   max_coin_pct int not null default 20,      -- coins can pay at most this % of the items total
   daily_coin_cap int not null default 50,    -- max coins a player can earn from games per day
   streak_break_days int not null default 30, -- streak resets after this many days with no order
@@ -83,8 +88,12 @@ create table orders (
   status order_status not null default 'placed',
   address text,
   phone text,
+  customer_name text,
   subtotal int not null default 0,
   delivery_fee int not null default 0,
+  delivery_fee_before_discount int not null default 0,
+  delivery_distance_km numeric(6,2),
+  gst_amount int not null default 0,
   coin_discount int not null default 0,
   coins_used int not null default 0,
   total int not null default 0,

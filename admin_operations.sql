@@ -6,9 +6,18 @@ grant execute on function public.is_admin() to anon, authenticated;
 
 alter table public.settings
   add column if not exists store_online boolean not null default true,
-  add column if not exists offline_message text not null default 'We are offline right now. Please check back soon.';
+  add column if not exists offline_message text not null default 'We are offline right now. Please check back soon.',
+  add column if not exists min_delivery_km numeric(6,2) not null default 2,
+  add column if not exists delivery_per_km int not null default 5,
+  add column if not exists free_delivery_minimum int not null default 0,
+  add column if not exists delivery_free boolean not null default false,
+  add column if not exists max_delivery_km numeric(6,2) not null default 5;
 
 alter table public.orders
+  add column if not exists customer_name text,
+  add column if not exists delivery_fee_before_discount int not null default 0,
+  add column if not exists delivery_distance_km numeric(6,2),
+  add column if not exists gst_amount int not null default 0,
   add column if not exists order_stage text not null default 'pending',
   add column if not exists accepted_at timestamptz,
   add column if not exists ready_at timestamptz,
@@ -139,6 +148,28 @@ grant select, insert, update, delete on public.coupons to authenticated;
 grant select on public.coupon_redemptions to authenticated;
 grant usage, select on sequence public.item_extras_id_seq, public.coupons_id_seq, public.coupon_redemptions_id_seq to authenticated;
 
+create or replace function public.customer_available_coupons()
+returns table(
+  code text,
+  description text,
+  discount_type text,
+  discount_value int,
+  minimum_order int,
+  maximum_discount int,
+  expires_at timestamptz
+)
+language sql stable security definer set search_path=public as $$
+  select c.code,c.description,c.discount_type,c.discount_value,c.minimum_order,c.maximum_discount,c.expires_at
+  from public.coupons c
+  where auth.uid() is not null
+    and c.is_active
+    and (c.starts_at is null or now()>=c.starts_at)
+    and (c.expires_at is null or now()<c.expires_at)
+    and (c.usage_limit is null or c.used_count<c.usage_limit)
+    and (select count(*) from public.coupon_redemptions r where r.coupon_id=c.id and r.user_id=auth.uid())<c.per_user_limit
+  order by c.created_at desc
+$$;
+
 create or replace function public.claim_streak_reward(p_milestone int)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare v_gift text; v_best int;
@@ -193,8 +224,15 @@ begin
   return jsonb_build_object('valid',true,'code',c.code,'description',c.description,'discount_amount',v_discount);
 end $$;
 
+drop function if exists public.place_order_with_coupon(jsonb,boolean,text,text,text);
 create or replace function public.place_order_with_coupon(
-  p_items jsonb, p_use_coins boolean, p_address text, p_phone text, p_coupon_code text default null
+  p_items jsonb,
+  p_use_coins boolean,
+  p_address text,
+  p_phone text,
+  p_coupon_code text default null,
+  p_customer_name text default null,
+  p_distance_km numeric default null
 )
 returns bigint language plpgsql security definer set search_path = public as $$
 declare
@@ -202,6 +240,7 @@ declare
   r record; e record; x record; v record; v_oid bigint;
   v_sub int:=0; v_unit int; v_extra_price int; v_coin_discount int:=0;
   v_coins_used int:=0; v_coupon_discount int:=0; v_total int; v_extra_details jsonb;
+  v_delivery_fee int; v_delivery_fee_before_discount int; v_gst_amount int;
   v_user_uses int; v_coupon_code text;
 begin
   if auth.uid() is null then raise exception 'Please log in first'; end if;
@@ -210,12 +249,24 @@ begin
   if not coalesce(s.store_online,true) then raise exception '%',coalesce(s.offline_message,'Ordering is offline right now.'); end if;
   select * into p from profiles where id=auth.uid() for update;
   if coalesce(trim(p_address),'')='' then raise exception 'Delivery address is required'; end if;
+  if coalesce(trim(p_phone),'')='' then raise exception 'Phone number is required'; end if;
+  if coalesce(trim(p_customer_name),trim(p.name),'')='' then raise exception 'Customer name is required'; end if;
+  if p_distance_km is not null and (p_distance_km<0 or p_distance_km>s.max_delivery_km) then
+    raise exception 'Delivery is available only within % km',s.max_delivery_km;
+  end if;
 
-  insert into orders(user_id,address,phone,delivery_fee,order_stage)
-  values(auth.uid(),trim(p_address),nullif(trim(p_phone),''),s.delivery_fee,'pending') returning id into v_oid;
+  insert into orders(
+    user_id,address,phone,customer_name,delivery_fee,delivery_fee_before_discount,delivery_distance_km,order_stage
+  )
+  values(
+    auth.uid(),trim(p_address),nullif(trim(p_phone),''),coalesce(nullif(trim(p_customer_name),''),p.name),
+    0,0,p_distance_km,'pending'
+  ) returning id into v_oid;
 
   for r in select value from jsonb_array_elements(p_items) loop
-    select vr.id as variant_id,vr.item_id,vr.price,vr.label,i.name,i.brand_id,i.is_available,b.is_open
+    select vr.id as variant_id,vr.item_id,
+      case when vr.id=s.offer_variant_id and s.offer_date=today_ist() then s.offer_price else vr.price end as price,
+      vr.label,i.name,i.brand_id,i.is_available,b.is_open
     into v from item_variants vr join menu_items i on i.id=vr.item_id join brands b on b.id=i.brand_id
     where vr.id=(r.value->>'variant_id')::bigint;
     if not found then raise exception 'A selected menu size no longer exists'; end if;
@@ -234,6 +285,19 @@ begin
     v_sub:=v_sub+v_unit*greatest(1,least(20,coalesce((r.value->>'qty')::int,1)));
   end loop;
   if v_sub<s.min_order then raise exception 'Minimum order is ₹%',s.min_order; end if;
+
+  v_delivery_fee_before_discount:=coalesce(s.delivery_fee,0)+ceil(
+    greatest(0,coalesce(p_distance_km,s.min_delivery_km)-s.min_delivery_km)*coalesce(s.delivery_per_km,0)
+  )::int;
+  v_delivery_fee:=case
+    when coalesce(s.delivery_free,false)
+      or (coalesce(s.free_delivery_minimum,0)>0 and v_sub>=s.free_delivery_minimum) then 0
+    else v_delivery_fee_before_discount
+  end;
+  v_gst_amount:=round(v_sub*5.0/105.0)::int;
+
+  update orders set delivery_fee=v_delivery_fee,
+    delivery_fee_before_discount=v_delivery_fee_before_discount,gst_amount=v_gst_amount where id=v_oid;
 
   v_coupon_code:=nullif(upper(trim(coalesce(p_coupon_code,''))),'');
   if v_coupon_code is not null then
@@ -254,7 +318,7 @@ begin
     v_coins_used:=v_coin_discount*100;
     if v_coins_used>0 then update profiles set coins=coins-v_coins_used where id=auth.uid(); end if;
   end if;
-  v_total:=greatest(0,v_sub+coalesce(s.delivery_fee,0)-v_coupon_discount-v_coin_discount);
+  v_total:=greatest(0,v_sub+v_delivery_fee-v_coupon_discount-v_coin_discount);
   update orders set subtotal=v_sub,coupon_code=v_coupon_code,coupon_discount=v_coupon_discount,
     coin_discount=v_coin_discount,coins_used=v_coins_used,total=v_total where id=v_oid;
   if v_coupon_code is not null then
@@ -361,13 +425,15 @@ begin
 end $$;
 
 revoke all on function public.validate_coupon(text,int) from public,anon;
-revoke all on function public.place_order_with_coupon(jsonb,boolean,text,text,text) from public,anon;
+revoke all on function public.customer_available_coupons() from public,anon;
+revoke all on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric) from public,anon;
 revoke all on function public.admin_update_order(bigint,text,text,text) from public,anon;
 revoke all on function public.auto_reject_expired_orders() from public,anon,authenticated;
 revoke all on function public.admin_delete_outlet(text) from public,anon;
 revoke all on function public.set_order_status(bigint,order_status) from public,anon,authenticated;
 grant execute on function public.validate_coupon(text,int) to authenticated;
-grant execute on function public.place_order_with_coupon(jsonb,boolean,text,text,text) to authenticated;
+grant execute on function public.customer_available_coupons() to authenticated;
+grant execute on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric) to authenticated;
 grant execute on function public.admin_update_order(bigint,text,text,text) to authenticated;
 grant execute on function public.admin_delete_outlet(text) to authenticated;
 revoke all on function public.place_order(jsonb,boolean,text,text) from public,anon,authenticated;
@@ -410,6 +476,9 @@ do $$ begin
   end if;
   if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='reactions') then
     alter publication supabase_realtime add table public.reactions;
+  end if;
+  if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='feed_posts') then
+    alter publication supabase_realtime add table public.feed_posts;
   end if;
 end $$;
 

@@ -20,7 +20,7 @@ const PROFILE_AVATARS = [
   { skin: '#b6775c', hairColor: '#263d4b', shirt: '#f08068', bg: '#ffe0d4', gender: 'other', style: 'waves' }
 ]
 const DELIVERY_POINT = { latitude: 25.764105, longitude: 84.151860 }
-const DELIVERY_RADIUS_KM = 5
+const DEFAULT_DELIVERY_RADIUS_KM = 5
 
 function distanceInKm(from, to) {
   const radians = (degrees) => degrees * Math.PI / 180
@@ -88,19 +88,27 @@ function ActionIcon({ name }) {
   return <svg {...props}><path d="M7 10h34v7a4 4 0 0 0 0 8v7H7v-7a4 4 0 0 0 0-8v-7Z"/><path d="M25 12v3m0 6v3m0 6v3"/></svg>
 }
 
-export default function Customer({ me, email, reload }) {
+export default function Customer({ me, email, reload, onOpenDownload, installAvailable, installMessage }) {
   const [tab, setTab] = useState('home')
   const [gameView, setGameView] = useState('games')
   const [gameFocus,setGameFocus]=useState(false)
   const [moreInitialPage, setMoreInitialPage] = useState(null)
   const [cart, setCart] = useState([])
+  const [selectedVoucher, setSelectedVoucher] = useState('')
   const [rank, setRank] = useState(null)
+  const [fullscreenNotice, setFullscreenNotice] = useState(null)
   const [data, setData] = useState({ brands: [], items: [], cfg: {}, ratings: {}, ratingError: '' })
   const [toast, setToast] = useState('')
   const [locationStatus, setLocationStatus] = useState('idle')
   const [locationLabel, setLocationLabel] = useState('Harpur, Ballia')
 
   const say = (m) => { setToast(m); setTimeout(() => setToast(''), 2400) }
+  const handleDelivered = useCallback((orderId) => {
+    const key = `eat60:delivered:${orderId}`
+    if (sessionStorage.getItem(key)) return
+    sessionStorage.setItem(key, 'shown')
+    setFullscreenNotice({ type: 'order-delivered', id: orderId })
+  }, [])
 
   const reloadRatings = useCallback(async () => {
     const { data: ratings, error } = await sb
@@ -140,6 +148,28 @@ export default function Customer({ me, email, reload }) {
     })
   }, [])
 
+  useEffect(() => {
+    const channel = sb.channel(`customer-announcements-${me.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_posts' }, ({ new: post }) => {
+        if (post.kind !== 'news') return
+        const key = `eat60:announcement:${post.id}`
+        if (sessionStorage.getItem(key)) return
+        sessionStorage.setItem(key, 'shown')
+        setFullscreenNotice({ type: 'announcement', id: post.id, message: post.body })
+      })
+      .subscribe()
+    return () => { sb.removeChannel(channel) }
+  }, [me.id])
+
+  useEffect(() => {
+    const channel = sb.channel(`customer-order-milestones-${me.id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `user_id=eq.${me.id}` }, ({ new: order }) => {
+        if (order.order_stage === 'delivered') handleDelivered(order.id)
+      })
+      .subscribe()
+    return () => { sb.removeChannel(channel) }
+  }, [handleDelivered, me.id])
+
   const price = (v) =>
     v.id === data.cfg.offer_variant_id && data.cfg.offer_date === today() ? data.cfg.offer_price : v.price
 
@@ -157,7 +187,10 @@ export default function Customer({ me, email, reload }) {
 
   const n = cart.reduce((a, x) => a + x.qty, 0)
   const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0)
-  const floatingCartTotal = cartSubtotal + Number(data.cfg.delivery_fee || 0)
+  const floatingDeliveryFee = data.cfg.delivery_free === true || (Number(data.cfg.free_delivery_minimum) > 0 && cartSubtotal >= Number(data.cfg.free_delivery_minimum))
+    ? 0
+    : Number(data.cfg.delivery_fee || 0)
+  const floatingCartTotal = cartSubtotal + floatingDeliveryFee
   const go = (t) => { if(t!=='games')setGameFocus(false);setTab(t); window.scrollTo(0, 0) }
   const goGames = (view = 'games') => { setGameView(view); go('games') }
   const goMore = (page = null) => { setMoreInitialPage(page); go('more') }
@@ -175,12 +208,13 @@ export default function Customer({ me, email, reload }) {
           DELIVERY_POINT
         )
         const roundedDistance = distance.toFixed(1)
-        const available = distance <= DELIVERY_RADIUS_KM
+        const deliveryRadius = Number(data.cfg.max_delivery_km) || DEFAULT_DELIVERY_RADIUS_KM
+        const available = distance <= deliveryRadius
         setLocationStatus(available ? 'available' : 'unavailable')
         setLocationLabel(available ? 'Delivery available' : 'Delivery unavailable')
         say(available
           ? `You’re ${roundedDistance} km away. Delivery is available.`
-          : `Delivery is not available at your location (${roundedDistance} km away; 5 km limit).`)
+          : `Delivery is not available at your location (${roundedDistance} km away; ${deliveryRadius} km limit).`)
       },
       (error) => {
         setLocationStatus('error')
@@ -212,14 +246,15 @@ export default function Customer({ me, email, reload }) {
 
       {tab === 'home' && <Home data={data} add={add} price={price} go={go} goMore={goMore} goGames={goGames} say={say} me={me} reloadRatings={reloadRatings} />}
       {tab === 'cart' && (
-        <Cart cart={cart} setCart={setCart} cfg={data.cfg} me={me} say={say}
-          done={() => { reload(); go('hist') }} />
+        <Cart cart={cart} setCart={setCart} cfg={data.cfg} me={me} say={say} voucherCode={selectedVoucher}
+          done={(orderId) => { setSelectedVoucher(''); reload(); setFullscreenNotice({ type: 'order-placed', id: orderId }) }} />
       )}
       {tab === 'hist' && <History me={me} />}
       {tab === 'feed' && <Feed me={me} say={say} />}
       {tab === 'games' && <div className={`game-focus-surface${gameFocus?' focused':''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} /></div>}
       {tab === 'wallet' && <Wallet me={me} onBack={() => go('home')} />}
-      {tab === 'more' && <More me={me} email={email} reload={reload} go={go} goGames={goGames} say={say} initialPage={moreInitialPage} />}
+      {tab === 'more' && <More me={me} email={email} reload={reload} go={go} goGames={goGames} say={say} initialPage={moreInitialPage}
+        onSelectVoucher={(code) => { setSelectedVoucher(code); go('cart') }} installAvailable={installAvailable} installMessage={installMessage} />}
 
       <PoweredFooter />
 
@@ -236,8 +271,40 @@ export default function Customer({ me, email, reload }) {
         <span className="floating-cart-icon"><NavigationIcon name="cart" /><b>{n}</b></span><span className="floating-cart-copy"><small>{n} {n === 1 ? 'ITEM' : 'ITEMS'}</small><strong>₹{floatingCartTotal.toLocaleString('en-IN')}</strong></span><span className="floating-cart-arrow">→</span>
       </button>}
       {toast && <div className="toast">{toast}</div>}
+      {fullscreenNotice && <FullscreenNotice notice={fullscreenNotice}
+        onClose={() => { const goHome = fullscreenNotice.type === 'order-placed'; setFullscreenNotice(null); if (goHome) go('home') }}
+        onTrackOrder={() => { setFullscreenNotice(null); go('hist') }}
+        onViewFeed={() => { setFullscreenNotice(null); go('feed') }} />}
     </div>
   )
+}
+
+function FullscreenNotice({ notice, onClose, onTrackOrder, onViewFeed }) {
+  const announcement = notice.type === 'announcement'
+  const delivered = notice.type === 'order-delivered'
+  const title = announcement ? 'A note from EAT60' : delivered ? 'Order delivered!' : 'Order placed!'
+  const detail = announcement
+    ? notice.message
+    : delivered
+      ? `Order #${notice.id} has arrived. Enjoy your meal!`
+      : `Order #${notice.id} is with the kitchen. We’ll keep you updated as it moves along.`
+  return <div className={`fullscreen-notice${announcement ? ' is-announcement' : ''}`} role="dialog" aria-modal="true" aria-labelledby="fullscreen-notice-title">
+    <div className="reward-screen-rays" aria-hidden="true" />
+    <div className={`notice-animation-icon ${announcement ? 'notice-megaphone' : delivered ? 'notice-delivered' : 'notice-placed'}`} aria-hidden="true">
+      <span>{announcement ? '✳' : delivered ? '✓' : '✓'}</span>
+      {!announcement && <i />}
+    </div>
+    <p className="notice-kicker">{announcement ? 'ANNOUNCEMENT' : delivered ? 'GOOD FOOD, RIGHT ON TIME' : 'THANK YOU FOR YOUR ORDER'}</p>
+    <h1 id="fullscreen-notice-title">{title}</h1>
+    <p className="notice-detail">{detail}</p>
+    <div className="notice-progress" aria-hidden="true"><i /></div>
+    <div className="notice-actions">
+      {announcement
+        ? <button className="reward-claim-primary" onClick={onViewFeed}>VIEW FEED</button>
+        : <button className="reward-claim-primary" onClick={onTrackOrder}>{delivered ? 'VIEW ORDER' : 'TRACK YOUR ORDER'}</button>}
+      <button className="reward-claim-later" onClick={onClose}>{announcement ? 'CLOSE' : 'CONTINUE'}</button>
+    </div>
+  </div>
 }
 
 function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings }) {
@@ -350,10 +417,15 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
       {open && (
         <>
           <div className="bk" onClick={() => setOpen(null)} />
-          <div className="sheet">
-            <div className="grab" />
-            <h2>{open.name}</h2>
-            <small>{open.description}</small>
+          <div className="sheet" role="dialog" aria-modal="true" aria-label={`${open.name} options`}>
+            <button type="button" className="grab" onClick={() => setOpen(null)} aria-label="Close item options" />
+            <div className="sheet-item-heading">
+              {open.image_url && <img className="sheet-item-image" src={open.image_url} alt={open.name} />}
+              <div className="sheet-item-copy">
+                <h2>{open.name}</h2>
+                {open.description && <small>{open.description}</small>}
+              </div>
+            </div>
             {(open.item_extras||[]).some(e=>e.is_available)&&<div className="extra-picker"><b>Add extras</b>{open.item_extras.filter(e=>e.is_available).map(x=><label key={x.id}><input type="checkbox" checked={selectedExtras.some(e=>e.id===x.id)} onChange={e=>setSelectedExtras(a=>e.target.checked?[...a,x]:a.filter(y=>y.id!==x.id))}/><span>{x.name}</span><strong>+₹{x.price}</strong></label>)}</div>}
             {sorted(open).map((v) => (
               <div key={v.id} className="vr">
@@ -368,34 +440,105 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
   )
 }
 
-function Cart({ cart, setCart, cfg, me, say, done }) {
+function Cart({ cart, setCart, cfg, me, say, done, voucherCode }) {
   const [useCoins, setUseCoins] = useState(false)
-  const [addr, setAddr] = useState('')
-  const [ph, setPh] = useState('')
+  const [customerName, setCustomerName] = useState(me.name || '')
+  const [addr, setAddr] = useState([me.address, me.area, me.city].filter(Boolean).join(', '))
+  const [ph, setPh] = useState(me.phone || '')
   const [busy, setBusy] = useState(false)
-  const [coupon,setCoupon]=useState('');const [couponResult,setCouponResult]=useState(null)
-
-  if (!cart.length) return <div className="empty">Your cart is empty. Add something from Home.</div>
+  const [coupon, setCoupon] = useState('')
+  const [couponResult, setCouponResult] = useState(null)
+  const [deliveryDistance, setDeliveryDistance] = useState(null)
+  const [locationMessage, setLocationMessage] = useState('')
 
   // These numbers are only a preview. The server recalculates the real total.
   const sub = cart.reduce((a, x) => a + x.price * x.qty, 0)
-  const couponDisc=Number(couponResult?.discount_amount||0)
-  const disc = useCoins ? Math.min(Math.floor(me.coins / 100), Math.floor((Math.max(0,sub-couponDisc) * (cfg.max_coin_pct || 20)) / 100)) : 0
-  const total = sub + (cfg.delivery_fee || 0) - disc - couponDisc
+  const couponDisc = Number(couponResult?.discount_amount || 0)
+  const minDistance = Number(cfg.min_delivery_km || 0)
+  const extraDistance = Math.max(0, (deliveryDistance ?? minDistance) - minDistance)
+  const distanceFee = Math.ceil(extraDistance * Number(cfg.delivery_per_km || 0))
+  const deliveryFeeBeforeDiscount = Number(cfg.delivery_fee || 0) + distanceFee
+  const freeDeliveryMinimum = Number(cfg.free_delivery_minimum || 0)
+  const freeDelivery = cfg.delivery_free === true || (freeDeliveryMinimum > 0 && sub >= freeDeliveryMinimum)
+  const deliveryFee = freeDelivery ? 0 : deliveryFeeBeforeDiscount
+  const deliveryRadius = Number(cfg.max_delivery_km) || DEFAULT_DELIVERY_RADIUS_KM
+  const beyondDeliveryRadius = deliveryDistance !== null && deliveryDistance > deliveryRadius
+  const minimumOrder = Number(cfg.min_order || 0)
+  const minimumOrderMet = sub >= minimumOrder
+  const disc = useCoins ? Math.min(Math.floor(me.coins / 100), Math.floor((Math.max(0, sub - couponDisc) * (cfg.max_coin_pct || 20)) / 100)) : 0
+  const gstIncluded = Math.round(sub * 5 / 105)
+  const total = Math.max(0, sub + deliveryFee - disc - couponDisc)
   const qty = (k, d) => { setCouponResult(null); setCart((c) => c.map((x, i) => (i === k ? { ...x, qty: x.qty + d } : x)).filter((x) => x.qty > 0)) }
 
   const place = async () => {
+    if (!customerName.trim() || !ph.trim() || !addr.trim()) return say('Enter your name, phone number, and delivery address.')
+    if (!minimumOrderMet) return say(`Minimum order is ₹${minimumOrder}.`)
+    if (beyondDeliveryRadius) return say(`Delivery is available only within ${deliveryRadius} km.`)
     setBusy(true)
-    const { error } = await sb.rpc('place_order_with_coupon', {
-      p_items: cart.map((x) => ({ variant_id: x.vid, qty: x.qty, extras:(x.extras||[]).map(e=>({id:e.id})) })),
-      p_use_coins: useCoins, p_address: addr, p_phone: ph, p_coupon_code:couponResult?.code||null
-    })
-    setBusy(false)
-    if (error) return say(error.message)
-    setCart([])
-    done()
+    try {
+      const { data: orderId, error } = await sb.rpc('place_order_with_coupon', {
+        p_items: cart.map((x) => ({ variant_id: x.vid, qty: x.qty, extras:(x.extras||[]).map(e=>({id:e.id})) })),
+        p_use_coins: useCoins,
+        p_address: addr,
+        p_phone: ph,
+        p_coupon_code: couponResult?.code || null,
+        p_customer_name: customerName,
+        p_distance_km: deliveryDistance === null ? null : Number(deliveryDistance.toFixed(2))
+      })
+      if (error) return say(error.message)
+      setCart([])
+      done(orderId)
+    } catch (error) {
+      say(error.message || 'Could not place the order. Please try again.')
+    } finally {
+      setBusy(false)
+    }
   }
-  const validateCoupon=async()=>{const {data,error}=await sb.rpc('validate_coupon',{p_code:coupon,p_subtotal:sub});if(error){setCouponResult(null);return say(error.message)}if(!data?.valid){setCouponResult(null);return say(data?.message||'Coupon unavailable')}setCouponResult(data);say(`Coupon applied · save ₹${data.discount_amount}`)}
+  const validateCoupon = useCallback(async (code = coupon) => {
+    try {
+      const { data, error } = await sb.rpc('validate_coupon', { p_code: code, p_subtotal: sub })
+      if (error) { setCouponResult(null); return say(error.message) }
+      if (!data?.valid) { setCouponResult(null); return say(data?.message || 'Coupon unavailable') }
+      setCouponResult(data)
+      setCoupon(data.code)
+      say(`Voucher applied · save ₹${data.discount_amount}`)
+    } catch (error) {
+      setCouponResult(null)
+      say(error.message || 'Could not validate the voucher. Please try again.')
+    }
+  }, [coupon, sub, say])
+  useEffect(() => {
+    if (voucherCode) {
+      setCoupon(voucherCode)
+      validateCoupon(voucherCode)
+    }
+  }, [voucherCode])
+  useEffect(() => {
+    setCustomerName(me.name || '')
+    setAddr([me.address, me.area, me.city].filter(Boolean).join(', '))
+    setPh(me.phone || '')
+  }, [me.id, me.name, me.address, me.area, me.city, me.phone])
+  const checkDeliveryDistance = () => {
+    if (!navigator.geolocation) {
+      setLocationMessage('Location is not supported. Enter your delivery address to continue with the base fee.')
+      return
+    }
+    setLocationMessage('Finding your location…')
+    navigator.geolocation.getCurrentPosition(({ coords }) => {
+      const distance = distanceInKm({ latitude: coords.latitude, longitude: coords.longitude }, DELIVERY_POINT)
+      const roundedDistance = Number(distance.toFixed(2))
+      setDeliveryDistance(roundedDistance)
+      if (roundedDistance > deliveryRadius) setLocationMessage(`You are ${roundedDistance.toFixed(1)} km away; delivery is available within ${deliveryRadius} km.`)
+      else setLocationMessage(`Estimated distance: ${roundedDistance.toFixed(1)} km.`)
+    }, (error) => {
+      setDeliveryDistance(null)
+      setLocationMessage(error.code === error.PERMISSION_DENIED
+        ? 'Location permission was denied. Enter your address to continue with the base fee.'
+        : 'Could not detect your location. Enter your address to continue with the base fee.')
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 })
+  }
+
+  if (!cart.length) return <div className="empty">Your cart is empty. Add something from Home.</div>
 
   return (
     <>
@@ -410,21 +553,34 @@ function Cart({ cart, setCart, cfg, me, say, done }) {
         </div>
       ))}
       <div className="card">
+        <div className="cart-customer-fields">
+          <label>Full name<input autoComplete="name" maxLength={80} value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Full name" required /></label>
+          <label>Delivery address<input autoComplete="street-address" maxLength={240} value={addr} onChange={(event) => setAddr(event.target.value)} placeholder="House, street, landmark" required /></label>
+          <label>Phone number<input autoComplete="tel" inputMode="tel" maxLength={20} value={ph} onChange={(event) => setPh(event.target.value)} placeholder="Phone number" required /></label>
+        </div>
+        <button type="button" className="delivery-location-button" onClick={checkDeliveryDistance}>⌖ Use current location for distance</button>
+        {locationMessage && <small className={`delivery-location-message${beyondDeliveryRadius ? ' unavailable' : ''}`} role="status">{locationMessage}</small>}
         <label className="row">
           <input type="checkbox" style={{ width: 20 }} checked={useCoins} onChange={(e) => setUseCoins(e.target.checked)} />
           <span>Use coins (100 coins = ₹1). You have {me.coins}.</span>
         </label>
-        <input placeholder="Delivery address" value={addr} onChange={(e) => setAddr(e.target.value)} />
-        <input placeholder="Phone number" value={ph} onChange={(e) => setPh(e.target.value)} />
-        <div className="coupon-entry"><input placeholder="Promo code" value={coupon} onChange={e=>{setCoupon(e.target.value.toUpperCase());setCouponResult(null)}}/><button type="button" className="pill" onClick={validateCoupon}>Apply</button></div>
-        {couponResult&&<small className="coupon-applied">{couponResult.code} applied · save ₹{couponDisc}</small>}
-        <div className="row between"><span>Items</span><span>₹{sub}</span></div>
-        {couponDisc>0&&<div className="row between ac"><span>Promo discount</span><span>-₹{couponDisc}</span></div>}
-        <div className="row between"><span>Delivery</span><span>₹{cfg.delivery_fee || 0}</span></div>
-        {disc > 0 && <div className="row between ac"><span>Coin discount</span><span>-₹{disc}</span></div>}
-        <div className="row between"><h3>Total</h3><h3>₹{total}</h3></div>
+        <div className="coupon-entry"><input aria-label="Voucher code" placeholder="Coupon / voucher code" value={coupon} onChange={e => { setCoupon(e.target.value.toUpperCase()); setCouponResult(null) }} /><button type="button" className="pill" onClick={() => validateCoupon()}>Apply</button></div>
+        {couponResult && <small className="coupon-applied">{couponResult.code} applied · save ₹{couponDisc}</small>}
+        <div className="cart-price-breakdown">
+          {!minimumOrderMet && <p className="cart-minimum-note">Add ₹{minimumOrder - sub} more to meet the ₹{minimumOrder} minimum order.</p>}
+          <div className="row between"><span>Items (GST included)</span><span>₹{sub}</span></div>
+          <div className="row between cart-gst-row"><span>GST included (5%)</span><span>₹{gstIncluded}</span></div>
+          {couponDisc > 0 && <div className="row between ac"><span>Voucher discount</span><span>-₹{couponDisc}</span></div>}
+          <div className="row between"><span>Delivery{deliveryDistance !== null ? ` · ${deliveryDistance.toFixed(1)} km` : ''}</span>
+            {freeDelivery
+              ? <span className="delivery-waived"><s>₹{deliveryFeeBeforeDiscount}</s> <b>FREE · ₹0</b></span>
+              : <span>₹{deliveryFee}</span>}
+          </div>
+          {disc > 0 && <div className="row between ac"><span>Coin discount</span><span>-₹{disc}</span></div>}
+          <div className="row between"><h3>Total</h3><h3>₹{total}</h3></div>
+        </div>
         {!cfg.store_online&&<p className="offline-banner">{cfg.offline_message||'Ordering is offline right now. Please try later.'}</p>}
-        <button className="pill wide" disabled={busy || !addr.trim() || cfg.store_online===false} onClick={place}>{busy ? 'Placing order…' : cfg.store_online===false?'Ordering unavailable':'Place order, pay on delivery'}</button>
+        <button className="pill wide" disabled={busy || !customerName.trim() || !ph.trim() || !addr.trim() || !minimumOrderMet || beyondDeliveryRadius || cfg.store_online===false} onClick={place}>{busy ? 'Placing order…' : cfg.store_online===false ? 'Ordering unavailable' : beyondDeliveryRadius ? 'Outside delivery area' : !minimumOrderMet ? `Minimum order ₹${minimumOrder}` : 'Place order, pay on delivery'}</button>
       </div>
     </>
   )
@@ -481,10 +637,10 @@ function History({ me }) {
   useEffect(() => {
     load()
     const ch = sb.channel('my-orders')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `user_id=eq.${me.id}` }, load)
       .subscribe()
     return () => { sb.removeChannel(ch) }
-  }, [load])
+  }, [load, me.id])
 
   if (orderLoadError) return <div className="card" role="alert"><b>Order history could not be loaded.</b><p>{orderLoadError}</p><button className="pill" onClick={load}>Try again</button></div>
   if (!rows.length) return <div className="empty">No orders yet. Your first delivered order starts your streak.</div>
@@ -954,7 +1110,18 @@ function MyGameScores({ me, onBack }) {
 }
 
 function WeeklyLeague({ rows, daysLeft, onBack }) {
+  const [showRankUpdate, setShowRankUpdate] = useState(false)
   const me = rows.find((row) => row.is_me)
+  useEffect(() => {
+    if (!me || me.previous_rank == null || Number(me.previous_rank) === Number(me.rank)) return
+    const weekStart = new Date()
+    weekStart.setHours(0, 0, 0, 0)
+    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7))
+    const key = `eat60:rank-update:${weekStart.toLocaleDateString('en-CA')}:${me.previous_rank}:${me.rank}`
+    if (sessionStorage.getItem(key)) return
+    sessionStorage.setItem(key, 'shown')
+    setShowRankUpdate(true)
+  }, [me?.rank, me?.previous_rank])
   const boundary = Math.max(1, Math.ceil(rows.length / 2))
   const demotionStart = Math.max(boundary, rows.length - Math.max(1, Math.ceil(rows.length / 3)))
   const movement = (row) => {
@@ -965,6 +1132,7 @@ function WeeklyLeague({ rows, daysLeft, onBack }) {
     return { text: '—', type: 'same' }
   }
   return (
+    <>
     <section className="league-page">
       <header className="league-header">
         <FloatingBack onClick={onBack} label="Back to games" />
@@ -989,6 +1157,16 @@ function WeeklyLeague({ rows, daysLeft, onBack }) {
         {rows.length === 0 && <div className="league-empty">No weekly scores yet. Play a game to enter the league.</div>}
       </div>
     </section>
+    {showRankUpdate && me && <div className="rank-update-screen" role="dialog" aria-modal="true" aria-labelledby="rank-update-title">
+      <div className="reward-screen-rays" aria-hidden="true" />
+      <div className={`rank-update-emblem${Number(me.previous_rank) > Number(me.rank) ? ' improved' : ' declined'}`}><span>{Number(me.previous_rank) > Number(me.rank) ? '↑' : '↓'}</span></div>
+      <p className="rank-update-kicker">WEEKLY LEAGUE UPDATE</p>
+      <h2 id="rank-update-title">Your rank changed</h2>
+      <p className="rank-update-movement"><s>#{me.previous_rank}</s><span>→</span><b>#{me.rank}</b></p>
+      <p className="rank-update-caption">{Number(me.previous_rank) > Number(me.rank) ? `You climbed ${Number(me.previous_rank) - Number(me.rank)} ${Number(me.previous_rank) - Number(me.rank) === 1 ? 'place' : 'places'}! Keep it up.` : `You moved down ${Number(me.rank) - Number(me.previous_rank)} ${Number(me.rank) - Number(me.previous_rank) === 1 ? 'place' : 'places'}. Play a game to climb back.`}</p>
+      <button className="reward-claim-primary rank-update-button" onClick={() => setShowRankUpdate(false)}>LET’S GO</button>
+    </div>}
+    </>
   )
 }
 
@@ -1028,27 +1206,34 @@ function MoreIcon({ name }) {
     support: <><path d="M4 13v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="12" width="4" height="7" rx="2"/><rect x="17" y="12" width="4" height="7" rx="2"/><path d="M17 19a5 5 0 0 1-5 3h-1"/></>,
     bugs: <><path d="M9 9h6a3 3 0 0 1 3 3v5a6 6 0 0 1-12 0v-5a3 3 0 0 1 3-3Z"/><path d="m9 9 1-3h4l1 3M3 12h3m12 0h3M4 18h3m10 0h3m-12-9L6 6m12 3 2-3m-8 3V4"/></>,
     rate: <path d="m12 3 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.3-.9L12 3Z"/>,
+    download: <><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 17v3h14v-3"/></>,
     edit: <><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="m11 13 8-8 3 3-8 8-4 1 1-4Z"/></>
   }
   return <svg {...props}>{icon[name] || icon.about}</svg>
 }
 
-function More({ me, email, reload, go, goGames, say, initialPage }) {
+function More({ me, email, reload, go, goGames, say, initialPage, onSelectVoucher, installAvailable, installMessage }) {
   const [rewards, setRewards] = useState([])
   const [claimedRewards, setClaimedRewards] = useState([])
+  const [availableCoupons, setAvailableCoupons] = useState([])
+  const [couponLoadError, setCouponLoadError] = useState('')
   const [claiming, setClaiming] = useState(null)
   const [rewardMessage, setRewardMessage] = useState('')
   const [celebration, setCelebration] = useState(null)
+  const [claimPrompt, setClaimPrompt] = useState(null)
   const [editing, setEditing] = useState(false)
   const [subPage, setSubPage] = useState(initialPage || null)
   useEffect(() => { setSubPage(initialPage || null) }, [initialPage])
   useEffect(() => {
     Promise.all([
       sb.from('streak_rewards').select('milestone,gift').eq('is_active',true).order('milestone'),
-      sb.from('user_rewards').select('milestone,claimed').order('milestone')
-    ]).then(([catalog, owned]) => {
+      sb.from('user_rewards').select('milestone,claimed').order('milestone'),
+      sb.rpc('customer_available_coupons')
+    ]).then(([catalog, owned, coupons]) => {
       setRewards(catalog.data || [])
       setClaimedRewards((owned.data || []).filter((reward) => reward.claimed).map((reward) => reward.milestone))
+      if (coupons.error) setCouponLoadError(coupons.error.message)
+      else setAvailableCoupons(coupons.data || [])
     })
   }, [])
   const claimReward = async (milestone) => {
@@ -1059,6 +1244,7 @@ function More({ me, email, reload, go, goGames, say, initialPage }) {
     if (error) return setRewardMessage(error.message)
     setClaimedRewards((current) => [...new Set([...current, milestone])])
     const gift = rewards.find((reward) => reward.milestone === milestone)?.gift || 'Streak reward'
+    setClaimPrompt(null)
     setCelebration({ milestone, gift })
     reload()
   }
@@ -1066,13 +1252,14 @@ function More({ me, email, reload, go, goGames, say, initialPage }) {
   const tiles = {
     Funzone: [['rewards', 'Rewards'], ['ranks', 'Ranks'], ['coupons', 'Coupons'], ['scorecard', 'Scorecard']],
     Community: [['refer', 'Refer'], ['socials', 'Socials'], ['about', 'About']],
-    'Setting & Supports': [['support', 'Supports'], ['bugs', 'Report bugs'], ['rate', 'Rate us']]
+    'Setting & Supports': [['support', 'Supports'], ['bugs', 'Report bugs'], ['rate', 'Rate us'], ['download', installAvailable ? 'Install app' : 'Download app']]
   }
   const action = async (id) => {
+    if (id === 'download') return onOpenDownload()
     if (id === 'rewards') return setSubPage('rewards')
     if (id === 'ranks') return goGames('rankings')
     if (id === 'scorecard') return goGames('scores')
-    if (id === 'coupons') { say('Check the Home page for today’s offers and coupons.'); return go('home') }
+    if (id === 'coupons') return setSubPage('coupons')
     if (id === 'refer') {
       const message = `Join me on EAT60! Use my username ${me.username} when you sign up. ${window.location.origin}`
       try {
@@ -1096,7 +1283,7 @@ function More({ me, email, reload, go, goGames, say, initialPage }) {
           <div className="streak-reward-card">
             <div className="streak-reward-art" aria-hidden="true">{claimed ? '🎁' : reward.milestone <= 30 ? '✨' : '🎁'}</div>
             <div className="streak-reward-copy"><span className="streak-day">DAY {reward.milestone}</span><b>{reward.gift}</b><small>{claimed ? 'Reward claimed' : reached ? 'Goal reached — claim your reward' : `${Math.max(0, reward.milestone - me.streak)} more streak days to unlock`}</small></div>
-            {claimed ? <span className="streak-status">CLAIMED</span> : reached ? <button className="streak-claim" disabled={claiming === reward.milestone} onClick={() => claimReward(reward.milestone)}>{claiming === reward.milestone ? 'CLAIMING…' : 'CLAIM'}</button> : <span className="streak-locked">LOCKED</span>}
+            {claimed ? <span className="streak-status">CLAIMED</span> : reached ? <button className="streak-claim" onClick={() => setClaimPrompt(reward)}>{claiming === reward.milestone ? 'CLAIMING…' : 'CLAIM REWARD'}</button> : <span className="streak-locked">LOCKED</span>}
           </div>
         </article>
       })}
@@ -1115,7 +1302,28 @@ function More({ me, email, reload, go, goGames, say, initialPage }) {
       <button className="claim-celebration-done" onClick={() => setCelebration(null)}>LET’S GO <span>✦</span></button>
     </section>
   </div>
-  if (subPage === 'rewards') return <><FloatingBack onClick={() => setSubPage(null)} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>REWARDS</h1><span /></header>{journey}</section>{celebrationPopup}</>
+  const claimPromptPopup = claimPrompt && <div className="reward-claim-screen" role="presentation">
+    <div className="reward-screen-rays" aria-hidden="true" />
+    <div className="reward-claim-badge" aria-hidden="true"><span>{claimPrompt.milestone}</span><FlameAnimation /></div>
+    <p className="reward-claim-caption">DAYS CONSISTENT</p>
+    <div className="reward-claim-copy"><small>STREAK REWARD UNLOCKED</small><h1>Day {claimPrompt.milestone}</h1><b>{claimPrompt.gift}</b></div>
+    <div className="reward-claim-actions">
+      <button className="reward-claim-primary" disabled={claiming === claimPrompt.milestone} onClick={() => claimReward(claimPrompt.milestone)}>{claiming === claimPrompt.milestone ? 'CLAIMING…' : 'CLAIM REWARD'}</button>
+      <button className="reward-claim-later" onClick={() => setClaimPrompt(null)}>LATER</button>
+      {rewardMessage && <p role="alert">{rewardMessage}</p>}
+    </div>
+  </div>
+  const voucherSection = <section className="customer-vouchers">
+    <div className="admin-section-heading"><div><p>OFFERS FOR YOU</p><h3>Available vouchers</h3></div></div>
+    {couponLoadError ? <p className="admin-inline-error" role="alert">{couponLoadError}</p> : availableCoupons.length === 0
+      ? <p className="mu">There are no available vouchers right now.</p>
+      : <div className="customer-voucher-list">{availableCoupons.map((voucher) => <article className="customer-voucher" key={voucher.code}>
+        <div><b>{voucher.code}</b><p>{voucher.description || `${voucher.discount_value}${voucher.discount_type === 'percent' ? '%' : '₹'} off`} · minimum order ₹{voucher.minimum_order}{voucher.maximum_discount ? ` · up to ₹${voucher.maximum_discount}` : ''}</p>{voucher.expires_at && <small>Expires {new Date(voucher.expires_at).toLocaleDateString('en-IN')}</small>}</div>
+        <button className="pill" onClick={() => onSelectVoucher(voucher.code)}>Use voucher</button>
+      </article>)}</div>}
+  </section>
+  if (subPage === 'rewards') return <><FloatingBack onClick={() => setSubPage(null)} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>REWARDS</h1><span /></header>{voucherSection}{journey}</section>{celebrationPopup}{claimPromptPopup}</>
+  if (subPage === 'coupons') return <><FloatingBack onClick={() => setSubPage(null)} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>VOUCHERS</h1><span /></header>{voucherSection}</section></>
   if (subPage && subPage !== 'rewards') {
     const pages = {
       socials: ['Socials', 'Our social channels will be added here soon.'],
@@ -1134,10 +1342,11 @@ function More({ me, email, reload, go, goGames, say, initialPage }) {
           <div className="more-profile-row"><span>UPDATE</span><button className="more-profile-avatar" onClick={() => setEditing(true)} aria-label="Update profile"><ProfileAvatar avatarId={me.avatar_id} /></button><span>PROFILE</span></div>
           <div className="more-profile-name"><b>{me.username || me.name || 'User Name'}</b><button onClick={() => setEditing(true)} aria-label="Edit profile"><MoreIcon name="edit" /></button></div>
         </section>
-        {Object.entries(tiles).map(([group, items]) => <section className="more-tile-section" key={group}><h2>{group.toUpperCase()}</h2><div className={`more-tiles more-tiles-${items.length}`}>{items.map(([id, label]) => <button className="more-tile" key={id} onClick={() => action(id)}><span className={`more-tile-icon icon-${id}`}><MoreIcon name={id} /></span><b>{label.toUpperCase()}</b></button>)}</div></section>)}
+        {Object.entries(tiles).map(([group, items]) => <section className="more-tile-section" key={group}><h2>{group.toUpperCase()}</h2><div className={`more-tiles more-tiles-${items.length}`}>{items.map(([id, label]) => <button className="more-tile" key={id} onClick={() => action(id)}><span className={`more-tile-icon icon-${id}`}><MoreIcon name={id} /></span><b>{label.toUpperCase()}</b></button>)}</div>{group === 'Setting & Supports' && installMessage && <p className="more-install-message" role="status">{installMessage}</p>}</section>)}
         <section className="more-account-actions"><div><b>{me.xp} XP</b><span>{me.coins} coins · {email}</span></div><div><button className="pill g" onClick={() => sb.auth.signOut()}>LOG OUT</button></div></section>
       </section>
       {celebrationPopup}
+      {claimPromptPopup}
     </>
   )
 }

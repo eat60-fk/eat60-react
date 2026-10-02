@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="42" fill="#141514"/>
+  <rect x="23" y="48" width="146" height="96" rx="22" fill="#232620"/>
+  <text x="96" y="110" fill="#f4f4f4" font-family="Arial,sans-serif" font-size="43" font-weight="900" text-anchor="middle">EAT<tspan fill="#b8f04a">60</tspan></text>
+  <circle cx="150" cy="142" r="15" fill="#b8f04a"/>
+  <path d="M144 142h12m-6-6v12" stroke="#141514" stroke-linecap="round" stroke-width="4"/>
+</svg>

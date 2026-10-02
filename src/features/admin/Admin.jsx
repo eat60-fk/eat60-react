@@ -117,7 +117,7 @@ export default function Admin({ onBack }) {
 
       {ordersError && <div className="admin-error" role="alert"><b>Orders could not be loaded</b><span>{ordersError}</span><button onClick={loadOrders}>Retry</button></div>}
       {alert && <div className="admin-alert" role="status"><span>🔔</span><p>{alert}</p><button aria-label="Dismiss notification" onClick={() => setAlert('')}>×</button></div>}
-      {tab === 'overview' && <Overview orders={orders} onViewOrders={() => setTab('orders')} online={storeOnline} setOnline={async (value) => { const { error } = await sb.from('settings').update({ store_online: value }).eq('id', 1); if (!error) setStoreOnline(value); else setAlert(error.message) }} />}
+      {tab === 'overview' && <><Overview orders={orders} onViewOrders={() => setTab('orders')} online={storeOnline} setOnline={async (value) => { const { error } = await sb.from('settings').update({ store_online: value }).eq('id', 1); if (!error) setStoreOnline(value); else setAlert(error.message) }} /><DeliverySettings /></>}
       {tab === 'orders' && <Orders rows={orders} refresh={loadOrders} />}
       {tab === 'menu' && <Menu />}
       {tab === 'outlets' && <Outlets />}
@@ -127,6 +127,65 @@ export default function Admin({ onBack }) {
       <PoweredFooter className="admin-footer" />
     </main>
   )
+}
+
+function DeliverySettings() {
+  const defaults = { delivery_fee: 20, min_order: 99, min_delivery_km: 2, delivery_per_km: 5, free_delivery_minimum: 0, delivery_free: false, max_delivery_km: 5 }
+  const [form, setForm] = useState(defaults)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    let active = true
+    sb.from('settings')
+      .select('delivery_fee,min_order,min_delivery_km,delivery_per_km,free_delivery_minimum,delivery_free,max_delivery_km')
+      .eq('id', 1).maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return
+        if (error) setMessage(error.message)
+        else if (data) setForm({ ...defaults, ...data })
+      })
+    return () => { active = false }
+  }, [])
+
+  const change = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }))
+  const save = async () => {
+    const values = {
+      delivery_fee: Number(form.delivery_fee),
+      min_order: Number(form.min_order),
+      min_delivery_km: Number(form.min_delivery_km),
+      delivery_per_km: Number(form.delivery_per_km),
+      free_delivery_minimum: Number(form.free_delivery_minimum),
+      delivery_free: Boolean(form.delivery_free),
+      max_delivery_km: Number(form.max_delivery_km)
+    }
+    if (Object.entries(values).some(([key, value]) => key !== 'delivery_free' && (!Number.isFinite(value) || value < 0))) return setMessage('Enter valid non-negative values for all delivery settings.')
+    if ([values.delivery_fee, values.min_order, values.delivery_per_km, values.free_delivery_minimum].some((value) => !Number.isInteger(value))) return setMessage('Fee and order amount fields must use whole rupee amounts.')
+    if (values.max_delivery_km <= 0 || values.min_delivery_km > values.max_delivery_km) return setMessage('Maximum delivery distance must be greater than zero and at least the minimum distance.')
+    setBusy(true)
+    setMessage('')
+    const { error } = await sb.from('settings').update(values).eq('id', 1)
+    setBusy(false)
+    if (error) setMessage(error.message)
+    else { setForm(values); setMessage('Delivery settings saved.') }
+  }
+
+  return <section className="admin-content admin-delivery-settings">
+    <div className="admin-page-heading"><div><p>CHECKOUT & DELIVERY</p><h2>Delivery settings</h2><span>Base fee covers the minimum distance. Extra distance is charged per km; orders above the free-delivery minimum pay ₹0.</span></div></div>
+    <div className="admin-feed-editor">
+      <div className="admin-form-grid">
+        <label>Base delivery fee ₹<input type="number" min="0" step="1" value={form.delivery_fee} onChange={change('delivery_fee')} /></label>
+        <label>Minimum order amount ₹<input type="number" min="0" step="1" value={form.min_order} onChange={change('min_order')} /></label>
+        <label>Base fee covers distance (km)<input type="number" min="0" step="0.1" value={form.min_delivery_km} onChange={change('min_delivery_km')} /></label>
+        <label>Extra charge per km ₹<input type="number" min="0" step="1" value={form.delivery_per_km} onChange={change('delivery_per_km')} /></label>
+        <label>Free delivery from order amount ₹<input type="number" min="0" step="1" value={form.free_delivery_minimum} onChange={change('free_delivery_minimum')} placeholder="0 to disable" /></label>
+        <label>Maximum delivery distance (km)<input type="number" min="0.1" step="0.1" value={form.max_delivery_km} onChange={change('max_delivery_km')} /></label>
+        <label className="admin-delivery-free-toggle">Make all delivery free<input type="checkbox" checked={form.delivery_free} onChange={(event) => setForm((current) => ({ ...current, delivery_free: event.target.checked }))} /></label>
+      </div>
+      <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save delivery settings'} <span>→</span></button>
+      {message && <p className="admin-feedback" role="status">{message}</p>}
+    </div>
+  </section>
 }
 
 function Overview({ orders, onViewOrders, online, setOnline }) {
@@ -199,7 +258,7 @@ function Orders({ rows, refresh }) {
   const end = period === 'custom' ? to : dateKey(now)
   const filtered = rows.filter((order) => (filter === 'all' || stageOf(order) === filter) &&
     (!start || dateKey(order.created_at) >= start) && (!end || dateKey(order.created_at) <= end) &&
-    (`${order.id} ${order.profiles?.name || ''} ${order.phone || ''}`.toLowerCase().includes(query.toLowerCase())))
+    (`${order.id} ${order.customer_name || order.profiles?.name || ''} ${order.phone || ''}`.toLowerCase().includes(query.toLowerCase())))
 
   const move = async (id, stage, why = null, payType = null) => {
     setBusyId(id); setError('')
@@ -216,9 +275,9 @@ function Orders({ rows, refresh }) {
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
     {filtered.length ? <div className="admin-order-list">{filtered.map((order) => <article className="admin-order-card" key={order.id}>
       <div className="admin-order-card-top"><div><span className="admin-order-number">ORDER #{order.id}</span><strong>₹{Number(order.total).toLocaleString('en-IN')}</strong></div><span className={`admin-status status-${stageOf(order)}`}>{LABEL[stageOf(order)] || stageOf(order)}</span></div>
-      <div className="admin-order-customer"><div className="admin-customer-avatar">{(order.profiles?.name || 'G').slice(0, 1).toUpperCase()}</div><div><b>{order.profiles?.name || 'Customer'}</b><small>{order.phone || order.profiles?.phone || 'No phone provided'}</small></div><time>{new Date(order.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</time></div>
+      <div className="admin-order-customer"><div className="admin-customer-avatar">{(order.customer_name || order.profiles?.name || 'G').slice(0, 1).toUpperCase()}</div><div><b>{order.customer_name || order.profiles?.name || 'Customer'}</b><small>{order.phone || order.profiles?.phone || 'No phone provided'}</small></div><time>{new Date(order.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</time></div>
       <div className="admin-order-items">{(order.order_items || []).map((item) => <div key={item.id}><span>{item.qty}×</span>{item.item_name}<b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
-      <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p></div>
+      <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
       {order.order_stage_events?.length>0&&<OrderJourney order={order}/>}
       {stageOf(order)==='pending'&&<PendingDecisionClock createdAt={order.created_at}/>}
       {order.rejection_reason&&<p className="admin-rejection-reason">Reason: {order.rejection_reason}</p>}
@@ -233,7 +292,7 @@ function Orders({ rows, refresh }) {
 function OrderRow({ order }) {
   const products = (order.order_items || []).map((item) => `${item.qty}× ${item.item_name}`).join(', ')
   const stage=order.order_stage||(order.status==='placed'?'pending':order.status)
-  return <tr><td><b>#{order.id}</b></td><td>{order.profiles?.name || 'Customer'}</td><td className="admin-item-cell">{products || '—'}</td><td>₹{Number(order.total).toLocaleString('en-IN')}</td><td><span className={`admin-status status-${stage}`}>{LABEL[stage] || stage}</span></td><td>{new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td></tr>
+  return <tr><td><b>#{order.id}</b></td><td>{order.customer_name || order.profiles?.name || 'Customer'}</td><td className="admin-item-cell">{products || '—'}</td><td>₹{Number(order.total).toLocaleString('en-IN')}</td><td><span className={`admin-status status-${stage}`}>{LABEL[stage] || stage}</span></td><td>{new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td></tr>
 }
 
 function Menu() {
@@ -352,7 +411,7 @@ function AdminFeed() {
     setBody(''); setOpts('');setImageUrl(''); setMsg('Published successfully.'); await load(); setBusy(false)
   }
   const sendReply=async(commentId)=>{const text=(reply[commentId]||'').trim();if(!text||!userId)return;const {error}=await sb.from('comments').insert({post_id:comments.find(c=>c.id===commentId)?.post_id,user_id:userId,parent_comment_id:commentId,body:text});if(error)setMsg(error.message);else{setReply(r=>({...r,[commentId]:''}));await load()}}
-  return <section className="admin-content"><div className="admin-page-heading"><div><p>CUSTOMER COMMUNITY</p><h2>Feed studio</h2><span>Publish updates, monitor reactions and reply to customers.</span></div><span className="admin-total-chip">{posts.length} posts</span></div><div className="admin-feed-editor"><div className="admin-feed-editor-heading"><div className="admin-feed-icon">✳</div><div><b>Write an update</b><small>Visible to customers in the Feed tab</small></div></div><label>YOUR POST<textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={1000} placeholder="Share an offer, announcement or question…" /></label><div className="admin-feed-count">{body.length} / 1000</div><label>IMAGE URL <span>(optional)</span><input value={imageUrl} onChange={e=>setImageUrl(e.target.value)} placeholder="https://…"/></label><label>POLL OPTIONS <span>(optional, comma-separated)</span><input value={opts} onChange={(event) => setOpts(event.target.value)} placeholder="For a poll: Pizza, Burger, Wraps" /></label><button className="admin-primary" disabled={busy || !body.trim()} onClick={publish}>{busy ? 'Publishing…' : 'Publish to feed'} <span>→</span></button>{msg && <p className="admin-feedback" role="status">{msg}</p>}</div><h3 className="admin-list-title">Live feed and conversations</h3><div className="admin-feed-list">{posts.map(p=>{const postComments=comments.filter(c=>c.post_id===p.id);const topComments=postComments.filter(c=>!c.parent_comment_id);return <article className="admin-feed-post-card" key={p.id}><div><span>{p.kind==='poll'?'POLL':'POST'} · {new Date(p.created_at).toLocaleDateString()}</span><p>{p.body}</p>{p.image_url&&<img className="admin-feed-preview" src={p.image_url} alt=""/>}<div className="admin-feed-stats"><b>♥ {likes.find(x=>x.post_id===p.id)?.total||0} likes</b><b>▢ {postComments.length} comments</b></div>{topComments.map(c=><div className="admin-comment-thread" key={c.id}><p><b>{c.author}</b><span>{c.body}</span></p>{postComments.filter(r=>r.parent_comment_id===c.id).map(r=><p className="admin-comment-reply" key={r.id}><b>{r.author} · EAT60</b><span>{r.body}</span></p>)}<div className="admin-reply-form"><input maxLength={300} value={reply[c.id]||''} onChange={e=>setReply(r=>({...r,[c.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&sendReply(c.id)} placeholder={`Reply to ${c.author}…`}/><button onClick={()=>sendReply(c.id)}>Reply</button></div></div>)}</div><button className="admin-cancel-order" onClick={async()=>{if(!window.confirm('Delete this feed post and its comments?'))return;const {error:e}=await sb.from('feed_posts').delete().eq('id',p.id);if(e)setMsg(e.message);else{setPosts(a=>a.filter(x=>x.id!==p.id));setComments(c=>c.filter(x=>x.post_id!==p.id))}}}>Delete post</button></article>})}</div></section>
+  return <section className="admin-content"><div className="admin-page-heading"><div><p>CUSTOMER COMMUNITY</p><h2>Feed studio</h2><span>Publish announcements for live in-app alerts, share posts, and reply to customers.</span></div><span className="admin-total-chip">{posts.length} posts</span></div><div className="admin-feed-editor"><div className="admin-feed-editor-heading"><div className="admin-feed-icon">✳</div><div><b>Write an announcement or post</b><small>News announcements appear as a live full-screen alert for customers</small></div></div><label>YOUR POST<textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={1000} placeholder="Share an announcement, offer, or question…" /></label><div className="admin-feed-count">{body.length} / 1000</div><label>IMAGE URL <span>(optional)</span><input value={imageUrl} onChange={e=>setImageUrl(e.target.value)} placeholder="https://…"/></label><label>POLL OPTIONS <span>(optional, comma-separated)</span><input value={opts} onChange={(event) => setOpts(event.target.value)} placeholder="For a poll: Pizza, Burger, Wraps" /></label><button className="admin-primary" disabled={busy || !body.trim()} onClick={publish}>{busy ? 'Publishing…' : 'Publish to feed'} <span>→</span></button>{msg && <p className="admin-feedback" role="status">{msg}</p>}</div><h3 className="admin-list-title">Live feed and conversations</h3><div className="admin-feed-list">{posts.map(p=>{const postComments=comments.filter(c=>c.post_id===p.id);const topComments=postComments.filter(c=>!c.parent_comment_id);return <article className="admin-feed-post-card" key={p.id}><div><span>{p.kind==='poll'?'POLL':'POST'} · {new Date(p.created_at).toLocaleDateString()}</span><p>{p.body}</p>{p.image_url&&<img className="admin-feed-preview" src={p.image_url} alt=""/>}<div className="admin-feed-stats"><b>♥ {likes.find(x=>x.post_id===p.id)?.total||0} likes</b><b>▢ {postComments.length} comments</b></div>{topComments.map(c=><div className="admin-comment-thread" key={c.id}><p><b>{c.author}</b><span>{c.body}</span></p>{postComments.filter(r=>r.parent_comment_id===c.id).map(r=><p className="admin-comment-reply" key={r.id}><b>{r.author} · EAT60</b><span>{r.body}</span></p>)}<div className="admin-reply-form"><input maxLength={300} value={reply[c.id]||''} onChange={e=>setReply(r=>({...r,[c.id]:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&sendReply(c.id)} placeholder={`Reply to ${c.author}…`}/><button onClick={()=>sendReply(c.id)}>Reply</button></div></div>)}</div><button className="admin-cancel-order" onClick={async()=>{if(!window.confirm('Delete this feed post and its comments?'))return;const {error:e}=await sb.from('feed_posts').delete().eq('id',p.id);if(e)setMsg(e.message);else{setPosts(a=>a.filter(x=>x.id!==p.id));setComments(c=>c.filter(x=>x.post_id!==p.id))}}}>Delete post</button></article>})}</div></section>
 }
 
 function Promos(){

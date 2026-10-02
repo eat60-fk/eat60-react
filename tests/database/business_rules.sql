@@ -4,7 +4,7 @@ create schema if not exists extensions;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public;
 
-select plan(29);
+select plan(37);
 
 create temporary table eat60_test_fixture (
   customer_id uuid not null,
@@ -43,7 +43,9 @@ set role = 'admin'
 where id = (select admin_id from eat60_test_fixture);
 
 update public.settings
-set delivery_fee = 20, min_order = 1, max_coin_pct = 20, streak_break_days = 30, store_online = true
+set delivery_fee = 20, min_order = 1, min_delivery_km = 2, delivery_per_km = 5,
+    free_delivery_minimum = 200, delivery_free = false, max_delivery_km = 5, max_coin_pct = 20,
+    streak_break_days = 30, store_online = true
 where id = 1;
 
 update eat60_test_fixture
@@ -98,6 +100,8 @@ select is((public.validate_coupon(
 select is((public.validate_coupon(
   (select coupon_code from eat60_test_fixture), 199
 )->>'valid'), 'false', 'coupon preview enforces minimum subtotal');
+select is((select count(*)::integer from public.customer_available_coupons()), 1,
+  'customer can browse an active unused voucher');
 
 update eat60_test_fixture as fixture
 set order_id = public.place_order_with_coupon(
@@ -106,7 +110,7 @@ set order_id = public.place_order_with_coupon(
     'qty', 2,
     'extras', jsonb_build_array(jsonb_build_object('id', fixture.extra_id))
   )),
-  true, 'Test delivery address', '9000000000', fixture.coupon_code
+  true, 'Test delivery address', '9000000000', fixture.coupon_code, 'Test Shopper', 3.5
 );
 
 select ok((select order_id is not null from eat60_test_fixture),
@@ -124,11 +128,36 @@ select is((select coins_used from public.orders
   where id = (select order_id from eat60_test_fixture)), 3400,
   'order debits the corresponding number of coins');
 select is((select total from public.orders
-  where id = (select order_id from eat60_test_fixture)), 156,
-  'server calculates the final order total');
+  where id = (select order_id from eat60_test_fixture)), 136,
+  'server calculates the final total with free delivery');
+select is((select delivery_distance_km from public.orders
+  where id = (select order_id from eat60_test_fixture)), 3.5::numeric,
+  'order retains the delivery distance estimate');
+select is((select delivery_fee_before_discount from public.orders
+  where id = (select order_id from eat60_test_fixture)), 28,
+  'server charges per km beyond the included distance before waiving delivery');
+select is((select delivery_fee from public.orders
+  where id = (select order_id from eat60_test_fixture)), 0,
+  'free-delivery threshold sets the final fee to zero');
+select is((select gst_amount from public.orders
+  where id = (select order_id from eat60_test_fixture)), 10,
+  'server calculates GST as included in the item subtotal');
+select is((select customer_name from public.orders
+  where id = (select order_id from eat60_test_fixture)), 'Test Shopper',
+  'server stores the customer name supplied at checkout');
 select is((public.validate_coupon(
   (select coupon_code from eat60_test_fixture), 220
 )->>'valid'), 'false', 'coupon per-user redemption limit is enforced');
+select is((select count(*)::integer from public.customer_available_coupons()), 0,
+  'redeemed voucher is no longer offered to that customer');
+select throws_ok(
+  $$select public.place_order_with_coupon(
+    (select jsonb_build_array(jsonb_build_object('variant_id',variant_id,'qty',1)) from eat60_test_fixture),
+    false,'Test delivery address','9000000000',null,'Test Shopper',5.1
+  )$$,
+  'P0001', null,
+  'server rejects an estimated distance beyond the delivery radius'
+);
 select throws_ok(
   $$select public.admin_update_order(1, 'accepted')$$,
   'P0001', 'Admins only',

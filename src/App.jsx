@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { isSupabaseConfigured, sb } from './lib/supabase'
-import Customer from './features/customer/Customer'
-import Admin from './features/admin/Admin'
 import PoweredFooter from './components/PoweredFooter'
 import { resolveAdminAccess } from './lib/adminAccess'
+
+const Customer = lazy(() => import('./features/customer/Customer'))
+const Admin = lazy(() => import('./features/admin/Admin'))
+const DownloadPage = lazy(() => import('./components/DownloadPage'))
 
 function Login({ adminOnly = false }) {
   const [mode, setMode] = useState('login')
@@ -134,8 +136,49 @@ export default function App() {
   const [me, setMe] = useState(null)
   const [profileError, setProfileError] = useState('')
   const [adminRoute, setAdminRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/admineat60')
+  const [downloadRoute, setDownloadRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/download')
   const [adminAccess, setAdminAccess] = useState({ status: 'checking' })
   const [adminCheck, setAdminCheck] = useState(0)
+  const [installPrompt, setInstallPrompt] = useState(null)
+  const [installMessage, setInstallMessage] = useState('')
+
+  useEffect(() => {
+    const captureInstallPrompt = (event) => {
+      event.preventDefault()
+      setInstallPrompt(event)
+      setInstallMessage('')
+    }
+    const markInstalled = () => {
+      setInstallPrompt(null)
+      setInstallMessage('EAT60 is installed on your device.')
+    }
+    window.addEventListener('beforeinstallprompt', captureInstallPrompt)
+    window.addEventListener('appinstalled', markInstalled)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', captureInstallPrompt)
+      window.removeEventListener('appinstalled', markInstalled)
+    }
+  }, [])
+
+  const installApp = async () => {
+    if (installPrompt) {
+      try {
+        await installPrompt.prompt()
+        const choice = await installPrompt.userChoice
+        setInstallMessage(choice.outcome === 'accepted'
+          ? 'EAT60 installation started.'
+          : 'You can install EAT60 later from your browser menu.')
+        setInstallPrompt(null)
+      } catch (error) {
+        setInstallMessage(error.message || 'Could not start installation. Use your browser menu to install EAT60.')
+      }
+      return
+    }
+    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent)
+    setInstallMessage(isIos
+      ? 'To install: tap Share in Safari, then choose “Add to Home Screen”.'
+      : 'To install: open your browser menu and choose “Install app” or “Add to Home screen”.')
+  }
 
   useEffect(() => {
     if (!sb) return
@@ -160,10 +203,24 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const syncRoute = () => setAdminRoute(window.location.pathname.replace(/\/$/, '') === '/admineat60')
+    const syncRoute = () => {
+      const pathname = window.location.pathname.replace(/\/$/, '') || '/'
+      setAdminRoute(pathname === '/admineat60')
+      setDownloadRoute(pathname === '/download')
+    }
     window.addEventListener('popstate', syncRoute)
     return () => window.removeEventListener('popstate', syncRoute)
   }, [])
+
+  const openDownloadPage = () => {
+    window.history.pushState({}, '', '/download')
+    setDownloadRoute(true)
+  }
+
+  const closeDownloadPage = () => {
+    window.history.pushState({}, '', '/')
+    setDownloadRoute(false)
+  }
 
   useEffect(() => {
     if (!adminRoute || !session) {
@@ -198,6 +255,7 @@ export default function App() {
   useEffect(() => { if (session) loadMe() }, [loadMe, session])
 
   if (!isSupabaseConfigured) return <main className="app setup-page"><div className="card"><h2>App setup required</h2><p>Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to the environment, then restart the app.</p></div><PoweredFooter /></main>
+  if (downloadRoute) return <main className="app download-route"><Suspense fallback={<p className="empty">Loading EAT60 app details…</p>}><DownloadPage onBack={closeDownloadPage} onInstall={installApp} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense></main>
   if (session === undefined) return <main className="app setup-page"><p className="empty">Loading...</p><PoweredFooter /></main>
   if (!session) return adminRoute ? <AdminLogin /> : <Login />
   if (profileError) {
@@ -244,7 +302,7 @@ export default function App() {
     if (adminAccess.status === 'checking') return <main className="app setup-page"><p className="empty">Verifying administrator access...</p><PoweredFooter /></main>
     if (adminAccess.status === 'error') return <main className="app account-error"><section className="card"><p className="auth-eyebrow">ADMIN ACCESS CHECK</p><h1>Could not verify administrator access</h1><p>{adminAccess.message}</p><div className="row"><button className="pill" onClick={() => setAdminCheck((current) => current + 1)}>Try again</button><button className="pill g" onClick={() => sb.auth.signOut()}>Sign out</button></div></section><PoweredFooter /></main>
     if (adminAccess.status === 'denied') return <main className="app admin-denied"><section className="card"><p className="auth-eyebrow">RESTRICTED AREA</p><h1>Admin access required</h1><p>Your account does not have permission to open this page.</p><div className="row"><button className="pill" onClick={() => { window.history.replaceState({}, '', '/'); setAdminRoute(false) }}>Back to EAT60</button><button className="pill g" onClick={() => sb.auth.signOut()}>Sign out</button></div></section><PoweredFooter /></main>
-    return <Admin onBack={() => { window.history.replaceState({}, '', '/'); setAdminRoute(false) }} />
+    return <Suspense fallback={<main className="app setup-page"><p className="empty">Loading admin dashboard…</p><PoweredFooter /></main>}><Admin onBack={() => { window.history.replaceState({}, '', '/'); setAdminRoute(false) }} /></Suspense>
   }
-  return <Customer me={me} email={session.user.email || ''} reload={loadMe} />
+  return <Suspense fallback={<main className="app setup-page"><p className="empty">Loading your storefront…</p><PoweredFooter /></main>}><Customer me={me} email={session.user.email || ''} reload={loadMe} onOpenDownload={openDownloadPage} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense>
 }

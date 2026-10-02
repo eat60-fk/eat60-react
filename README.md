@@ -16,7 +16,9 @@
 - Run `claim_streak_rewards.sql` in the Supabase SQL Editor on existing installations to enable secure streak reward claims. New databases get it from `eat60_supabase.sql`.
 - Run `feed_engagement.sql` in the Supabase SQL Editor on existing installations to enable feed heart likes and view counts. New databases get it from `eat60_supabase.sql`.
 - Run `order_reviews.sql` in the Supabase SQL Editor on existing installations to enable customer ratings and feedback. Then rerun `admin_operations.sql` so new orders are linked to menu items for rating aggregates. New databases get the required tables and functions from `eat60_supabase.sql` and `admin_operations.sql`.
-- Run `admin_operations.sql` on existing installations before using the admin route; it explicitly grants the administrator-check function to the app roles used by the UI and its public-read policies.
+- Run `admin_operations.sql` after `eat60_supabase.sql` on new projects and on existing installations before using the admin route. Re-run it after this update to add delivery pricing controls, distance-based checkout pricing, customer voucher listing, order tax/customer detail fields, and realtime announcement delivery. The admin can set the minimum order, a base fee covering the included distance, a per-kilometre rate beyond it, the service radius, a free-delivery threshold, or free delivery for all orders.
+- Checkout uses device GPS for an estimated straight-line delivery distance when available; customers can enter an address and continue with the base delivery fee if location is unavailable. GST is shown as 5% included in item prices, not added to the total. Active eligible promo coupons are selectable from More > Rewards and are revalidated on the server at order time.
+- Admin news posts published in Feed studio are sent as live in-app announcements to customers with the app open. Customers also get animated full-screen order placed/delivered updates; install EAT60 from More > Download EAT60 or open `/download` directly.
 - Supabase > Authentication > Providers: turn on Google (and Email).
 - Supabase > Authentication > URL Configuration: add your site address
   (http://localhost:5173 for testing, and your live address later).
@@ -33,9 +35,10 @@ each environment you deploy (Production, Preview, and/or Development):
 - `VITE_SUPABASE_ANON_KEY`: your Supabase anon/public key
 
 Redeploy after changing environment variables. Do not use the Supabase
-`service_role` key in a `VITE_` variable. Add your logo as
-`public/pwa-192.png` and `public/pwa-512.png` if you want phone installation
-support (Chrome: Install app; iPhone Safari: Share > Add to Home Screen).
+`service_role` key in a `VITE_` variable. App installation is available from
+More > Download EAT60. The project includes SVG install icons; you can replace
+`public/pwa-192.svg` and `public/pwa-512.svg` with your own EAT60 branding.
+The public `/download` route opens the install page without requiring sign-in.
 
 ## Files
 - `src/App.jsx` authentication and screen switching
