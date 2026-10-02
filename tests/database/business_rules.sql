@@ -4,7 +4,7 @@ create schema if not exists extensions;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public;
 
-select plan(50);
+select plan(60);
 
 create temporary table eat60_test_fixture (
   customer_id uuid not null,
@@ -15,7 +15,9 @@ create temporary table eat60_test_fixture (
   variant_id bigint,
   extra_id bigint,
   coupon_code text,
-  order_id bigint
+  referral_code text,
+  order_id bigint,
+  coins_before_reward int
 );
 grant select, insert, update on eat60_test_fixture to authenticated;
 
@@ -52,7 +54,8 @@ where id = 1;
 
 update eat60_test_fixture
 set brand_id = 'test-' || replace(customer_id::text, '-', ''),
-    coupon_code = 'T' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10))
+    coupon_code = 'T' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10)),
+    referral_code = (select code from public.referral_codes where user_id = admin_id)
 where true;
 
 insert into public.brands (id, name, is_open)
@@ -86,16 +89,39 @@ insert into public.coupons (
 select coupon_code, 'EAT60 regression coupon', 'percent', 50, 200, 50, 1, 1, true
 from eat60_test_fixture;
 
-insert into public.streak_rewards (milestone, gift, is_active)
-values (1, 'EAT60 regression reward', true)
+insert into public.streak_rewards (milestone, gift, coin_reward, is_active)
+values (1, 'EAT60 regression reward', 120, true)
 on conflict (milestone) do update
-set gift = excluded.gift, is_active = true;
+set gift = excluded.gift, coin_reward = excluded.coin_reward, is_active = true;
 
 select set_config('request.jwt.claim.sub', customer_id::text, true)
 from eat60_test_fixture;
 set local role authenticated;
 
 select is(public.is_admin(), false, 'customer is not an administrator');
+select is((public.claim_referral_reward((
+  select referral_code from eat60_test_fixture
+))->>'coins_awarded')::integer, 2500,
+  'new customer redeems a referral code for 2,500 coins');
+select throws_ok(
+  $$select public.claim_referral_reward(null)$$,
+  'P0001', 'Your referral reward has already been claimed',
+  'new customer referral reward cannot be claimed twice'
+);
+reset role;
+select set_config('request.jwt.claim.sub', admin_id::text, true)
+from eat60_test_fixture;
+set local role authenticated;
+select is((public.customer_referral_dashboard()->'invites'->0->>'claimed'), 'true',
+  'referrer can see that an invited customer claimed the reward');
+select is((public.claim_referral_bonus()->>'coins_awarded')::integer, 3000,
+  'referrer claims 3,000 coins after the invite is redeemed');
+select is((public.claim_referral_bonus()->>'coins_awarded')::integer, 0,
+  'referrer cannot claim the same referral payout twice');
+reset role;
+select set_config('request.jwt.claim.sub', customer_id::text, true)
+from eat60_test_fixture;
+set local role authenticated;
 select is((public.validate_coupon(
   (select coupon_code from eat60_test_fixture), 220
 )->>'discount_amount')::integer, 50, 'coupon preview respects maximum discount');
@@ -338,11 +364,32 @@ from eat60_test_fixture
 limit 1;
 set local role authenticated;
 
-select is((public.claim_streak_reward(1)->>'claimed'), 'true',
-  'customer can claim a reached streak reward');
+update eat60_test_fixture
+set coins_before_reward = (select coins from public.profiles where id = auth.uid());
+select is((public.claim_streak_reward(1)->>'coins_awarded')::integer, 120,
+  'claiming a reached coin reward returns the wallet credit');
+select is((public.claim_streak_reward(1)->>'coins_awarded')::integer, 0,
+  'a claimed streak reward cannot award its coins twice');
+select is((select coins from public.profiles where id = auth.uid()),
+  (select coins_before_reward + 120 from eat60_test_fixture),
+  'claiming a coin reward credits the customer wallet once');
 select is((select count(*)::integer from public.user_rewards
   where user_id = auth.uid() and milestone = 1), 1,
   'repeated claims do not create duplicate rewards');
+reset role;
+update public.user_rewards
+set coin_reward = 0
+where user_id = (select customer_id from eat60_test_fixture) and milestone = 1;
+set local role authenticated;
+update eat60_test_fixture
+set coins_before_reward = (select coins from public.profiles where id = auth.uid());
+select is((public.claim_streak_reward(1)->>'coins_awarded')::integer, 120,
+  'a previously claimed reward can receive its missing wallet credit');
+select is((public.claim_streak_reward(1)->>'coins_awarded')::integer, 0,
+  'the missing wallet credit can only be recovered once');
+select is((select coins from public.profiles where id = auth.uid()),
+  (select coins_before_reward + 120 from eat60_test_fixture),
+  'recovering a missed reward updates the wallet exactly once');
 select lives_ok($$insert into public.order_reviews(order_id, user_id, rating, feedback)
   select order_id, customer_id, 5, 'Great food and delivery' from eat60_test_fixture$$,
   'customer can review their delivered order');

@@ -53,7 +53,7 @@ end $$;
 
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
-declare v_base text;
+declare v_base text; v_referral_code text; v_referrer uuid;
 begin
   v_base := left(regexp_replace(lower(split_part(coalesce(new.email, 'player'), '@', 1)), '[^a-z0-9_]+', '_', 'g'), 13);
   insert into public.profiles (id, name, username)
@@ -63,6 +63,22 @@ begin
     coalesce(nullif(v_base, ''), 'player') || '_' || substr(replace(new.id::text, '-', ''), 1, 10)
   )
   on conflict (id) do nothing;
+  if to_regclass('public.referral_codes') is not null
+    and to_regclass('public.referral_signups') is not null then
+    v_referral_code := upper(trim(coalesce(new.raw_user_meta_data->>'referral_code', '')));
+    execute 'insert into public.referral_codes (user_id, code)
+      values ($1, $2) on conflict (user_id) do nothing'
+      using new.id, 'EAT-' || upper(substr(replace(new.id::text, '-', ''), 1, 12));
+    if v_referral_code <> '' then
+      execute 'select user_id from public.referral_codes where code = $1'
+        into v_referrer using v_referral_code;
+      if v_referrer is not null and v_referrer <> new.id then
+        execute 'insert into public.referral_signups (referred_user, referrer_user, signup_code)
+          values ($1, $2, $3) on conflict (referred_user) do nothing'
+          using new.id, v_referrer, v_referral_code;
+      end if;
+    end if;
+  end if;
   return new;
 end $$;
 

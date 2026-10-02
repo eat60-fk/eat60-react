@@ -72,6 +72,12 @@ create table settings (
   about_founder_portfolio_url text not null default '',
   about_outlet_links jsonb not null default '{}'::jsonb,
   social_links jsonb not null default '{}'::jsonb,
+  home_ad_image_url text not null default '',
+  home_ad_link text not null default '',
+  home_ad_alt text not null default '',
+  home_ad_active boolean not null default false,
+  home_ad_starts_at timestamptz,
+  home_ad_ends_at timestamptz,
   offer_variant_id bigint references item_variants(id),
   offer_price int,
   offer_date date,                           -- offer of the day is valid only on this date
@@ -82,7 +88,10 @@ create table settings (
 
 create table streak_rewards (
   milestone int primary key,
-  gift text not null
+  gift text not null,
+  is_active boolean not null default true,
+  coin_reward int not null default 0 check (coin_reward >= 0),
+  coupon_code text
 );
 
 create table user_rewards (
@@ -90,9 +99,29 @@ create table user_rewards (
   user_id uuid not null references profiles(id) on delete cascade,
   milestone int not null,
   gift text not null,
+  coin_reward int not null default 0 check (coin_reward >= 0),
+  coupon_code text,
   claimed boolean not null default false,
   created_at timestamptz not null default now(),
   unique (user_id, milestone)
+);
+
+create table referral_codes (
+  user_id uuid primary key references profiles(id) on delete cascade,
+  code text not null unique,
+  created_at timestamptz not null default now()
+);
+
+create table referral_signups (
+  referred_user uuid primary key references profiles(id) on delete cascade,
+  referrer_user uuid not null references profiles(id) on delete cascade,
+  signup_code text not null,
+  new_user_claimed boolean not null default false,
+  referrer_claimed boolean not null default false,
+  created_at timestamptz not null default now(),
+  new_user_claimed_at timestamptz,
+  referrer_claimed_at timestamptz,
+  constraint referral_signups_not_self check (referred_user <> referrer_user)
 );
 
 create table orders (
@@ -220,7 +249,7 @@ grant execute on function is_admin() to anon, authenticated;
 
 -- Create a profile automatically when someone signs up
 create function handle_new_user() returns trigger language plpgsql security definer set search_path = public as $$
-declare v_base text;
+declare v_base text; v_referral_code text; v_referrer uuid;
 begin
   v_base := left(regexp_replace(lower(split_part(coalesce(new.email, 'player'), '@', 1)), '[^a-z0-9_]+', '_', 'g'), 13);
   insert into profiles (id, name, username)
@@ -229,23 +258,116 @@ begin
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1), 'Player'),
     coalesce(nullif(v_base, ''), 'player') || '_' || substr(replace(new.id::text, '-', ''), 1, 10)
   );
+  insert into referral_codes (user_id, code)
+  values (new.id, 'EAT-' || upper(substr(replace(new.id::text, '-', ''), 1, 12)))
+  on conflict (user_id) do nothing;
+  v_referral_code := upper(trim(coalesce(new.raw_user_meta_data->>'referral_code', '')));
+  if v_referral_code <> '' then
+    select user_id into v_referrer from referral_codes where code = v_referral_code;
+    if v_referrer is not null and v_referrer <> new.id then
+      insert into referral_signups (referred_user, referrer_user, signup_code)
+      values (new.id, v_referrer, v_referral_code)
+      on conflict (referred_user) do nothing;
+    end if;
+  end if;
   return new;
+end $$;
+
+create function customer_referral_dashboard()
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare v_user uuid := auth.uid(); v_code text; v_invites jsonb; v_pending_coins integer;
+  v_can_redeem boolean; v_can_claim boolean;
+begin
+  if v_user is null then raise exception 'Please log in first'; end if;
+  select code into v_code from referral_codes where user_id = v_user;
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'username', p.username, 'joined_at', r.created_at,
+    'claimed', r.new_user_claimed, 'referrer_reward_claimed', r.referrer_claimed
+  ) order by r.created_at desc), '[]'::jsonb)
+  into v_invites from referral_signups r join profiles p on p.id = r.referred_user
+  where r.referrer_user = v_user;
+  select count(*)::integer * 3000 into v_pending_coins from referral_signups
+  where referrer_user = v_user and new_user_claimed and not referrer_claimed;
+  select exists(select 1 from referral_signups where referred_user = v_user and not new_user_claimed)
+    and not exists(select 1 from orders o where o.user_id = v_user)
+  into v_can_claim;
+  select not exists(select 1 from referral_signups where referred_user = v_user)
+    and not exists(select 1 from orders o where o.user_id = v_user)
+  into v_can_redeem from profiles p where p.id = v_user;
+  return jsonb_build_object('code', v_code, 'invites', v_invites,
+    'pending_referrer_coins', coalesce(v_pending_coins, 0),
+    'can_claim_new_user', coalesce(v_can_claim, false),
+    'can_redeem_code', coalesce(v_can_redeem, false));
+end $$;
+
+create function claim_referral_reward(p_code text default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_user uuid := auth.uid(); v_referrer uuid; v_signup referral_signups%rowtype;
+  v_code text := upper(trim(coalesce(p_code, ''))); v_created_at timestamptz;
+begin
+  if v_user is null then raise exception 'Please log in first'; end if;
+  if exists(select 1 from orders where user_id = v_user) then
+    raise exception 'Referral rewards must be claimed before your first order';
+  end if;
+  select * into v_signup from referral_signups where referred_user = v_user for update;
+  if not found then
+    if v_code = '' then raise exception 'Enter a referral code to continue'; end if;
+    select created_at into v_created_at from profiles where id = v_user for update;
+    if v_created_at is null or exists(select 1 from orders where user_id = v_user) then
+      raise exception 'Referral codes are available to new customers only';
+    end if;
+    select user_id into v_referrer from referral_codes where code = v_code;
+    if v_referrer is null then raise exception 'That referral code is not valid'; end if;
+    if v_referrer = v_user then raise exception 'You cannot redeem your own referral code'; end if;
+    insert into referral_signups (referred_user, referrer_user, signup_code)
+    values (v_user, v_referrer, v_code) on conflict (referred_user) do nothing;
+    select * into v_signup from referral_signups where referred_user = v_user for update;
+  end if;
+  if v_signup.new_user_claimed then raise exception 'Your referral reward has already been claimed'; end if;
+  update referral_signups set new_user_claimed = true, new_user_claimed_at = now()
+  where referred_user = v_user and not new_user_claimed;
+  if not found then raise exception 'Your referral reward has already been claimed'; end if;
+  update profiles set coins = coins + 2500 where id = v_user;
+  return jsonb_build_object('coins_awarded', 2500, 'referrer_reward', 3000);
+end $$;
+
+create function claim_referral_bonus()
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_user uuid := auth.uid(); v_invites integer; v_coins integer;
+begin
+  if v_user is null then raise exception 'Please log in first'; end if;
+  update referral_signups set referrer_claimed = true, referrer_claimed_at = now()
+  where referrer_user = v_user and new_user_claimed and not referrer_claimed;
+  get diagnostics v_invites = row_count;
+  v_coins := v_invites * 3000;
+  if v_coins > 0 then update profiles set coins = coins + v_coins where id = v_user; end if;
+  return jsonb_build_object('coins_awarded', v_coins, 'invites_claimed', v_invites);
 end $$;
 
 -- A customer can claim each reached streak reward once; admins can fulfill the gift in person.
 create function claim_streak_reward(p_milestone int)
 returns jsonb language plpgsql security definer set search_path = public as $$
-declare v_gift text; v_best int;
+declare v_gift text; v_coin_reward int; v_coupon_code text; v_coins_awarded int := 0; v_best int;
 begin
   if auth.uid() is null then raise exception 'Please log in first'; end if;
-  select gift into v_gift from streak_rewards where milestone = p_milestone;
+  select gift, coin_reward, coupon_code into v_gift, v_coin_reward, v_coupon_code from streak_rewards
+  where milestone = p_milestone and is_active for update;
   if v_gift is null then raise exception 'That streak reward does not exist'; end if;
   select greatest(coalesce(longest_streak, 0), coalesce(streak, 0)) into v_best from profiles where id = auth.uid();
   if coalesce(v_best, 0) < p_milestone then raise exception 'Keep your order streak going to unlock this reward'; end if;
-  insert into user_rewards (user_id, milestone, gift)
-  values (auth.uid(), p_milestone, v_gift) on conflict (user_id, milestone) do nothing;
-  update user_rewards set claimed = true where user_id = auth.uid() and milestone = p_milestone and claimed = false;
-  return jsonb_build_object('milestone', p_milestone, 'gift', v_gift, 'claimed', true);
+  insert into user_rewards (user_id, milestone, gift, coin_reward, coupon_code)
+  values (auth.uid(), p_milestone, v_gift, v_coin_reward, v_coupon_code)
+  on conflict (user_id, milestone) do nothing;
+  update user_rewards set claimed = true, gift = v_gift, coin_reward = v_coin_reward, coupon_code = v_coupon_code
+  where user_id = auth.uid() and milestone = p_milestone
+    and (claimed = false or (coin_reward = 0 and v_coin_reward > 0))
+  returning coin_reward into v_coins_awarded;
+  if found and v_coins_awarded > 0 then
+    update profiles set coins = coins + v_coins_awarded where id = auth.uid();
+  else
+    v_coins_awarded := 0;
+  end if;
+  return jsonb_build_object('milestone', p_milestone, 'gift', v_gift, 'claimed', true, 'coins_awarded', v_coins_awarded, 'coupon_code', v_coupon_code);
 end $$;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function handle_new_user();
@@ -258,6 +380,10 @@ alter table item_variants enable row level security;
 alter table settings enable row level security;
 alter table streak_rewards enable row level security;
 alter table user_rewards enable row level security;
+alter table referral_codes enable row level security;
+alter table referral_signups enable row level security;
+revoke all on referral_codes, referral_signups from anon, authenticated;
+grant select on referral_signups to authenticated;
 alter table orders enable row level security;
 alter table order_items enable row level security;
 alter table feed_posts enable row level security;
@@ -276,6 +402,8 @@ revoke update on profiles from anon, authenticated;
 grant update (name, username, phone, address, area, city, gender, avatar_id) on profiles to authenticated;
 create policy "profile read" on profiles for select using (id = auth.uid() or is_admin());
 create policy "profile edit" on profiles for update using (id = auth.uid()) with check (id = auth.uid());
+create policy "referral signup parties can view" on referral_signups for select to authenticated
+  using (referred_user = auth.uid() or referrer_user = auth.uid());
 
 -- Public read, admin write
 create policy "read" on brands for select using (true);
@@ -571,10 +699,16 @@ revoke all on function set_order_status(bigint, order_status) from public, anon;
 revoke all on function get_leaderboard() from public, anon;
 revoke all on function settle_weekly_game_rewards() from public, anon, authenticated;
 revoke all on function claim_streak_reward(int) from public, anon;
+revoke all on function customer_referral_dashboard() from public, anon;
+revoke all on function claim_referral_reward(text) from public, anon;
+revoke all on function claim_referral_bonus() from public, anon;
 grant execute on function place_order(jsonb, boolean, text, text) to authenticated;
 grant execute on function set_order_status(bigint, order_status) to authenticated;
 grant execute on function get_leaderboard() to authenticated;
 grant execute on function claim_streak_reward(int) to authenticated;
+grant execute on function customer_referral_dashboard() to authenticated;
+grant execute on function claim_referral_reward(text) to authenticated;
+grant execute on function claim_referral_bonus() to authenticated;
 
 create extension if not exists pg_cron with schema pg_catalog;
 do $$

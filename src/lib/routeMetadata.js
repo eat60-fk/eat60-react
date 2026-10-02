@@ -15,16 +15,18 @@ const metadata = {
   '/profile': ['My Profile | EAT60', 'Manage your EAT60 account profile and contact details.'],
   '/rewards': ['Rewards | EAT60', 'View your EAT60 rewards, streaks, and available offers.'],
   '/coupons': ['Coupons | EAT60', 'View available EAT60 vouchers and coupons.'],
+  '/refer': ['Refer & Earn | EAT60', 'Invite friends to EAT60 and claim referral coins.'],
   '/support': ['Support | EAT60', 'Get help with EAT60 orders and delivery.'],
   '/about': ['About EAT60', 'Learn about EAT60, a local food ordering app serving Ballia.'],
   '/socials': ['EAT60 Community', 'Connect with the EAT60 community.'],
+  '/careers': ['Careers at EAT60', 'Future career opportunities at EAT60 by Foodverse Kitchen.'],
   '/report-issue': ['Report an Issue | EAT60', 'Report a problem with the EAT60 app or ordering experience.']
 }
 
 export function updateRouteMetadata(pathname) {
   const path = pathname.replace(/\/+$/, '') || '/'
   const [title, description] = metadata[path] || ['EAT60 | Food delivery in Ballia', metadata['/'][1]]
-  const publicPage = path === '/download' || path === '/download-adminapp' || path === '/about'
+  const publicPage = path === '/download' || path === '/download-adminapp' || path === '/about' || path === '/careers'
   document.title = title
 
   const setMeta = (selector, attribute, key, content) => {

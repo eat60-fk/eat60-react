@@ -9,13 +9,15 @@ export const CUSTOMER_TAB_PATHS = {
 }
 
 const MORE_PAGE_PATHS = {
+  refer: '/refer',
   rewards: '/rewards',
   coupons: '/coupons',
   profile: '/profile',
   socials: '/socials',
   about: '/about',
   support: '/support',
-  bugs: '/report-issue'
+  bugs: '/report-issue',
+  careers: '/careers'
 }
 
 const CUSTOMER_ROUTES = {
@@ -34,13 +36,15 @@ const CUSTOMER_ROUTES = {
   '/setting': { tab: 'more' },
   '/settings': { tab: 'more' },
   '/more': { tab: 'more' },
+  '/refer': { tab: 'more', morePage: 'refer' },
   '/profile': { tab: 'more', morePage: 'profile' },
   '/rewards': { tab: 'more', morePage: 'rewards' },
   '/coupons': { tab: 'more', morePage: 'coupons' },
   '/socials': { tab: 'more', morePage: 'socials' },
   '/about': { tab: 'more', morePage: 'about' },
   '/support': { tab: 'more', morePage: 'support' },
-  '/report-issue': { tab: 'more', morePage: 'bugs' }
+  '/report-issue': { tab: 'more', morePage: 'bugs' },
+  '/careers': { tab: 'more', morePage: 'careers' }
 }
 
 export function resolveCustomerRoute(pathname) {

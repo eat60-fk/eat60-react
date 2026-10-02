@@ -170,8 +170,8 @@ export default function Customer({ me, email, reload, installAvailable, installM
   const [gameView, setGameView] = useState(initialRoute.gameView || 'games')
   const [gameFocus,setGameFocus]=useState(false)
   const [moreInitialPage, setMoreInitialPage] = useState(initialRoute.morePage || null)
-  const [cart, setCart] = useState([])
-  const [selectedVoucher, setSelectedVoucher] = useState('')
+  const [cart, setCart] = useState(() => readOfflineCache(`cart:${me.id}`) || [])
+  const [selectedVoucher, setSelectedVoucher] = useState(() => readOfflineCache(`voucher:${me.id}`) || '')
   const [feedRefreshKey, setFeedRefreshKey] = useState(0)
   const [rank, setRank] = useState(null)
   const [fullscreenNotice, setFullscreenNotice] = useState(null)
@@ -194,18 +194,25 @@ export default function Customer({ me, email, reload, installAvailable, installM
   const exitRequestedRef = useRef(false)
   const gameQuitRef = useRef(null)
 
-  const say = useCallback((message) => {
+  const say = useCallback((message, action = null) => {
     window.clearTimeout(toastTimer.current)
     const id = ++toastSequence.current
-    setToast({ message, id })
-    toastTimer.current = window.setTimeout(() => setToast(null), 3000)
+    const duration = action ? 6000 : 3000
+    setToast({ message, id, action })
+    toastTimer.current = window.setTimeout(() => setToast(null), duration)
   }, [])
+  const announce = useCallback((notice) => setFullscreenNotice(notice), [])
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
   const handleDelivered = useCallback((orderId) => {
     const key = `eat60:delivered:${orderId}`
     if (sessionStorage.getItem(key)) return
     sessionStorage.setItem(key, 'shown')
     setFullscreenNotice({ type: 'order-delivered', id: orderId })
+  }, [])
+  useEffect(() => {
+    if (!sessionStorage.getItem('eat60:account-created-pending')) return
+    sessionStorage.removeItem('eat60:account-created-pending')
+    setFullscreenNotice({ type: 'reward', title: 'Welcome to EAT60!', message: 'Your account is ready. Check More → Refer for any invitation coins waiting to be claimed.' })
   }, [])
 
   const reloadRatings = useCallback(async () => {
@@ -252,6 +259,8 @@ export default function Customer({ me, email, reload, installAvailable, installM
   }, [])
 
   useEffect(() => { loadCatalog() }, [loadCatalog])
+  useEffect(() => { writeOfflineCache(`cart:${me.id}`, cart) }, [cart, me.id])
+  useEffect(() => { writeOfflineCache(`voucher:${me.id}`, selectedVoucher) }, [selectedVoucher, me.id])
 
   useEffect(() => {
     const key = feedCacheKey(me.id)
@@ -302,8 +311,6 @@ export default function Customer({ me, email, reload, installAvailable, installM
       refreshApp()
     }
   }
-
-  useEffect(() => { reload() }, [tab]) // refresh coins and streak when switching tabs
 
   useEffect(() => {
     sb.rpc('get_leaderboard').then(({ data }) => {
@@ -376,6 +383,21 @@ export default function Customer({ me, email, reload, installAvailable, installM
     setMoreInitialPage(page)
     go('more', pathForMorePage(page))
   }
+  useEffect(() => {
+    if (me.address?.trim() && me.area?.trim() && me.phone?.trim()) return
+    const key = `eat60:profile-reminder:${me.id}`
+    if (sessionStorage.getItem(key)) return
+    sessionStorage.setItem(key, 'shown')
+    const missing = [
+      !me.address?.trim() && 'delivery address',
+      !me.area?.trim() && 'area',
+      !me.phone?.trim() && 'phone number'
+    ].filter(Boolean)
+    say(`Add your ${missing.join(', ')} for a smoother checkout.`, {
+      label: 'UPDATE PROFILE',
+      onClick: () => goMore('profile')
+    })
+  }, [me.id, me.address, me.area, me.phone, say])
   useEffect(() => {
     const syncCustomerRoute = () => {
       if (exitRequestedRef.current) {
@@ -501,28 +523,20 @@ export default function Customer({ me, email, reload, installAvailable, installM
         </div>
       </>}
 
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={`${tab}:${tab === 'more' ? moreInitialPage || 'index' : tab === 'games' ? gameView : ''}`}
-          className="customer-screen-transition"
-          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={reduceMotion ? undefined : { opacity: 0, y: -7 }}
-          transition={{ duration: reduceMotion ? 0 : 0.2, ease: 'easeOut' }}
-        >
-          {tab === 'home' && <Home data={data} add={add} price={price} go={go} goMore={goMore} goGames={goGames} say={say} me={me} reloadRatings={reloadRatings} />}
-          {tab === 'cart' && (
-            <Cart cart={cart} setCart={setCart} cfg={data.cfg} me={me} say={say} voucherCode={selectedVoucher} onBack={() => cart.length ? leaveCart() : go('home')}
-              done={(orderId) => { setSelectedVoucher(''); reload(); setFullscreenNotice({ type: 'order-placed', id: orderId }) }} />
-          )}
-          {tab === 'hist' && <History me={me} />}
-          {tab === 'feed' && <Feed me={me} say={say} refreshKey={feedRefreshKey} />}
-          {tab === 'games' && <div className={`game-focus-surface${gameFocus?' focused':''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} onViewChange={goGames} onRequestQuit={() => setBackConfirmation('game')} quitRef={gameQuitRef} /></div>}
-          {tab === 'wallet' && <Wallet me={me} onBack={() => go('home')} />}
-          {tab === 'more' && <More me={me} email={email} reload={reload} go={go} goGames={goGames} say={say} initialPage={moreInitialPage} onNavigatePath={navigateMorePage}
-            onSelectVoucher={(code) => { setSelectedVoucher(code); go('cart') }} installAvailable={installAvailable} installMessage={installMessage} />}
-        </motion.div>
-      </AnimatePresence>
+      <motion.div className="customer-screen-transition" initial={false} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2, ease: 'easeOut' }}>
+        <div hidden={tab !== 'home'}><Home data={data} add={add} price={price} go={go} goMore={goMore} goGames={goGames} say={say} me={me} reloadRatings={reloadRatings} /></div>
+        <div hidden={tab !== 'cart'}>
+          <Cart cart={cart} setCart={setCart} cfg={data.cfg} me={me} say={say} voucherCode={selectedVoucher} onBack={() => cart.length ? leaveCart() : go('home')}
+            done={(orderId) => { setSelectedVoucher(''); reload(); setFullscreenNotice({ type: 'order-placed', id: orderId }) }} />
+        </div>
+        <div hidden={tab !== 'hist'}><History me={me} /></div>
+        <div hidden={tab !== 'feed'}><Feed me={me} say={say} refreshKey={feedRefreshKey} /></div>
+        {tab === 'games' && <div className={`game-focus-surface${gameFocus?' focused':''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} onViewChange={goGames} onRequestQuit={() => setBackConfirmation('game')} quitRef={gameQuitRef} onAnnounce={announce} /></div>}
+        <div hidden={tab !== 'wallet'}><Wallet me={me} onBack={() => go('home')} /></div>
+        <div hidden={tab !== 'more'}><More me={me} email={email} reload={reload} go={go} goGames={goGames} say={say} initialPage={moreInitialPage} onNavigatePath={navigateMorePage}
+          onSelectVoucher={(code) => { setSelectedVoucher(code); go('cart') }} installAvailable={installAvailable} installMessage={installMessage}
+          socialLinks={data.cfg.social_links || {}} supportPhone={data.cfg.social_links?.support_phone || ''} onAnnounce={announce} /></div>
+      </motion.div>
       <BackConfirmation kind={backConfirmation} onCancel={() => setBackConfirmation(null)} onConfirm={confirmBackAction} />
       {!catalogLoaded && (!online || catalogError) && <div className="offline-wait-screen">
         <LoadingIndicator label={online ? 'Waiting for EAT60 data…' : 'Waiting for a network connection…'} />
@@ -544,7 +558,7 @@ export default function Customer({ me, email, reload, installAvailable, installM
       {n > 0 && tab !== 'cart' && <button className="floating-cart" onClick={() => go('cart')} aria-label={`Open cart, ${n} items, estimated total ₹${floatingCartTotal}`}>
         <span className="floating-cart-icon"><NavigationIcon name="cart" /><b>{n}</b></span><span className="floating-cart-copy"><small>{n} {n === 1 ? 'ITEM' : 'ITEMS'}</small><strong>₹{floatingCartTotal.toLocaleString('en-IN')}</strong></span><span className="floating-cart-arrow">→</span>
       </button>}
-      {toast && <div key={toast.id} className="toast" role="status" style={{ '--toast-duration': '3000ms' }}>{toast.message}<span className="toast-progress" aria-hidden="true" /></div>}
+      {toast && <div key={toast.id} className="toast" role="status" style={{ '--toast-duration': `${toast.action ? 6000 : 3000}ms` }}>{toast.message}{toast.action && <button className="toast-action" onClick={() => { window.clearTimeout(toastTimer.current); setToast(null); toast.action.onClick() }}>{toast.action.label}</button>}<span className="toast-progress" aria-hidden="true" /></div>}
       {fullscreenNotice && <FullscreenNotice notice={fullscreenNotice}
         onClose={() => { const goHome = fullscreenNotice.type === 'order-placed'; setFullscreenNotice(null); if (goHome) go('home') }}
         onTrackOrder={() => { setFullscreenNotice(null); go('hist') }}
@@ -556,27 +570,34 @@ export default function Customer({ me, email, reload, installAvailable, installM
 function FullscreenNotice({ notice, onClose, onTrackOrder, onViewFeed }) {
   const announcement = notice.type === 'announcement'
   const delivered = notice.type === 'order-delivered'
-  const title = announcement ? 'A note from EAT60' : delivered ? 'Order delivered!' : 'Order placed!'
+  const gameScore = notice.type === 'game-score'
+  const reward = notice.type === 'reward'
+  const special = gameScore || reward
+  const title = notice.title || (announcement ? 'A note from EAT60' : delivered ? 'Order delivered!' : 'Order placed!')
   const detail = announcement
     ? notice.message
+    : special
+      ? notice.message
     : delivered
       ? `Order #${notice.id} has arrived. Enjoy your meal!`
       : `Order #${notice.id} is with the kitchen. We’ll keep you updated as it moves along.`
-  return <div className={`fullscreen-notice${announcement ? ' is-announcement' : ''}`} role="dialog" aria-modal="true" aria-labelledby="fullscreen-notice-title">
+  return <div className={`fullscreen-notice${special || announcement ? ' is-announcement' : ''}`} role="dialog" aria-modal="true" aria-labelledby="fullscreen-notice-title">
     <div className="reward-screen-rays" aria-hidden="true" />
-    <div className={`notice-animation-icon ${announcement ? 'notice-megaphone' : delivered ? 'notice-delivered' : 'notice-placed'}`} aria-hidden="true">
-      <span>{announcement ? '✳' : delivered ? '✓' : '✓'}</span>
-      {!announcement && <i />}
+    <div className={`notice-animation-icon ${special || announcement ? 'notice-megaphone' : delivered ? 'notice-delivered' : 'notice-placed'}`} aria-hidden="true">
+      <span>{special ? reward ? '✦' : gameScore ? '★' : '✳' : '✓'}</span>
+      {!special && <i />}
     </div>
-    <p className="notice-kicker">{announcement ? 'ANNOUNCEMENT' : delivered ? 'GOOD FOOD, RIGHT ON TIME' : 'THANK YOU FOR YOUR ORDER'}</p>
+    <p className="notice-kicker">{notice.kicker || (announcement ? 'ANNOUNCEMENT' : reward ? 'REWARD CLAIMED' : gameScore ? 'GAME SCORE SAVED' : delivered ? 'GOOD FOOD, RIGHT ON TIME' : 'THANK YOU FOR YOUR ORDER')}</p>
     <h1 id="fullscreen-notice-title">{title}</h1>
     <p className="notice-detail">{detail}</p>
     <div className="notice-progress" aria-hidden="true"><i /></div>
     <div className="notice-actions">
-      {announcement
+      {special
+        ? <button className="reward-claim-primary" onClick={onClose}>CONTINUE</button>
+        : announcement
         ? <button className="reward-claim-primary" onClick={onViewFeed}>VIEW FEED</button>
         : <button className="reward-claim-primary" onClick={onTrackOrder}>{delivered ? 'VIEW ORDER' : 'TRACK YOUR ORDER'}</button>}
-      <button className="reward-claim-later" onClick={onClose}>{announcement ? 'CLOSE' : 'CONTINUE'}</button>
+      {!special && <button className="reward-claim-later" onClick={onClose}>CONTINUE</button>}
     </div>
   </div>
 }
@@ -608,6 +629,13 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
   const offerMinutes = Math.floor((offerRemaining % 3600000) / 60000)
   const offerSeconds = Math.floor((offerRemaining % 60000) / 1000)
   const offerCountdown = `${String(offerHours).padStart(2, '0')}:${String(offerMinutes).padStart(2, '0')}:${String(offerSeconds).padStart(2, '0')}`
+  const adImage = String(data.cfg.home_ad_image_url || '').trim()
+  const adStart = data.cfg.home_ad_starts_at ? new Date(data.cfg.home_ad_starts_at).getTime() : null
+  const adEnd = data.cfg.home_ad_ends_at ? new Date(data.cfg.home_ad_ends_at).getTime() : null
+  const adLink = /^https?:\/\//i.test(data.cfg.home_ad_link || '') ? data.cfg.home_ad_link : ''
+  const showPartnerAd = data.cfg.home_ad_active === true && /^https?:\/\//i.test(adImage) &&
+    (adStart === null || (!Number.isNaN(adStart) && Date.now() >= adStart)) &&
+    (adEnd === null || (!Number.isNaN(adEnd) && Date.now() < adEnd))
   const sorted = (i) => [...i.item_variants].sort((x, y) => x.price - y.price)
   const activeVariant = (item) => item?.item_variants?.find((v) => Number(v.id) === Number(data.cfg.offer_variant_id))
   const scrollToOffer = () => {
@@ -630,6 +658,13 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
         <button onClick={scrollToOffer}><i className="quick-icon offer-icon"><b>50%</b><small>OFF</small></i><span>Offers & Coupon</span></button>
         <button onClick={() => data.cfg.tiffin_url ? window.open(data.cfg.tiffin_url, '_blank', 'noopener,noreferrer') : say('Tiffin service details are coming soon')}><i className="quick-icon tiffin-icon"><ActionIcon name="tiffin" /></i><span>Tiffin Service</span></button>
       </div>
+
+      {showPartnerAd && (adLink
+        ? <a className="home-partner-ad" href={adLink} target="_blank" rel="noopener noreferrer" aria-label={data.cfg.home_ad_alt || 'Partner promotion'}>
+          <img src={adImage} alt={data.cfg.home_ad_alt || 'Partner promotion'} loading="lazy" />
+          <span>PARTNER SPOTLIGHT <i aria-hidden="true">↗</i></span>
+        </a>
+        : <div className="home-partner-ad"><img src={adImage} alt={data.cfg.home_ad_alt || 'Partner promotion'} loading="lazy" /><span>PARTNER SPOTLIGHT</span></div>)}
 
       {offerItem && (
         <div className="offer-card" id="daily-offer" ref={offerRef}>
@@ -736,15 +771,19 @@ function Home({ data, add, price, go, goMore, goGames, say, me, reloadRatings })
 }
 
 function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
-  const [useCoins, setUseCoins] = useState(false)
-  const [customerName, setCustomerName] = useState(me.name || '')
-  const [addr, setAddr] = useState([me.address, me.area, me.city].filter(Boolean).join(', '))
-  const [ph, setPh] = useState(me.phone || '')
+  const [draft] = useState(() => readOfflineCache(`checkout:${me.id}`) || {})
+  const [useCoins, setUseCoins] = useState(draft.useCoins ?? false)
+  const [customerName, setCustomerName] = useState(draft.customerName ?? me.name ?? '')
+  const [addr, setAddr] = useState(draft.addr ?? [me.address, me.area, me.city].filter(Boolean).join(', '))
+  const [ph, setPh] = useState(draft.ph ?? me.phone ?? '')
   const [busy, setBusy] = useState(false)
-  const [coupon, setCoupon] = useState('')
+  const [coupon, setCoupon] = useState(draft.coupon || '')
   const [couponResult, setCouponResult] = useState(null)
   const [deliveryDistance, setDeliveryDistance] = useState(null)
   const [locationMessage, setLocationMessage] = useState('')
+  useEffect(() => {
+    writeOfflineCache(`checkout:${me.id}`, { useCoins, customerName, addr, ph, coupon })
+  }, [addr, coupon, customerName, me.id, ph, useCoins])
 
   // These numbers are only a preview. The server recalculates the real total.
   const sub = cart.reduce((a, x) => a + x.price * x.qty, 0)
@@ -766,6 +805,7 @@ function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
   const qty = (k, d) => { setCouponResult(null); setCart((c) => c.map((x, i) => (i === k ? { ...x, qty: x.qty + d } : x)).filter((x) => x.qty > 0)) }
 
   const place = async () => {
+    if (!navigator.onLine) return say('You’re offline. Your cart and checkout details are saved; reconnect to place the order.')
     if (!customerName.trim() || !ph.trim() || !addr.trim()) return say('Enter your name, phone number, and delivery address.')
     if (!minimumOrderMet) return say(`Minimum order is ₹${minimumOrder}.`)
     if (beyondDeliveryRadius) return say(`Delivery is available only within ${deliveryRadius} km.`)
@@ -782,6 +822,11 @@ function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
       })
       if (error) return say(error.message)
       setCart([])
+      setCoupon('')
+      setCouponResult(null)
+      setUseCoins(false)
+      setDeliveryDistance(null)
+      setLocationMessage('')
       done(orderId)
     } catch (error) {
       say(error.message || 'Could not place the order. Please try again.')
@@ -790,6 +835,7 @@ function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
     }
   }
   const validateCoupon = useCallback(async (code = coupon) => {
+    if (!navigator.onLine) return say('Reconnect to validate this coupon. Your cart is saved.')
     try {
       const { data, error } = await sb.rpc('validate_coupon', { p_code: code, p_subtotal: sub })
       if (error) { setCouponResult(null); return say(error.message) }
@@ -886,17 +932,21 @@ function Cart({ cart, setCart, cfg, me, say, done, voucherCode, onBack }) {
 function CustomerOrderJourney({order}){
  const events=[...(order.order_stage_events||[])].sort((a,b)=>new Date(a.occurred_at)-new Date(b.occurred_at))
  if(!events.length)return null
- return <div className="customer-order-journey"><b>ORDER JOURNEY</b>{events.map((event,index)=><div className="customer-order-event" key={event.id}><i/><span><strong>{LABEL[event.stage]||event.stage.replaceAll('_',' ')}</strong><small>{new Date(event.occurred_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}{index<events.length-1?` · ${Math.max(0,Math.round((new Date(events[index+1].occurred_at)-new Date(event.occurred_at))/60000))} min`:''}</small>{event.stage==='rejected'&&event.note&&<small>{event.note}</small>}</span></div>)}</div>
+ return <details className="customer-order-journey"><summary><b>ORDER JOURNEY</b><span>{events.length} updates <i aria-hidden="true">⌄</i></span></summary>{events.map((event,index)=><div className="customer-order-event" key={event.id}><i/><span><strong>{LABEL[event.stage]||event.stage.replaceAll('_',' ')}</strong><small>{new Date(event.occurred_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}{index<events.length-1?` · ${Math.max(0,Math.round((new Date(events[index+1].occurred_at)-new Date(event.occurred_at))/60000))} min`:''}</small>{event.stage==='rejected'&&event.note&&<small>{event.note}</small>}</span></div>)}</details>
 }
 
 function History({ me }) {
-  const [rows, setRows] = useState([])
-  const [reviews, setReviews] = useState({})
-  const [drafts, setDrafts] = useState({})
+  const cacheKey = `order-history:${me.id}`
+  const [cachedHistory] = useState(() => readOfflineCache(cacheKey) || {})
+  const [rows, setRows] = useState(cachedHistory.rows || [])
+  const [reviews, setReviews] = useState(cachedHistory.reviews || {})
+  const [drafts, setDrafts] = useState(() => readOfflineCache(`review-drafts:${me.id}`) || {})
   const [saving, setSaving] = useState(null)
   const [feedbackError, setFeedbackError] = useState('')
   const [reviewLoadError, setReviewLoadError] = useState('')
   const [orderLoadError, setOrderLoadError] = useState('')
+  useEffect(() => { writeOfflineCache(cacheKey, { rows, reviews }) }, [cacheKey, reviews, rows])
+  useEffect(() => { writeOfflineCache(`review-drafts:${me.id}`, drafts) }, [drafts, me.id])
   const load = useCallback(async () => {
     let result=await sb.from('orders').select('*, order_items(*), order_stage_events(*)').order('created_at', { ascending: false })
     if(result.error)result=await sb.from('orders').select('*, order_items(*)').order('created_at', { ascending: false })
@@ -923,7 +973,14 @@ function History({ me }) {
     try {
       const {data,error}=await sb.from('order_reviews').insert({order_id:order.id,user_id:me.id,rating:draft.rating,feedback:(draft.feedback||'').trim()||null}).select('order_id,rating,feedback').single()
       if(error) setFeedbackError(error.message)
-      else setReviews(current=>({...current,[order.id]:data}))
+      else {
+        setReviews(current=>({...current,[order.id]:data}))
+        setDrafts(current => {
+          const next = { ...current }
+          delete next[order.id]
+          return next
+        })
+      }
     } catch (error) {
       setFeedbackError(error.message || 'Could not send your feedback. Please try again.')
     } finally {
@@ -939,9 +996,10 @@ function History({ me }) {
     return () => { sb.removeChannel(ch) }
   }, [load, me.id])
 
-  if (orderLoadError) return <div className="card" role="alert"><b>Order history could not be loaded.</b><p>{orderLoadError}</p><button className="pill" onClick={load}>Try again</button></div>
+  if (orderLoadError && !rows.length) return <div className="card" role="alert"><b>Order history could not be loaded.</b><p>{orderLoadError}</p><button className="pill" onClick={load}>Try again</button></div>
   if (!rows.length) return <div className="empty">No orders yet. Your first delivered order starts your streak.</div>
   return <>
+    {orderLoadError && <p className="feature-offline" role="status">Showing saved order history. Reconnect to refresh status.</p>}
     {reviewLoadError&&<div className="card" role="alert"><b>Ratings and reviews are unavailable.</b><p>{reviewLoadError}</p><small>Ask the administrator to run order_reviews.sql in the Supabase SQL Editor.</small><button className="pill" onClick={load}>Try again</button></div>}
     {rows.map((o) => (
     <div key={o.id} className="card">
@@ -1178,14 +1236,15 @@ function Maths({ onEnd, onQuit }) {
   )
 }
 
-function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange = () => {}, onRequestQuit, quitRef }) {
+function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange = () => {}, onRequestQuit, quitRef, onAnnounce }) {
+  const leaderboardKey = `leaderboard:${me.id}`
   const [playing, setPlaying] = useState(null)
   const [countdown,setCountdown]=useState(null)
-  const [lb, setLb] = useState([])
+  const [lb, setLb] = useState(() => readOfflineCache(leaderboardKey) || [])
   const [res, setRes] = useState(null)
   const [busy, setBusy] = useState(false)
   const [starting, setStarting] = useState(false)
-  const [rank, setRank] = useState(null)
+  const [rank, setRank] = useState(() => readOfflineCache(leaderboardKey)?.find((row) => row.is_me)?.rank ?? null)
   const sessionId = useRef(null)
   const [view, setView] = useState(initialView || 'games')
   useEffect(() => setView(initialView || 'games'), [initialView])
@@ -1194,6 +1253,7 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
     const { data, error } = await sb.rpc('get_leaderboard')
     if (error) return say(error.message)
     setLb(data || [])
+    writeOfflineCache(leaderboardKey, data || [])
     setRank(data?.find((row) => row.is_me)?.rank ?? null)
   }
   useEffect(() => { loadLb() }, [])
@@ -1216,6 +1276,7 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
       setRes({ game, score, ...data })
       reload()
       loadLb()
+      onAnnounce?.({ type: 'game-score', title: 'That score is in!', message: `You earned ${Number(data?.xp) || 0} XP and ${(Number(data?.coins) || 0).toLocaleString('en-IN')} coins.` })
       return { data }
     } catch (error) {
       const submissionError = error instanceof Error ? error : new Error('Could not save your game score.')
@@ -1226,6 +1287,7 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
     }
   }
   const startGame = async (id) => {
+    if (!navigator.onLine) return say('Connect to the internet before starting a game so your score and rewards can be saved.')
     setRes(null)
     setStarting(true)
     const { data, error } = await sb.rpc('start_game_session', { p_game: id })
@@ -1285,19 +1347,28 @@ function Games({ reload, say, me, initialView, onFocus = () => {}, onViewChange 
 }
 
 function MyGameScores({ me, onBack }) {
-  const [scores, setScores] = useState([])
-  const [roundCount, setRoundCount] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const cacheKey = `game-scores:${me.id}`
+  const [cachedScores] = useState(() => readOfflineCache(cacheKey))
+  const [scores, setScores] = useState(cachedScores?.scores || [])
+  const [roundCount, setRoundCount] = useState(cachedScores?.roundCount || 0)
+  const [loading, setLoading] = useState(!cachedScores)
   const [error, setError] = useState('')
   useEffect(() => {
     sb.from('game_scores').select('game,score,xp,played_at', { count: 'exact' }).order('played_at', { ascending: false }).limit(250)
       .then(({ data, count, error: queryError }) => {
-        setScores(data || [])
-        setRoundCount(count || 0)
-        setError(queryError?.message || '')
+        if (queryError) {
+          setError(queryError.message)
+        } else {
+          const nextScores = data || []
+          const nextCount = count || 0
+          setScores(nextScores)
+          setRoundCount(nextCount)
+          writeOfflineCache(cacheKey, { scores: nextScores, roundCount: nextCount })
+          setError('')
+        }
         setLoading(false)
       })
-  }, [])
+  }, [cacheKey])
   const best = (game) => Math.max(0, ...scores.filter((score) => score.game === game).map((score) => score.score))
   const playedGames = new Set(scores.map((score) => score.game))
   const mathAnswers = scores.filter((score) => score.game === 'qmaths').reduce((sum, score) => sum + score.score, 0)
@@ -1434,9 +1505,11 @@ function MoreIcon({ name }) {
   return <svg {...props}>{icon[name] || icon.about}</svg>
 }
 
-function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath, onSelectVoucher, installAvailable, installMessage }) {
+function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath, onSelectVoucher, installAvailable, installMessage, socialLinks, supportPhone, onAnnounce }) {
   const [rewards, setRewards] = useState([])
   const [claimedRewards, setClaimedRewards] = useState([])
+  const [claimedRewardVouchers, setClaimedRewardVouchers] = useState({})
+  const [pendingCoinClaims, setPendingCoinClaims] = useState([])
   const [availableCoupons, setAvailableCoupons] = useState([])
   const [couponLoadError, setCouponLoadError] = useState('')
   const [claiming, setClaiming] = useState(null)
@@ -1461,28 +1534,56 @@ function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath
   }
   const backToMore = () => openMorePage(null)
   useEffect(() => {
-    Promise.all([
-      sb.from('streak_rewards').select('milestone,gift').eq('is_active',true).order('milestone'),
-      sb.from('user_rewards').select('milestone,claimed').order('milestone'),
-      sb.rpc('customer_available_coupons')
-    ]).then(([catalog, owned, coupons]) => {
+    let active = true
+    const loadRewards = async () => {
+      const [catalogResult, ownedResult, couponsResult] = await Promise.all([
+        sb.rpc('customer_streak_rewards'),
+        sb.from('user_rewards').select('milestone,claimed,coin_reward,coupon_code').order('milestone'),
+        sb.rpc('customer_available_coupons')
+      ])
+      let catalog = catalogResult
+      if (catalog.error?.code === 'PGRST202' || catalog.error?.code === '42883') {
+        catalog = await sb.from('streak_rewards').select('milestone,gift,coin_reward,is_active').eq('is_active', true).order('milestone')
+        catalog = { ...catalog, data: (catalog.data || []).map((reward) => ({ ...reward, has_voucher: false })) }
+      }
+      let owned = ownedResult
+      if (owned.error?.code === '42703' || owned.error?.code === 'PGRST204') {
+        owned = await sb.from('user_rewards').select('milestone,claimed,coin_reward').order('milestone')
+      }
+      if (!active) return
       setRewards(catalog.data || [])
       setClaimedRewards((owned.data || []).filter((reward) => reward.claimed).map((reward) => reward.milestone))
-      if (coupons.error) setCouponLoadError(coupons.error.message)
-      else setAvailableCoupons(coupons.data || [])
-    })
+      setClaimedRewardVouchers(Object.fromEntries((owned.data || []).filter((reward) => reward.claimed && reward.coupon_code).map((reward) => [reward.milestone, reward.coupon_code])))
+      const configuredCoinRewards = new Map((catalog.data || []).map((reward) => [reward.milestone, Number(reward.coin_reward) || 0]))
+      setPendingCoinClaims((owned.data || [])
+        .filter((reward) => reward.claimed && Number(reward.coin_reward) === 0 && (configuredCoinRewards.get(reward.milestone) || 0) > 0)
+        .map((reward) => reward.milestone))
+      const setupRequired = catalog.error || owned.error
+      if (setupRequired) setRewardMessage(`${setupRequired.message} Apply admin_ads_rewards.sql in Supabase, then refresh the API schema cache.`)
+      if (couponsResult.error) setCouponLoadError(couponsResult.error.message)
+      else setAvailableCoupons(couponsResult.data || [])
+    }
+    loadRewards()
+    return () => { active = false }
   }, [])
   const claimReward = async (milestone) => {
     setClaiming(milestone)
     setRewardMessage('')
-    const { error } = await sb.rpc('claim_streak_reward', { p_milestone: milestone })
+    const { data, error } = await sb.rpc('claim_streak_reward', { p_milestone: milestone })
     setClaiming(null)
     if (error) return setRewardMessage(error.message)
     setClaimedRewards((current) => [...new Set([...current, milestone])])
+    if (data?.coupon_code) {
+      setClaimedRewardVouchers((current) => ({ ...current, [milestone]: data.coupon_code }))
+      const voucherResult = await sb.rpc('customer_available_coupons')
+      if (voucherResult.error) setCouponLoadError(voucherResult.error.message)
+      else setAvailableCoupons(voucherResult.data || [])
+    }
+    setPendingCoinClaims((current) => current.filter((value) => value !== milestone))
     const gift = rewards.find((reward) => reward.milestone === milestone)?.gift || 'Streak reward'
     setClaimPrompt(null)
-    setCelebration({ milestone, gift })
-    reload()
+    setCelebration({ milestone, gift, coins: Number(data?.coins_awarded) || 0, couponCode: data?.coupon_code || null })
+    await reload()
   }
   if (editing) return <ProfileEditor me={me} email={email} reload={reload} onBack={backToMore} />
   const tiles = {
@@ -1495,14 +1596,7 @@ function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath
     if (id === 'ranks') return goGames('rankings')
     if (id === 'scorecard') return goGames('scores')
     if (id === 'coupons') return openMorePage('coupons')
-    if (id === 'refer') {
-      const message = `Join me on EAT60! Use my username ${me.username} when you sign up. ${window.location.origin}`
-      try {
-        if (navigator.share) await navigator.share({ title: 'Join me on EAT60', text: message })
-        else { await navigator.clipboard.writeText(message); say('Invite message copied to clipboard') }
-      } catch (error) { if (error.name !== 'AbortError') say('Could not share the invite on this device') }
-      return
-    }
+    if (id === 'refer') return openMorePage('refer')
     if (id === 'rate') { say('Thanks for supporting EAT60!'); return }
     openMorePage(id)
   }
@@ -1512,13 +1606,14 @@ function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath
     <div className="streak-track">
       {rewards.map((reward) => {
         const claimed = claimedRewards.includes(reward.milestone)
+        const pendingCoins = pendingCoinClaims.includes(reward.milestone)
         const reached = (me.longest_streak || me.streak) >= reward.milestone
-        return <article key={reward.milestone} className={`streak-reward${claimed ? ' is-claimed' : reached ? ' is-ready' : ''}`}>
+        return <article key={reward.milestone} className={`streak-reward${claimed && !pendingCoins ? ' is-claimed' : reached ? ' is-ready' : ''}`}>
           <span className="streak-marker">{claimed ? '✓' : reached ? '!' : <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>}</span>
           <div className="streak-reward-card">
             <div className="streak-reward-art" aria-hidden="true">{claimed ? '🎁' : reward.milestone <= 30 ? '✨' : '🎁'}</div>
-            <div className="streak-reward-copy"><span className="streak-day">DAY {reward.milestone}</span><b>{reward.gift}</b><small>{claimed ? 'Reward claimed' : reached ? 'Goal reached — claim your reward' : `${Math.max(0, reward.milestone - me.streak)} more streak days to unlock`}</small></div>
-            {claimed ? <span className="streak-status">CLAIMED</span> : reached ? <button className="streak-claim" onClick={() => setClaimPrompt(reward)}>{claiming === reward.milestone ? 'CLAIMING…' : 'CLAIM REWARD'}</button> : <span className="streak-locked">LOCKED</span>}
+            <div className="streak-reward-copy"><span className="streak-day">DAY {reward.milestone}</span><b>{reward.gift}</b>{Number(reward.coin_reward) > 0 && <small>🪙 {Number(reward.coin_reward)} coins</small>}{reward.has_voucher && <small>🎟 Voucher reward</small>}<small>{claimed ? 'Reward claimed' : reached ? 'Goal reached — claim your reward' : `${Math.max(0, reward.milestone - me.streak)} more streak days to unlock`}</small></div>
+            {claimed && !pendingCoins ? <div className="streak-status-actions"><span className="streak-status">CLAIMED</span>{claimedRewardVouchers[reward.milestone] && <button className="streak-claim" onClick={() => onSelectVoucher(claimedRewardVouchers[reward.milestone])}>USE VOUCHER</button>}</div> : reached ? <button className="streak-claim" onClick={() => setClaimPrompt(reward)}>{claiming === reward.milestone ? 'CLAIMING…' : pendingCoins ? 'CLAIM COINS' : 'CLAIM REWARD'}</button> : <span className="streak-locked">LOCKED</span>}
           </div>
         </article>
       })}
@@ -1533,7 +1628,8 @@ function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath
       <p className="claim-celebration-kicker">STREAK MILESTONE · DAY {celebration.milestone}</p>
       <h2 id="claim-celebration-title">You earned it!</h2>
       <p className="claim-celebration-gift">{celebration.gift}</p>
-      <p className="claim-celebration-note">Your reward is claimed. Show this screen to the team when you redeem it.</p>
+      <p className="claim-celebration-note">{celebration.coins > 0 ? `${celebration.coins} coins have been added to your wallet.` : 'Your reward is claimed. Show this screen to the team when you redeem it.'}</p>
+      {celebration.couponCode && <button className="claim-celebration-done claim-use-voucher" onClick={() => { setCelebration(null); onSelectVoucher(celebration.couponCode) }}>USE {celebration.couponCode} AT CHECKOUT <span>→</span></button>}
       <button className="claim-celebration-done" onClick={() => setCelebration(null)}>LET’S GO <span>✦</span></button>
     </section>
   </div>
@@ -1541,9 +1637,9 @@ function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath
     <div className="reward-screen-rays" aria-hidden="true" />
     <div className="reward-claim-badge" aria-hidden="true"><span>{claimPrompt.milestone}</span><FlameAnimation /></div>
     <p className="reward-claim-caption">DAYS CONSISTENT</p>
-    <div className="reward-claim-copy"><small>STREAK REWARD UNLOCKED</small><h1>Day {claimPrompt.milestone}</h1><b>{claimPrompt.gift}</b></div>
+    <div className="reward-claim-copy"><small>{pendingCoinClaims.includes(claimPrompt.milestone) ? 'WALLET COINS AVAILABLE' : 'STREAK REWARD UNLOCKED'}</small><h1>Day {claimPrompt.milestone}</h1><b>{claimPrompt.gift}</b>{Number(claimPrompt.coin_reward) > 0 && <p>🪙 {Number(claimPrompt.coin_reward)} coins will be added to your wallet</p>}</div>
     <div className="reward-claim-actions">
-      <button className="reward-claim-primary" disabled={claiming === claimPrompt.milestone} onClick={() => claimReward(claimPrompt.milestone)}>{claiming === claimPrompt.milestone ? 'CLAIMING…' : 'CLAIM REWARD'}</button>
+      <button className="reward-claim-primary" disabled={claiming === claimPrompt.milestone} onClick={() => claimReward(claimPrompt.milestone)}>{claiming === claimPrompt.milestone ? 'CLAIMING…' : pendingCoinClaims.includes(claimPrompt.milestone) ? 'CLAIM COINS' : 'CLAIM REWARD'}</button>
       <button className="reward-claim-later" onClick={() => setClaimPrompt(null)}>LATER</button>
       {rewardMessage && <p role="alert">{rewardMessage}</p>}
     </div>
@@ -1560,14 +1656,12 @@ function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath
   if (subPage === 'rewards') return <><FloatingBack onClick={backToMore} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>REWARDS</h1><span /></header>{voucherSection}{journey}</section>{celebrationPopup}{claimPromptPopup}</>
   if (subPage === 'coupons') return <><FloatingBack onClick={backToMore} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>VOUCHERS</h1><span /></header>{voucherSection}</section></>
   if (subPage === 'about') return <AboutPage onBack={backToMore} />
+  if (subPage === 'refer') return <ReferralPage me={me} reload={reload} onBack={backToMore} say={say} onAnnounce={onAnnounce} />
+  if (subPage === 'socials') return <SocialsPage socialLinks={socialLinks} onBack={backToMore} />
+  if (subPage === 'support' || subPage === 'bugs') return <SupportPage socialLinks={socialLinks} supportPhone={supportPhone} onBack={backToMore} onHistory={() => go('hist')} onCareers={() => openMorePage('careers')} onComplaint={() => openMorePage('bugs')} complaint={subPage === 'bugs'} />
+  if (subPage === 'careers') return <CareersPage onBack={backToMore} />
   if (subPage && subPage !== 'rewards') {
-    const pages = {
-      socials: ['Socials', 'Our social channels will be added here soon.'],
-      support: ['Support', 'For order updates, open History. For help with food or delivery, contact the restaurant handling your order.'],
-      bugs: ['Report a bug', 'Bug reporting is being prepared. If a problem affected an order, open History and contact the restaurant handling it.']
-    }
-    const [title, detail] = pages[subPage] || ['More', '']
-    return <><FloatingBack onClick={backToMore} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>{title.toUpperCase()}</h1><span /></header><article className="more-info-card"><div className="more-info-icon"><MoreIcon name={subPage === 'support' ? 'support' : subPage === 'bugs' ? 'bugs' : subPage} /></div><h2>{title}</h2><p>{detail}</p>{subPage === 'support' && <button className="pill g" onClick={() => go('hist')}>VIEW ORDER HISTORY</button>}</article></section></>
+    return <><FloatingBack onClick={backToMore} label="Back to More" /><section className="more-subpage"><header className="more-subpage-header"><h1>{subPage.toUpperCase()}</h1><span /></header></section></>
   }
   return (
     <>
@@ -1586,6 +1680,224 @@ function More({ me, email, reload, go, goGames, say, initialPage, onNavigatePath
       {claimPromptPopup}
     </>
   )
+}
+
+function ReferralPage({ me, reload, onBack, say, onAnnounce }) {
+  const cacheKey = `referral:${me.id}`
+  const codeCacheKey = `referral-code-draft:${me.id}`
+  const [dashboard, setDashboard] = useState(() => readOfflineCache(cacheKey))
+  const [loading, setLoading] = useState(!readOfflineCache(cacheKey))
+  const [busy, setBusy] = useState(false)
+  const [code, setCode] = useState(() => new URLSearchParams(window.location.search).get('ref') || readOfflineCache(codeCacheKey) || '')
+  const [error, setError] = useState('')
+  const inviteUrl = dashboard?.code
+    ? `${window.location.origin}/?mode=signup&ref=${encodeURIComponent(dashboard.code)}`
+    : ''
+  useEffect(() => { writeOfflineCache(codeCacheKey, code) }, [code, codeCacheKey])
+
+  const loadDashboard = useCallback(async () => {
+    const { data, error: requestError } = await sb.rpc('customer_referral_dashboard')
+    if (requestError) {
+      const missingReferralSetup = requestError.code === 'PGRST202' || requestError.message.includes('customer_referral_dashboard')
+      setError(missingReferralSetup
+        ? 'Referral rewards are not installed yet. Ask the administrator to run referral_rewards.sql in the Supabase SQL Editor.'
+        : requestError.message)
+      if (!readOfflineCache(cacheKey) || !isNetworkError(requestError)) setDashboard(null)
+    } else {
+      setDashboard(data)
+      setError('')
+      writeOfflineCache(cacheKey, data)
+    }
+    setLoading(false)
+  }, [cacheKey])
+
+  useEffect(() => {
+    loadDashboard()
+    window.addEventListener('online', loadDashboard)
+    return () => window.removeEventListener('online', loadDashboard)
+  }, [loadDashboard])
+
+  const shareInvite = async () => {
+    if (!inviteUrl) return
+    const message = `Join me on EAT60. Sign up with my referral link and claim 2,500 coins: ${inviteUrl}`
+    try {
+      if (navigator.share) await navigator.share({ title: 'Join me on EAT60', text: message, url: inviteUrl })
+      else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message)
+        say('Your referral link and invite message were copied.')
+      } else {
+        setError('Sharing is not available in this browser. Copy the referral link below.')
+      }
+    } catch (shareError) {
+      if (shareError.name !== 'AbortError') setError(shareError.message || 'Could not share the referral link.')
+    }
+  }
+
+  const copyInvite = async () => {
+    if (!inviteUrl) return
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable. Press and hold the referral link to copy it.')
+      await navigator.clipboard.writeText(inviteUrl)
+      say('Referral link copied.')
+    } catch (copyError) {
+      setError(copyError.message || 'Could not copy the referral link.')
+    }
+  }
+
+  const claimNewUserReward = async () => {
+    if (!navigator.onLine) return setError('Connect to the internet to redeem a referral code.')
+    setBusy(true)
+    setError('')
+    const { data, error: claimError } = await sb.rpc('claim_referral_reward', {
+      p_code: code.trim() || null
+    })
+    setBusy(false)
+    if (claimError) return setError(claimError.message)
+    await Promise.all([reload(), loadDashboard()])
+    onAnnounce({ type: 'reward', title: 'Welcome to EAT60!', message: `${Number(data?.coins_awarded) || 2500} referral coins have been added to your wallet.` })
+  }
+
+  const claimReferrerReward = async () => {
+    if (!navigator.onLine) return setError('Connect to the internet to claim referral coins.')
+    setBusy(true)
+    setError('')
+    const { data, error: claimError } = await sb.rpc('claim_referral_bonus')
+    setBusy(false)
+    if (claimError) return setError(claimError.message)
+    const coins = Number(data?.coins_awarded) || 0
+    if (!coins) {
+      await loadDashboard()
+      return say('No referral coins are ready to claim yet.')
+    }
+    await Promise.all([reload(), loadDashboard()])
+    onAnnounce({ type: 'reward', title: 'Your invites paid off!', message: `${coins.toLocaleString('en-IN')} referral coins have been added to your wallet.` })
+  }
+
+  const invites = Array.isArray(dashboard?.invites) ? dashboard.invites : []
+  return <>
+    <FloatingBack onClick={onBack} label="Back to More" />
+    <section className="more-subpage referral-page">
+      <header className="more-subpage-header"><h1>REFER &amp; EARN</h1><span /></header>
+      <article className="feature-card referral-hero">
+        <p className="feature-eyebrow">GOOD FOOD IS BETTER SHARED</p>
+        <h2>Invite a friend.<br />Both of you get rewarded.</h2>
+        <div className="referral-reward-pair"><span><b>2,500</b><small>coins for your friend</small></span><i aria-hidden="true">+</i><span><b>3,000</b><small>coins for you</small></span></div>
+      </article>
+      <section className="feature-card referral-code-card">
+        <div className="feature-card-heading"><div><small>YOUR PERSONAL CODE</small><h2>{dashboard?.code || (loading ? 'Loading code…' : 'Code unavailable')}</h2></div><span aria-hidden="true">↗</span></div>
+        <p>Friends who sign up with your link can claim 2,500 coins. You can claim 3,000 coins after they redeem.</p>
+        <div className="referral-link-field"><input readOnly aria-label="Your referral link" value={inviteUrl} placeholder="Your share link will appear here" /><button className="pill g" onClick={copyInvite} disabled={!inviteUrl}>COPY</button><button className="pill" onClick={shareInvite} disabled={!inviteUrl || !navigator.onLine}>SEND</button></div>
+      </section>
+      {(dashboard?.can_claim_new_user || dashboard?.can_redeem_code) && <section className="feature-card referral-redeem-card">
+        <p className="feature-eyebrow">NEW CUSTOMER REWARD</p>
+        <h2>{dashboard.can_claim_new_user ? 'Your 2,500 coins are ready' : 'Have a friend’s code?'}</h2>
+        {dashboard.can_redeem_code && <label>Referral code<input autoCapitalize="characters" maxLength={16} value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} placeholder="EAT-XXXXXXXXXXXX" /></label>}
+        <button className="pill wide" disabled={busy || !navigator.onLine || (dashboard.can_redeem_code && !dashboard.can_claim_new_user && !code.trim())} onClick={claimNewUserReward}>
+          {busy ? 'CLAIMING…' : 'CLAIM 2,500 COINS'}
+        </button>
+        <small>Referral redemption is available before your first order. Each account can redeem only once.</small>
+      </section>}
+      {Number(dashboard?.pending_referrer_coins) > 0 && <section className="feature-card referral-pending-card">
+        <div><small>READY TO CLAIM</small><b>{Number(dashboard.pending_referrer_coins).toLocaleString('en-IN')} coins</b><span>From friends who redeemed your code</span></div>
+        <button className="pill" disabled={busy || !navigator.onLine} onClick={claimReferrerReward}>{busy ? 'CLAIMING…' : 'CLAIM COINS'}</button>
+      </section>}
+      <section className="feature-card referral-invites">
+        <div className="feature-card-heading"><div><small>YOUR INVITES</small><h2>Friends who joined</h2></div><span>{invites.length}</span></div>
+        {loading && !dashboard ? <LoadingIndicator label="Loading your invites…" compact />
+          : invites.length === 0 ? <p className="mu">No one has joined with your code yet. Share it to get started.</p>
+            : <div className="referral-invite-list">{invites.map((invite, index) => <article key={`${invite.username}-${index}`}>
+              <span className="referral-avatar">{(invite.username || 'E').slice(0, 1).toUpperCase()}</span>
+              <div><b>{invite.username || 'EAT60 friend'}</b><small>Joined {new Date(invite.joined_at).toLocaleDateString('en-IN')}</small></div>
+              <span className={`referral-invite-status${invite.claimed ? ' claimed' : ''}`}>{invite.claimed ? invite.referrer_reward_claimed ? 'REWARDED' : 'CLAIMED' : 'SIGNED UP'}</span>
+            </article>)}</div>}
+      </section>
+      {error && <p className="feature-error" role="alert">{error}</p>}
+      {!navigator.onLine && <p className="feature-offline" role="status">Offline mode: referral details are read-only until you reconnect.</p>}
+    </section>
+  </>
+}
+
+function SocialsPage({ socialLinks, onBack }) {
+  const channelDetails = {
+    instagram: ['Instagram', '📸', 'Behind the scenes, new dishes and kitchen moments.'],
+    facebook: ['Facebook', 'f', 'Updates, announcements and community news.'],
+    youtube: ['YouTube', '▶', 'Food, fun and a little EAT60 magic.'],
+    website: ['Website', '↗', 'Visit the EAT60 home on the web.'],
+    whatsapp: ['WhatsApp', '◉', 'Message us and stay in touch.']
+  }
+  const channels = Object.entries(socialLinks || {})
+    .filter(([key, url]) => key !== 'support_phone' && /^https?:\/\//i.test(url || ''))
+    .map(([key, url]) => {
+      const [label, icon, detail] = channelDetails[key] || [key.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()), '↗', `Connect with EAT60 on ${key}.`]
+      return [key, label, icon, detail, url]
+    })
+  return <>
+    <FloatingBack onClick={onBack} label="Back to More" />
+    <section className="more-subpage social-page">
+      <header className="more-subpage-header"><h1>CONNECT WITH EAT60</h1><span /></header>
+      <p className="social-page-quote">“Good food brings people together. We’re glad you’re here.”</p>
+      {channels.length ? <div className="social-link-grid">{channels.map(([key, label, icon, detail, url]) => <a key={key} className={`social-link-card social-${key}`} href={url} target="_blank" rel="noopener noreferrer">
+        <span aria-hidden="true">{icon}</span><div><b>{label}</b><small>{detail}</small></div><strong aria-hidden="true">↗</strong>
+      </a>)}</div> : <article className="feature-card"><h2>We’re getting social</h2><p>Our official social links will appear here as soon as they are configured.</p></article>}
+      <p className="social-page-footer">Follow along, share your food moments, and tag EAT60. We love seeing what you enjoy.</p>
+    </section>
+  </>
+}
+
+function SupportPage({ socialLinks, supportPhone, onBack, onHistory, onCareers, onComplaint, complaint }) {
+  const faq = [
+    ['Order status & delivery', 'Open Order History to follow the latest status. If your order is taking longer than expected, contact us with the order number.'],
+    ['Payment & refunds', 'Payment questions and refund updates are handled against the order record. Open Order History and include your order number when contacting support.'],
+    ['Cancelled or rejected order', 'A cancelled order will show its final status in Order History. Any coins used on an eligible cancelled order are returned to your wallet automatically.'],
+    ['Wallet & coins', 'Your wallet balance is shown in the app. Coins are earned from eligible games and rewards; 100 coins can be used for ₹1 off where checkout rules allow.'],
+    ['Games, score & rankings', 'Scores and rewards are saved when you finish a game while online. Weekly rankings update from eligible scores; check Games → Weekly Rankings.'],
+    ['Account & profile', 'Open More → Edit Profile to update your name, username, phone, address and avatar. Never share your password or sign-in code with anyone.'],
+    ['Rewards & referrals', 'Open More → Rewards for order streak gifts, or More → Refer for your code, invite status, and claimable referral coins.']
+  ]
+  const phone = String(supportPhone || '').trim()
+  const telHref = phone.replace(/[^\d+]/g, '')
+  let whatsappHref = /^https?:\/\//i.test(socialLinks?.whatsapp || '') ? socialLinks.whatsapp : ''
+  if (complaint && whatsappHref) {
+    try {
+      const contactUrl = new URL(whatsappHref)
+      contactUrl.searchParams.set('text', 'Hello EAT60 Support, I would like to report an issue. Please help me.')
+      whatsappHref = contactUrl.toString()
+    } catch {
+      whatsappHref = ''
+    }
+  }
+  return <>
+    <FloatingBack onClick={onBack} label="Back to More" />
+    <section className="more-subpage support-page">
+      <header className="more-subpage-header"><h1>{complaint ? 'REPORT A PROBLEM' : 'HELP & SUPPORT'}</h1><span /></header>
+      <article className="feature-card support-intro">
+        <p className="feature-eyebrow">WE’RE HERE TO HELP</p>
+        <h2>{complaint ? 'Tell us what went wrong.' : 'A little help goes a long way.'}</h2>
+        <p>Choose a topic below, check your order history, or contact the EAT60 team directly.</p>
+        <div className="support-actions">
+          <button className="pill" onClick={onHistory}>GET HELP WITH AN ORDER</button>
+          {!complaint && <button className="pill g" onClick={onComplaint}>RAISE A COMPLAINT</button>}
+          {telHref && <a className="pill g" href={`tel:${telHref}`}>CALL SUPPORT</a>}
+          {whatsappHref && <a className="pill g" href={whatsappHref} target="_blank" rel="noopener noreferrer">{complaint ? 'RAISE A COMPLAINT ON WHATSAPP' : 'CHAT ON WHATSAPP'}</a>}
+        </div>
+        {!telHref && !whatsappHref && <small>Direct support contact is not configured yet. Please use Order History for order-specific help.</small>}
+      </article>
+      <section className="support-faq"><div className="feature-card-heading"><div><small>QUICK ANSWERS</small><h2>Frequently asked questions</h2></div></div>
+        {faq.map(([question, answer]) => <details className="support-faq-item" key={question}><summary>{question}<span aria-hidden="true">+</span></summary><p>{answer}</p>{question.startsWith('Order') && <button className="pill g" onClick={onHistory}>OPEN ORDER HISTORY</button>}</details>)}
+      </section>
+      <button className="careers-callout" onClick={onCareers}><span aria-hidden="true">✦</span><span><b>Build something good with us</b><small>Explore future EAT60 career opportunities</small></span><strong>CAREERS →</strong></button>
+    </section>
+  </>
+}
+
+export function CareersPage({ onBack }) {
+  return <>
+    {onBack && <FloatingBack onClick={onBack} label="Back to EAT60" />}
+    <section className="more-subpage careers-page">
+      <header className="more-subpage-header"><h1>CAREERS AT EAT60</h1><span /></header>
+      <article className="feature-card careers-hero"><span className="careers-spark" aria-hidden="true">✦</span><p className="feature-eyebrow">GOOD THINGS ARE COOKING</p><h2>Help bring good food closer.</h2><p>We’re building EAT60 for our local community. Career opportunities will be announced here when we’re ready to grow the team.</p><span className="careers-coming-soon">CAREERS OPENING IN THE FUTURE</span></article>
+    </section>
+  </>
 }
 
 export function AboutPage({ onBack }) {
@@ -1702,11 +2014,12 @@ export function AboutPage({ onBack }) {
 }
 
 function ProfileEditor({ me, email, reload, onBack }) {
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     username: me.username || '', name: me.name || '', address: me.address || '',
     area: me.area || '', city: me.city || '', phone: me.phone || '',
-    gender: me.gender || 'other', avatar_id: me.avatar_id || 1
-  })
+    gender: me.gender || 'other', avatar_id: me.avatar_id || 1,
+    ...readOfflineCache(`profile-draft:${me.id}`)
+  }))
   const [newEmail, setNewEmail] = useState(email)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -1715,6 +2028,7 @@ function ProfileEditor({ me, email, reload, onBack }) {
   const [emailMessage, setEmailMessage] = useState('')
   const [passwordMessage, setPasswordMessage] = useState('')
   const updateField = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }))
+  useEffect(() => { writeOfflineCache(`profile-draft:${me.id}`, form) }, [form, me.id])
 
   const saveProfile = async (event) => {
     event.preventDefault()
@@ -1738,6 +2052,7 @@ function ProfileEditor({ me, email, reload, onBack }) {
       if (error?.code === '23505') return setProfileMessage('That username is already in use. Try another one.')
       if (error?.code === 'PGRST204' || error?.code === 'PGRST205') return setProfileMessage('Profile fields are not installed in the database yet. Run profile_fields.sql in the Supabase SQL Editor, then try again.')
       if (error) return setProfileMessage(error.message)
+      writeOfflineCache(`profile-draft:${me.id}`, null)
       setProfileMessage('Profile saved.')
       await reload()
     } catch (error) {

@@ -10,15 +10,19 @@ const Customer = lazy(() => import('./features/customer/Customer'))
 const Admin = lazy(() => import('./features/admin/Admin'))
 const DownloadPage = lazy(() => import('./components/DownloadPage'))
 const AboutPage = lazy(() => import('./features/customer/Customer').then((module) => ({ default: module.AboutPage })))
+const CareersPage = lazy(() => import('./features/customer/Customer').then((module) => ({ default: module.CareersPage })))
 
 function Login({ adminOnly = false }) {
-  const [mode, setMode] = useState('login')
+  const [mode, setMode] = useState(() => new URLSearchParams(window.location.search).get('mode') === 'signup' ? 'signup' : 'login')
   const [email, setEmail] = useState('')
   const [pw, setPw] = useState('')
+  const [referralCode, setReferralCode] = useState(() => new URLSearchParams(window.location.search).get('ref') || readOfflineCache('signup-referral-code') || '')
   const [msg, setMsg] = useState('')
   const [messageType, setMessageType] = useState('error')
   const [busy, setBusy] = useState(false)
+  const [signupSuccess, setSignupSuccess] = useState(false)
   const signup = mode === 'signup'
+  useEffect(() => { writeOfflineCache('signup-referral-code', referralCode) }, [referralCode])
 
   const changeMode = (nextMode) => {
     setMode(nextMode)
@@ -31,7 +35,9 @@ function Login({ adminOnly = false }) {
     setMsg('')
     setMessageType('error')
     try {
-      const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + window.location.pathname } })
+      const redirectUrl = new URL(window.location.pathname, window.location.origin)
+      if (signup && referralCode.trim()) redirectUrl.searchParams.set('ref', referralCode.trim().toUpperCase())
+      const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: redirectUrl.toString() } })
       if (error) setMsg(error.message)
     } catch (error) {
       setMsg(error.message || 'Unable to connect to Google sign in.')
@@ -50,15 +56,24 @@ function Login({ adminOnly = false }) {
     setMsg('')
     setMessageType('error')
     try {
-      const { error } = signup
-        ? await sb.auth.signUp({ email: email.trim(), password: pw })
+      if (signup) sessionStorage.setItem('eat60:account-created-pending', 'yes')
+      const { data: authData, error } = signup
+        ? await sb.auth.signUp({ email: email.trim(), password: pw, options: { data: { referral_code: referralCode.trim().toUpperCase() } } })
         : await sb.auth.signInWithPassword({ email: email.trim(), password: pw })
-      if (error) setMsg(error.message)
+      if (error) {
+        if (signup) sessionStorage.removeItem('eat60:account-created-pending')
+        setMsg(error.message)
+      }
       else if (signup) {
+        if (!authData.session) sessionStorage.removeItem('eat60:account-created-pending')
         setMessageType('success')
-        setMsg('Account created. Check your email for a confirmation link, then log in.')
+        setSignupSuccess(true)
+        setMsg(referralCode.trim()
+          ? 'Account created. Check your email to confirm, then log in and claim your 2,500 referral coins from More → Refer.'
+          : 'Account created. Check your email for a confirmation link, then log in.')
       } else setMsg('')
     } catch (error) {
+      if (signup) sessionStorage.removeItem('eat60:account-created-pending')
       setMsg(error.message || 'Unable to contact the authentication service.')
     } finally {
       setBusy(false)
@@ -118,15 +133,26 @@ function Login({ adminOnly = false }) {
             <div className="auth-input-wrap"><span aria-hidden="true">@</span><input id="auth-email" placeholder="you@example.com" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
             <label className="auth-label" htmlFor="auth-password">Password</label>
             <div className="auth-input-wrap"><span aria-hidden="true">⌑</span><input id="auth-password" placeholder={signup ? 'At least 6 characters' : 'Enter your password'} type="password" autoComplete={signup ? 'new-password' : 'current-password'} value={pw} onChange={(e) => setPw(e.target.value)} /></div>
+            {signup && <><label className="auth-label" htmlFor="auth-referral">Referral code <span className="mu">(optional)</span></label><input id="auth-referral" autoCapitalize="characters" maxLength={16} placeholder="EAT-XXXXXXXXXXXX" value={referralCode} onChange={(event) => setReferralCode(event.target.value.toUpperCase())} /></>}
             {!signup && <button className="forgot-link" type="button" disabled={busy} onClick={resetPassword}>Forgot password?</button>}
             <button className="auth-submit" type="submit" disabled={busy}>{busy ? 'Please wait…' : adminOnly ? 'Sign in to admin panel' : signup ? 'Create account' : 'Log in'}<span aria-hidden="true">→</span></button>
           </form>
 
-          {msg && <p className={`auth-message ${messageType}`} role="status">{msg}</p>}
+          {msg && !signupSuccess && <p className={`auth-message ${messageType}`} role="status">{msg}</p>}
           {adminOnly ? <><p className="auth-switch admin-auth-note">Admin access is granted to approved accounts only.</p><p className="auth-switch"><a href="/download-adminapp">Install the EAT60 admin app</a></p></> : <p className="auth-switch">{signup ? 'Already have an account?' : 'Don’t have an account?'} <button type="button" onClick={() => changeMode(signup ? 'login' : 'signup')}>{signup ? 'Log in' : 'Sign up'}</button></p>}
         </section>
       </div>
       <PoweredFooter className={adminOnly ? 'admin-auth-mobile-footnote' : 'auth-mobile-footnote'} />
+      {signupSuccess && <div className="fullscreen-notice is-announcement" role="dialog" aria-modal="true" aria-labelledby="signup-success-title">
+        <div className="reward-screen-rays" aria-hidden="true" />
+        <div className="notice-animation-icon notice-megaphone" aria-hidden="true"><span>✦</span></div>
+        <p className="notice-kicker">YOUR EAT60 JOURNEY STARTS NOW</p>
+        <h1 id="signup-success-title">Welcome to EAT60!</h1>
+        <p className="notice-detail">{referralCode.trim()
+          ? 'Confirm your email and sign in. Your 2,500 referral coins will be ready to claim in More → Refer.'
+          : 'Confirm your email to finish setting up your account. Then explore local favourites, games and rewards.'}</p>
+        <div className="notice-actions"><button className="reward-claim-primary" onClick={() => { setSignupSuccess(false); changeMode('login') }}>CONTINUE TO SIGN IN</button></div>
+      </div>}
     </main>
   )
 }
@@ -143,6 +169,7 @@ export default function App() {
   const [downloadRoute, setDownloadRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/download')
   const [adminDownloadRoute, setAdminDownloadRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/download-adminapp')
   const [aboutRoute, setAboutRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/about')
+  const [careersRoute, setCareersRoute] = useState(window.location.pathname.replace(/\/$/, '') === '/careers')
   const [adminAccess, setAdminAccess] = useState({ status: 'checking' })
   const [adminCheck, setAdminCheck] = useState(0)
   const [installPrompt, setInstallPrompt] = useState(null)
@@ -215,6 +242,7 @@ export default function App() {
       setDownloadRoute(pathname === '/download')
       setAdminDownloadRoute(pathname === '/download-adminapp')
       setAboutRoute(pathname === '/about')
+      setCareersRoute(pathname === '/careers')
       updateRouteMetadata(pathname)
     }
     window.addEventListener('popstate', syncRoute)
@@ -250,6 +278,12 @@ export default function App() {
   const closeAboutPage = () => {
     window.history.pushState({}, '', '/')
     setAboutRoute(false)
+    updateRouteMetadata('/')
+  }
+
+  const closeCareersPage = () => {
+    window.history.pushState({}, '', '/')
+    setCareersRoute(false)
     updateRouteMetadata('/')
   }
 
@@ -302,6 +336,7 @@ export default function App() {
   if (adminDownloadRoute) return <main className="app download-route"><Suspense fallback={<p className="empty">Loading admin app details…</p>}><DownloadPage adminApp onBack={closeAdminDownloadPage} onInstall={installApp} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense></main>
   if (downloadRoute) return <main className="app download-route"><Suspense fallback={<p className="empty">Loading EAT60 app details…</p>}><DownloadPage onBack={closeDownloadPage} onInstall={installApp} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense></main>
   if (aboutRoute) return <main className="app about-route"><Suspense fallback={<p className="empty">Loading About EAT60…</p>}><AboutPage onBack={closeAboutPage} /></Suspense></main>
+  if (careersRoute) return <main className="app about-route"><Suspense fallback={<p className="empty">Loading Careers…</p>}><CareersPage onBack={closeCareersPage} /></Suspense></main>
   if (session === undefined) return <main className="app setup-page"><LoadingIndicator label="Loading EAT60…" /><PoweredFooter /></main>
   if (!session) return adminRoute ? <AdminLogin /> : <Login />
   if (profileError && isNetworkError(new Error(profileError)) && !navigator.onLine) {

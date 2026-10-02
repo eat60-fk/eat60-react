@@ -3,8 +3,9 @@ import { sb } from '../../lib/supabase'
 import PoweredFooter from '../../components/PoweredFooter'
 
 const LABEL = { pending: 'Pending', accepted: 'Accepted', preparing: 'Preparing', ready: 'Ready', out_for_delivery: 'Out for delivery', payment_received: 'Payment received', delivered: 'Delivered', rejected: 'Rejected', cancelled: 'Cancelled' }
-const TABS = [['overview', 'Overview'], ['orders', 'Orders'], ['menu', 'Menu'], ['outlets', 'Outlets'], ['promos', 'Promos'], ['rewards', 'Rewards'], ['feed', 'Feed']]
-const TAB_ICONS = { overview: '⌂', orders: '▤', menu: '☷', outlets: '⌖', promos: '%', rewards: '✦', feed: '▧' }
+const TABS = [['overview', 'Overview'], ['orders', 'Orders'], ['growth', 'Growth'], ['menu', 'Menu'], ['outlets', 'Outlets'], ['promos', 'Promos'], ['rewards', 'Rewards'], ['feed', 'Feed'], ['explore', 'Explore']]
+const MOBILE_TABS = [['orders', 'Orders'], ['overview', 'Hub'], ['growth', 'Growth'], ['menu', 'Menu'], ['explore', 'More']]
+const TAB_ICONS = { overview: '⌂', orders: '▤', growth: '↗', menu: '☷', outlets: '⌖', promos: '%', rewards: '✦', feed: '▧', explore: '⋯' }
 
 function ConfirmDialog({ title, message, onCancel, onConfirm }) {
   const [busy, setBusy] = useState(false)
@@ -16,6 +17,7 @@ function ConfirmDialog({ title, message, onCancel, onConfirm }) {
     const closeOnEscape = (event) => {
       if (event.key === 'Escape' && !busy) onCancel()
     }
+
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [busy, onCancel])
@@ -57,7 +59,7 @@ const emptyOfferSettings = {
   offer_ends_at: '',
   offer_title: 'OFFER OF THE DAY',
   offer_message: 'GRAB THIS OFFER BEFORE IT ENDS',
-  social_links: { instagram: '', facebook: '', whatsapp: '', website: '', youtube: '' }
+  social_links: { instagram: '', facebook: '', whatsapp: '', website: '', youtube: '', support_phone: '' }
 }
 
 function localDateTimeValue(value) {
@@ -70,6 +72,8 @@ function localDateTimeValue(value) {
 
 function AdBannerSettings() {
   const [form, setForm] = useState(emptyOfferSettings)
+  const [newSocialLabel, setNewSocialLabel] = useState('')
+  const [newSocialUrl, setNewSocialUrl] = useState('')
   const [variants, setVariants] = useState([])
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -78,7 +82,7 @@ function AdBannerSettings() {
   useEffect(() => {
     let active = true
     Promise.all([
-      sb.from('settings').select('tiffin_url,offer_variant_id,offer_price,offer_date,offer_ends_at,offer_title,offer_message,social_links').eq('id', 1).maybeSingle(),
+      sb.from('settings').select('tiffin_url,offer_variant_id,offer_price,offer_date,offer_ends_at,offer_title,offer_message,social_links,home_ad_image_url,home_ad_link,home_ad_alt,home_ad_active,home_ad_starts_at,home_ad_ends_at').eq('id', 1).maybeSingle(),
       sb.from('item_variants').select('id,item_id,label,price'),
       sb.from('menu_items').select('id,name,is_available')
     ]).then(([settingsResult, variantsResult, itemsResult]) => {
@@ -95,6 +99,12 @@ function AdBannerSettings() {
           offer_price: settings.offer_price ?? '',
           offer_date: settings.offer_date || emptyOfferSettings.offer_date,
           offer_ends_at: localDateTimeValue(settings.offer_ends_at),
+          home_ad_image_url: settings.home_ad_image_url || '',
+          home_ad_link: settings.home_ad_link || '',
+          home_ad_alt: settings.home_ad_alt || '',
+          home_ad_active: settings.home_ad_active === true,
+          home_ad_starts_at: localDateTimeValue(settings.home_ad_starts_at),
+          home_ad_ends_at: localDateTimeValue(settings.home_ad_ends_at),
           social_links: { ...emptyOfferSettings.social_links, ...(settings.social_links || {}) }
         })
         const itemsById = new Map((itemsResult.data || []).map((item) => [item.id, item]))
@@ -110,6 +120,31 @@ function AdBannerSettings() {
 
   const change = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }))
   const changeSocialLink = (field) => (event) => setForm((current) => ({ ...current, social_links: { ...current.social_links, [field]: event.target.value } }))
+  const addSocialLink = () => {
+    const label = newSocialLabel.trim()
+    const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+    const url = newSocialUrl.trim()
+    if (!label || !key) {
+      setMessage('Enter a social platform name.')
+      return
+    }
+    if (!url) {
+      setMessage('Enter the social profile URL.')
+      return
+    }
+    if (Object.prototype.hasOwnProperty.call(form.social_links, key)) {
+      setMessage('That social platform already exists. Edit its link below.')
+      return
+    }
+    setForm((current) => ({ ...current, social_links: { ...current.social_links, [key]: url } }))
+    setNewSocialLabel('')
+    setNewSocialUrl('')
+    setMessage('Social link added. Save settings to publish it.')
+  }
+  const removeSocialLink = (key) => setForm((current) => {
+    const { [key]: removed, ...socialLinks } = current.social_links
+    return { ...current, social_links: socialLinks }
+  })
   const save = async () => {
     const selected = variants.find((variant) => String(variant.id) === String(form.offer_variant_id))
     const price = form.offer_price === '' ? null : Number(form.offer_price)
@@ -122,9 +157,16 @@ function AdBannerSettings() {
         return
       }
     }
-    const socialLinks = Object.fromEntries(Object.entries(form.social_links).map(([key, value]) => [key, value.trim()]))
-    if (Object.values(socialLinks).some((url) => url && !/^https?:\/\/\S+$/i.test(url))) {
+    const socialLinks = Object.fromEntries(Object.entries(form.social_links).map(([key, value]) => [key, String(value || '').trim()]))
+    const supportPhone = socialLinks.support_phone || ''
+    const publicLinks = Object.fromEntries(Object.entries(socialLinks).filter(([key]) => key !== 'support_phone'))
+    if (Object.values(publicLinks).some((url) => url && !/^https?:\/\/\S+$/i.test(url))) {
       setMessage('Social and business links must begin with https:// or http://.')
+      return
+    }
+    const supportPhoneDigits = supportPhone.replace(/\D/g, '').length
+    if (supportPhone && (!/^\+?[0-9\s()-]{7,20}$/.test(supportPhone) || supportPhoneDigits < 7 || supportPhoneDigits > 15)) {
+      setMessage('Enter a valid support phone number with 7 to 15 digits.')
       return
     }
     if (selected && (!Number.isInteger(price) || price <= 0 || price >= Number(selected.price))) {
@@ -144,6 +186,31 @@ function AdBannerSettings() {
       setMessage('The offer end time must be in the future.')
       return
     }
+    const adImageUrl = String(form.home_ad_image_url || '').trim()
+    const adLink = String(form.home_ad_link || '').trim()
+    for (const [label, value] of [['Ad image', adImageUrl], ['Ad destination', adLink]]) {
+      if (!value) continue
+      try {
+        if (!['http:', 'https:'].includes(new URL(value).protocol)) throw new Error()
+      } catch {
+        setMessage(`${label} must be a valid http or https URL.`)
+        return
+      }
+    }
+    const adStartsAt = form.home_ad_starts_at ? new Date(form.home_ad_starts_at) : null
+    const adEndsAt = form.home_ad_ends_at ? new Date(form.home_ad_ends_at) : null
+    if ((adStartsAt && Number.isNaN(adStartsAt.getTime())) || (adEndsAt && Number.isNaN(adEndsAt.getTime()))) {
+      setMessage('Enter valid ad schedule dates.')
+      return
+    }
+    if (adStartsAt && adEndsAt && adEndsAt <= adStartsAt) {
+      setMessage('The ad end time must be later than its start time.')
+      return
+    }
+    if (form.home_ad_active && !adImageUrl) {
+      setMessage('Add an ad image or GIF URL before enabling the banner.')
+      return
+    }
     setBusy(true)
     setMessage('')
     const values = {
@@ -154,14 +221,46 @@ function AdBannerSettings() {
       offer_ends_at: selected && endsAt ? endsAt.toISOString() : null,
       offer_title: form.offer_title.trim() || emptyOfferSettings.offer_title,
       offer_message: form.offer_message.trim() || emptyOfferSettings.offer_message,
-      social_links: socialLinks
+      social_links: socialLinks,
+      home_ad_image_url: adImageUrl,
+      home_ad_link: adLink,
+      home_ad_alt: String(form.home_ad_alt || '').trim().slice(0, 120),
+      home_ad_active: Boolean(form.home_ad_active),
+      home_ad_starts_at: adStartsAt?.toISOString() || null,
+      home_ad_ends_at: adEndsAt?.toISOString() || null
     }
     const { error } = await sb.from('settings').update(values).eq('id', 1)
     setBusy(false)
     if (error) setMessage(error.message)
     else {
       setForm((current) => ({ ...current, ...values, offer_variant_id: values.offer_variant_id ? String(values.offer_variant_id) : '', offer_price: values.offer_price ?? '', offer_ends_at: localDateTimeValue(values.offer_ends_at) }))
-      setMessage('Offer banner and Tiffin link saved.')
+      setMessage('Offer, ad banner, social links and support contact saved.')
+    }
+  }
+  const uploadAdImage = async (file) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setMessage('Choose an image or GIF file.')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage('Ad images and GIFs must be 10 MB or smaller.')
+      return
+    }
+    setBusy(true)
+    setMessage('')
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'img'
+      const { data, error } = await sb.storage.from('menu-images')
+        .upload(`ads/${crypto.randomUUID()}.${extension}`, file, { cacheControl: '3600', contentType: file.type })
+      if (error) return setMessage(error.message)
+      const { data: publicData } = sb.storage.from('menu-images').getPublicUrl(data.path)
+      setForm((current) => ({ ...current, home_ad_image_url: publicData.publicUrl }))
+      setMessage('Ad image uploaded. Save settings to publish it.')
+    } catch (error) {
+      setMessage(error.message || 'The ad image could not be uploaded.')
+    } finally {
+      setBusy(false)
     }
   }
   const selectedVariant = variants.find((variant) => String(variant.id) === String(form.offer_variant_id))
@@ -193,11 +292,34 @@ function AdBannerSettings() {
           <label>Banner message<input maxLength="100" value={form.offer_message || ''} onChange={change('offer_message')} /></label>
         </div>
         <p className="admin-feedback" role="status">{offerStatus}</p>
+        <h3>Partner ad banner</h3>
+        <p className="admin-settings-note">Upload an image or animated GIF, or paste a public image URL. Ads only appear during an active schedule.</p>
+        <div className="admin-form-grid">
+          <label>Image or GIF URL<input type="url" value={form.home_ad_image_url || ''} onChange={change('home_ad_image_url')} placeholder="https://…" /></label>
+          <label>Upload image / GIF<input type="file" accept="image/*" disabled={busy} onChange={(event) => { uploadAdImage(event.target.files?.[0]); event.target.value = '' }} /></label>
+          <label>Destination link (optional)<input type="url" value={form.home_ad_link || ''} onChange={change('home_ad_link')} placeholder="https://…" /></label>
+          <label>Image description<input maxLength={120} value={form.home_ad_alt || ''} onChange={change('home_ad_alt')} placeholder="Describe this promotion" /></label>
+          <label>Starts at (optional)<input type="datetime-local" value={form.home_ad_starts_at || ''} onChange={change('home_ad_starts_at')} /></label>
+          <label>Ends at (optional)<input type="datetime-local" value={form.home_ad_ends_at || ''} onChange={change('home_ad_ends_at')} /></label>
+          <label className="admin-delivery-free-toggle">Show on customer home<input type="checkbox" checked={form.home_ad_active === true} onChange={(event) => setForm((current) => ({ ...current, home_ad_active: event.target.checked }))} /></label>
+        </div>
+        {form.home_ad_image_url && <div className="admin-ad-preview"><img src={form.home_ad_image_url} alt={form.home_ad_alt || 'Ad banner preview'} /><span>Preview · {form.home_ad_active ? 'enabled after saving' : 'currently hidden'}</span></div>}
         <h3>Business links</h3>
         <div className="admin-form-grid">
           <label>Tiffin service URL<input type="url" value={form.tiffin_url || ''} onChange={change('tiffin_url')} placeholder="https://…" /></label>
-          {Object.entries({ instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp', youtube: 'YouTube', website: 'Website' }).map(([key, label]) => <label key={key}>{label} URL<input type="url" value={form.social_links?.[key] || ''} onChange={changeSocialLink(key)} placeholder="https://…" /></label>)}
+          {Object.entries({ instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp', youtube: 'YouTube', website: 'Website', support_phone: 'Customer support phone' }).map(([key, label]) => <label key={key}>{key === 'support_phone' ? label : `${label} URL`}<input type={key === 'support_phone' ? 'tel' : 'url'} value={form.social_links?.[key] || ''} onChange={changeSocialLink(key)} placeholder={key === 'support_phone' ? '+91 98765 43210' : 'https://…'} /></label>)}
         </div>
+        <h3>Additional social links</h3>
+        <p className="admin-settings-note">Add any other public profile, such as X, LinkedIn, or Telegram. It will appear on the customer Socials and About pages.</p>
+        <div className="admin-social-add">
+          <label>Platform name<input maxLength={40} value={newSocialLabel} onChange={(event) => setNewSocialLabel(event.target.value)} placeholder="e.g. Telegram" /></label>
+          <label>Profile URL<input type="url" value={newSocialUrl} onChange={(event) => setNewSocialUrl(event.target.value)} placeholder="https://…" /></label>
+          <button className="admin-secondary" type="button" onClick={addSocialLink}>Add link ＋</button>
+        </div>
+        {Object.entries(form.social_links || {}).filter(([key]) => !['instagram', 'facebook', 'whatsapp', 'youtube', 'website', 'support_phone'].includes(key)).map(([key, url]) => <div className="admin-social-custom" key={key}>
+          <label>{key.replaceAll('_', ' ')} URL<input type="url" value={url || ''} onChange={changeSocialLink(key)} placeholder="https://…" /></label>
+          <button className="admin-cancel-order" type="button" onClick={() => removeSocialLink(key)} aria-label={`Remove ${key.replaceAll('_', ' ')} link`}>Remove</button>
+        </div>)}
         <button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save settings'} <span>→</span></button>
       </>}
       {message && <p className="admin-feedback" role="status">{message}</p>}
@@ -207,19 +329,34 @@ function AdBannerSettings() {
 
 export default function Admin({ onBack }) {
   const [tab, setTab] = useState('overview')
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set(['overview']))
   const [orders, setOrders] = useState([])
   const [ordersError, setOrdersError] = useState('')
   const [connection, setConnection] = useState('connecting')
   const [alert, setAlert] = useState('')
   const [permission, setPermission] = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'))
   const [alertEnabled, setAlertEnabled] = useState(false)
+  const [incomingOrders, setIncomingOrders] = useState([])
   const [storeOnline, setStoreOnline] = useState(true)
   const [storeMessage, setStoreMessage] = useState('')
   const [soundEnabled,setSoundEnabled]=useState(false)
   const soundRef=useRef(null)
+  const soundEnabledRef=useRef(false)
   const alertEnabledRef = useRef(false)
   const seenOrderIds = useRef(new Set())
+  const initialOrderIds = useRef(new Set())
+  const earlyIncomingOrders = useRef([])
+  const ordersInitialized = useRef(false)
   const alertTimer = useRef(null)
+  soundEnabledRef.current = soundEnabled
+  const visitTab = useCallback((nextTab) => {
+    setTab(nextTab)
+    setVisitedTabs((current) => current.has(nextTab) ? current : new Set([...current, nextTab]))
+  }, [])
+  const acknowledgeIncomingOrder = useCallback((openOrders = false) => {
+    setIncomingOrders((current) => current.slice(1))
+    if (openOrders) visitTab('orders')
+  }, [visitTab])
 
   const loadOrders = useCallback(async () => {
     const { data, error } = await sb.from('orders')
@@ -239,7 +376,22 @@ export default function Admin({ onBack }) {
 
   useEffect(() => {
     let mounted = true
-    loadOrders()
+    ordersInitialized.current = false
+    initialOrderIds.current = new Set()
+    earlyIncomingOrders.current = []
+    const initializeOrders = async () => {
+      await loadOrders()
+      if (!mounted) return
+      initialOrderIds.current = new Set(seenOrderIds.current)
+      ordersInitialized.current = true
+      const earlyOrders = earlyIncomingOrders.current.splice(0)
+      const newOrders = earlyOrders.filter((order) => !initialOrderIds.current.has(String(order.id)))
+      if (newOrders.length) {
+        newOrders.forEach((order) => seenOrderIds.current.add(String(order.id)))
+        setIncomingOrders((current) => [...newOrders.reverse(), ...current])
+      }
+    }
+    initializeOrders()
     loadStore()
     const channel = sb.channel('admin-live-orders')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
@@ -247,20 +399,22 @@ export default function Admin({ onBack }) {
         if (payload.eventType === 'INSERT') {
           const order = payload.new
           const id = String(order.id)
-          if (!seenOrderIds.current.has(id)) {
+          if (!ordersInitialized.current) {
+            earlyIncomingOrders.current.push(order)
+          } else if (!seenOrderIds.current.has(id)) {
             seenOrderIds.current.add(id)
             const title = `New order #${order.id}`
             const body = `₹${Number(order.total || 0).toLocaleString('en-IN')} · ${order.status || 'placed'}`
             setAlert(`${title} received · ${body}`)
             window.clearTimeout(alertTimer.current)
+            setIncomingOrders((current) => [order, ...current])
             alertTimer.current = window.setTimeout(() => setAlert(''), 6500)
             if (alertEnabledRef.current && 'Notification' in window && Notification.permission === 'granted') {
               try {
                 const notification = new Notification(title, { body, tag: `eat60-order-${id}`, renotify: false })
-                notification.onclick = () => { window.focus(); setTab('orders'); notification.close() }
+                notification.onclick = () => { window.focus(); visitTab('orders'); notification.close() }
               } catch { /* Keep the in-app alert available if the browser blocks system notifications. */ }
             }
-            if(soundEnabled&&soundRef.current)playOrderTone(soundRef.current)
           }
         }
         loadOrders()
@@ -273,10 +427,23 @@ export default function Admin({ onBack }) {
     return () => {
       mounted = false
       window.clearTimeout(alertTimer.current)
+      ordersInitialized.current = false
       sb.removeChannel(channel)
     }
-  }, [loadOrders, loadStore, soundEnabled])
+  }, [loadOrders, loadStore, visitTab])
   useEffect(()=>()=>{if(soundRef.current){soundRef.current.close();soundRef.current=null}},[])
+  useEffect(() => {
+    if (!incomingOrders.length || !soundEnabled || !soundRef.current) return undefined
+    const ring = () => {
+      const context = soundRef.current
+      if (!context) return
+      if (context.state === 'suspended') context.resume().then(() => playOrderTone(context)).catch(() => {})
+      else playOrderTone(context)
+    }
+    ring()
+    const interval = window.setInterval(ring, 2800)
+    return () => window.clearInterval(interval)
+  }, [incomingOrders.length, soundEnabled])
 
   const enableAlerts = async () => {
     if (!('Notification' in window)) return setPermission('unsupported')
@@ -291,7 +458,7 @@ export default function Admin({ onBack }) {
   }
 
   const toggleSound=async()=>{
-    if(!soundEnabled){try{const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)return setAlert('This browser does not support sound alerts.');const ctx=soundRef.current||new AudioCtx();soundRef.current=ctx;await ctx.resume();setSoundEnabled(true);setAlert('New order sound is on.')}catch{setAlert('Sound could not be enabled in this browser.')}}
+    if(!soundEnabled){try{const AudioCtx=window.AudioContext||window.webkitAudioContext;if(!AudioCtx)return setAlert('This browser does not support sound alerts.');const ctx=soundRef.current||new AudioCtx();soundRef.current=ctx;await ctx.resume();setSoundEnabled(true);setAlert('New order alarm is on.')}catch{setAlert('Sound could not be enabled in this browser.')}}
     else{setSoundEnabled(false);setAlert('New order sound is off.')}
     window.clearTimeout(alertTimer.current);alertTimer.current=window.setTimeout(()=>setAlert(''),3500)
   }
@@ -306,26 +473,46 @@ export default function Admin({ onBack }) {
             <span aria-hidden="true">{alertEnabled ? '✓' : '♧'}</span>{alertEnabled ? 'Alerts on' : permission === 'denied' ? 'Allow in browser' : 'Enable alerts'}
           </button>
           <button className={`admin-notify ${soundEnabled?'enabled':''}`} onClick={toggleSound}><span aria-hidden="true">{soundEnabled?'🔊':'🔈'}</span>{soundEnabled?'Sound on':'Sound off'}</button>
-          <button className={`admin-settings-button ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab(tab === 'settings' ? 'overview' : 'settings')} aria-label={tab === 'settings' ? 'Close settings' : 'Open settings'} title="Settings"><span aria-hidden="true">⚙</span><b>Settings</b></button>
+          <button className={`admin-settings-button ${tab === 'settings' ? 'active' : ''}`} onClick={() => visitTab(tab === 'settings' ? 'overview' : 'settings')} aria-label={tab === 'settings' ? 'Close settings' : 'Open settings'} title="Settings"><span aria-hidden="true">⚙</span><b>Settings</b></button>
           <button className="admin-exit" onClick={onBack}>Back to shop</button>
           <button className="admin-exit" onClick={() => sb.auth.signOut()}>Log out</button>
         </div>
       </header>
 
       <nav className="admin-tabs" aria-label="Admin sections">
-        {TABS.map(([key, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><span aria-hidden="true">{TAB_ICONS[key]}</span>{label}{key === 'orders' && orders.filter((order) => (order.order_stage || 'pending') === 'pending').length > 0 && <b>{orders.filter((order) => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
+        {TABS.map(([key, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => visitTab(key)}><span aria-hidden="true">{TAB_ICONS[key]}</span>{label}{key === 'orders' && orders.filter((order) => (order.order_stage || 'pending') === 'pending').length > 0 && <b>{orders.filter((order) => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
+      </nav>
+      <nav className="admin-mobile-tabs" aria-label="Admin mobile sections">
+        {MOBILE_TABS.map(([key, label]) => <button key={key} className={(key === 'explore' ? !['orders', 'overview', 'growth', 'menu'].includes(tab) : tab === key) ? 'active' : ''} onClick={() => visitTab(key)}><span aria-hidden="true">{TAB_ICONS[key]}</span>{label}{key === 'orders' && orders.some((order) => (order.order_stage || 'pending') === 'pending') && <b>{orders.filter((order) => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
       </nav>
 
       {ordersError && <div className="admin-error" role="alert"><b>Orders could not be loaded</b><span>{ordersError}</span><button onClick={loadOrders}>Retry</button></div>}
       {alert && <div className="admin-alert" role="status"><span>🔔</span><p>{alert}</p><button aria-label="Dismiss notification" onClick={() => setAlert('')}>×</button></div>}
-      {tab === 'overview' && <Overview orders={orders} onViewOrders={() => setTab('orders')} online={storeOnline} setOnline={async (value) => { const { error } = await sb.from('settings').update({ store_online: value }).eq('id', 1); if (!error) setStoreOnline(value); else setAlert(error.message) }} />}
-      {tab === 'settings' && <><DeliverySettings /><AdBannerSettings /><AboutPageSettings /></>}
-      {tab === 'orders' && <Orders rows={orders} refresh={loadOrders} />}
-      {tab === 'menu' && <Menu />}
-      {tab === 'outlets' && <Outlets />}
-      {tab === 'feed' && <AdminFeed />}
-      {tab === 'promos' && <Promos />}
-      {tab === 'rewards' && <Rewards />}
+      {incomingOrders[0] && <div className="admin-incoming-backdrop">
+        <section className="admin-incoming-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-incoming-title">
+          <span className="admin-incoming-pulse" aria-hidden="true">🔔</span>
+          <p className="admin-incoming-kicker">ACTION REQUIRED · NEW ORDER</p>
+          <h2 id="admin-incoming-title">Order #{incomingOrders[0].id}</h2>
+          <p className="admin-incoming-customer">{incomingOrders[0].customer_name || incomingOrders[0].profiles?.name || 'New customer order'}</p>
+          <strong className="admin-incoming-total">₹{Number(incomingOrders[0].total || 0).toLocaleString('en-IN')}</strong>
+          {incomingOrders.length > 1 && <small>{incomingOrders.length - 1} more new {incomingOrders.length === 2 ? 'order' : 'orders'} waiting</small>}
+          {!soundEnabled && <button className="admin-incoming-sound" onClick={toggleSound}>Enable repeating alarm</button>}
+          <div className="admin-incoming-actions">
+            <button className="admin-secondary" onClick={() => acknowledgeIncomingOrder(false)}>Acknowledge</button>
+            <button className="admin-primary" onClick={() => acknowledgeIncomingOrder(true)}>VIEW ORDER <span>→</span></button>
+          </div>
+        </section>
+      </div>}
+      {visitedTabs.has('overview') && <div hidden={tab !== 'overview'}><Overview orders={orders} onViewOrders={() => visitTab('orders')} online={storeOnline} setOnline={async (value) => { const { error } = await sb.from('settings').update({ store_online: value }).eq('id', 1); if (!error) setStoreOnline(value); else setAlert(error.message) }} /></div>}
+      {visitedTabs.has('growth') && <div hidden={tab !== 'growth'}><Growth orders={orders} /></div>}
+      {visitedTabs.has('explore') && <div hidden={tab !== 'explore'}><Explore onNavigate={visitTab} /></div>}
+      {visitedTabs.has('settings') && <div hidden={tab !== 'settings'}><DeliverySettings /><AdBannerSettings /><AboutPageSettings /></div>}
+      {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} /></div>}
+      {visitedTabs.has('menu') && <div hidden={tab !== 'menu'}><Menu /></div>}
+      {visitedTabs.has('outlets') && <div hidden={tab !== 'outlets'}><Outlets /></div>}
+      {visitedTabs.has('feed') && <div hidden={tab !== 'feed'}><AdminFeed /></div>}
+      {visitedTabs.has('promos') && <div hidden={tab !== 'promos'}><Promos /></div>}
+      {visitedTabs.has('rewards') && <div hidden={tab !== 'rewards'}><Rewards /></div>}
       <PoweredFooter className="admin-footer" />
     </main>
   )
@@ -502,20 +689,102 @@ function Overview({ orders, onViewOrders, online, setOnline }) {
   </section>
 }
 
+function Growth({ orders }) {
+  const [days, setDays] = useState(30)
+  const today = Date.now()
+  const start = today - Number(days) * 86400000
+  const previousStart = start - Number(days) * 86400000
+  const validOrder = (order) => !['cancelled', 'rejected'].includes(order.order_stage || order.status)
+  const current = orders.filter((order) => {
+    const time = new Date(order.created_at).getTime()
+    return time >= start && time <= today && validOrder(order)
+  })
+  const previous = orders.filter((order) => {
+    const time = new Date(order.created_at).getTime()
+    return time >= previousStart && time < start && validOrder(order)
+  })
+  const valueOf = (list) => list.reduce((sum, order) => sum + Number(order.total || 0), 0)
+  const currentSales = valueOf(current)
+  const previousSales = valueOf(previous)
+  const change = previousSales ? Math.round(((currentSales - previousSales) / previousSales) * 100) : null
+  const count = Number(days) === 7 ? 7 : Number(days) === 30 ? 10 : 12
+  const bucketMs = Number(days) * 86400000 / count
+  const buckets = Array.from({ length: count }, (_, index) => {
+    const from = start + index * bucketMs
+    const to = index === count - 1 ? today : start + (index + 1) * bucketMs
+    const bucketOrders = current.filter((order) => {
+      const time = new Date(order.created_at).getTime()
+      return time >= from && (index === count - 1 ? time <= to : time < to)
+    })
+    return {
+      label: new Date(from).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' }),
+      amount: valueOf(bucketOrders),
+      orders: bucketOrders.length
+    }
+  })
+  const maxAmount = Math.max(1, ...buckets.map((bucket) => bucket.amount))
+  return <section className="admin-content">
+    <div className="admin-page-heading"><div><p>SALES & PERFORMANCE</p><h2>Growth report</h2><span>Gross order value only; cancelled and rejected orders are excluded.</span></div>
+      <label className="admin-period-select">REPORT WINDOW<select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>
+    </div>
+    <section className="admin-dashboard-panel">
+      <div className="admin-section-heading"><div><p>ORDER VALUE TREND</p><h3>{Number(days)} day performance</h3></div><span>{change === null ? 'No prior-period data' : `${change >= 0 ? '+' : ''}${change}% vs previous period`}</span></div>
+      <div className="admin-metrics admin-growth-metrics">
+        <Metric label="GROSS ORDER VALUE" value={`₹${currentSales.toLocaleString('en-IN')}`} detail="Excludes cancelled orders" icon="₹" tone="lime" />
+        <Metric label="COMPARISON PERIOD" value={`₹${previousSales.toLocaleString('en-IN')}`} detail="Same length, previous period" icon="↔" tone="blue" />
+        <Metric label="ORDERS" value={current.length} detail="Non-cancelled orders" icon="▤" tone="purple" />
+        <Metric label="AVERAGE ORDER" value={`₹${current.length ? Math.round(currentSales / current.length).toLocaleString('en-IN') : 0}`} detail="Gross value per order" icon="◷" tone="orange" />
+      </div>
+      <div className="admin-sales-chart" role="img" aria-label={`${Number(days)} day gross order value chart`}>
+        {buckets.map((bucket, index) => <div className="admin-sales-bar" key={`${bucket.label}-${index}`} title={`${bucket.label}: ₹${bucket.amount.toLocaleString('en-IN')} · ${bucket.orders} orders`}>
+          <span className="admin-sales-bar-value">₹{bucket.amount.toLocaleString('en-IN')}</span>
+          <i style={{ height: `${Math.max(3, bucket.amount / maxAmount * 100)}%` }} />
+          <small>{bucket.label}</small>
+        </div>)}
+      </div>
+      {!orders.length && <div className="admin-empty"><span>↗</span><b>No sales data yet</b><small>Completed orders will appear in this report.</small></div>}
+    </section>
+  </section>
+}
+
+function Explore({ onNavigate }) {
+  const groups = [
+    ['Kitchen operations', 'Menu, orders, and outlet readiness.', [['orders', 'Order management', '▤'], ['menu', 'Menu & availability', '☷'], ['outlets', 'Outlets', '⌖']]],
+    ['Offers & loyalty', 'Campaigns, customer rewards, and announcements.', [['promos', 'Coupons & promos', '%'], ['rewards', 'Streak rewards', '✦'], ['feed', 'Customer feed', '▧']]],
+    ['Business settings', 'Delivery, home banners, contact links, and store controls.', [['settings', 'Settings & links', '⚙'], ['growth', 'Sales & growth', '↗'], ['overview', 'Dashboard overview', '⌂']]]
+  ]
+  return <section className="admin-content">
+    <div className="admin-page-heading"><div><p>MANAGE EAT60</p><h2>Explore more</h2><span>Jump to a workspace without losing your place in another section.</span></div></div>
+    <div className="admin-explore-groups">{groups.map(([title, description, links]) => <section className="admin-dashboard-panel" key={title}>
+      <div className="admin-section-heading"><div><p>WORKSPACE</p><h3>{title}</h3></div><span>{description}</span></div>
+      <div className="admin-explore-grid">{links.map(([tab, label, icon]) => <button className="admin-explore-card" key={tab} onClick={() => onNavigate(tab)}><i aria-hidden="true">{icon}</i><span><b>{label}</b><small>Open workspace</small></span><strong aria-hidden="true">→</strong></button>)}</div>
+    </section>)}</div>
+  </section>
+}
+
 function Metric({ label, value, detail, icon, tone }) {
   return <article className={`admin-metric ${tone}`}><div className="admin-metric-top"><span>{label}</span><i>{icon}</i></div><strong>{value}</strong><small>{detail}</small></article>
 }
 
 function playOrderTone(context){
   const now=context.currentTime
-  ;[0,.19,.38].forEach((offset,index)=>{const osc=context.createOscillator(),gain=context.createGain();osc.type='sine';osc.frequency.value=[740,880,1046][index];gain.gain.setValueAtTime(.0001,now+offset);gain.gain.exponentialRampToValueAtTime(.13,now+offset+.025);gain.gain.exponentialRampToValueAtTime(.0001,now+offset+.16);osc.connect(gain);gain.connect(context.destination);osc.start(now+offset);osc.stop(now+offset+.17)})
+  ;[0,.19,.38].forEach((offset,index)=>{const osc=context.createOscillator(),gain=context.createGain();osc.type='sine';osc.frequency.value=[740,880,1046][index];gain.gain.setValueAtTime(.0001,now+offset);gain.gain.exponentialRampToValueAtTime(.24,now+offset+.025);gain.gain.exponentialRampToValueAtTime(.0001,now+offset+.17);osc.connect(gain);gain.connect(context.destination);osc.start(now+offset);osc.stop(now+offset+.18)})
 }
 
-function OrderTimer({createdAt}){
+function OrderReadyCountdown({order}){
  const [now,setNow]=useState(Date.now())
  useEffect(()=>{const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[])
- const seconds=Math.max(0,Math.floor((now-new Date(createdAt).getTime())/1000))
- return <span className="order-live-timer">⏱ {Math.floor(seconds/60)}:{String(seconds%60).padStart(2,'0')} elapsed</span>
+ const acceptedEvent=(order.order_stage_events||[]).find((event)=>event.stage==='accepted')
+ const acceptedAt=order.accepted_at||acceptedEvent?.occurred_at||order.created_at
+ const prepMinutes=Number(order.prep_time_minutes)
+ const deadline=new Date(acceptedAt).getTime()+prepMinutes*60_000
+ const remainingMs=Math.max(0,deadline-now)
+ const seconds=Math.ceil(remainingMs/1000)
+ if(!Number.isFinite(deadline)||!Number.isFinite(prepMinutes)||prepMinutes<=0)return null
+ const text=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`
+ return <div className={`admin-ready-countdown${remainingMs===0?' expired':''}`} role="timer" aria-label={remainingMs===0?'Preparation estimate exceeded':`Estimated time until ready ${text}`}>
+   {remainingMs===0?<><span>PREPARATION TIME EXCEEDED</span><b>00:00</b></>:<><span>ORDER READY</span><b>{text}</b></>}
+ </div>
 }
 
 function PendingDecisionClock({createdAt}){
@@ -527,7 +796,7 @@ function PendingDecisionClock({createdAt}){
 
 function OrderJourney({order}){
  const events=[...(order.order_stage_events||[])].sort((a,b)=>new Date(a.occurred_at)-new Date(b.occurred_at))
- return <div className="order-journey"><div className="order-journey-head"><b>Order journey</b><OrderTimer createdAt={order.created_at}/></div><div className="order-journey-steps">{events.map((event,index)=>{const next=events[index+1];const mins=next?Math.max(0,Math.round((new Date(next.occurred_at)-new Date(event.occurred_at))/60000)):null;return <div key={event.id} className="order-journey-step"><i/><div><b>{LABEL[event.stage]||event.stage.replaceAll('_',' ')}</b><small>{new Date(event.occurred_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}{mins!==null?` · ${mins} min in this stage`:''}</small>{event.note&&event.stage==='rejected'&&<small>{event.note}</small>}</div></div>})}</div></div>
+ return <details className="order-journey-details"><summary><span>Reveal order journey</span></summary><div className="order-journey"><div className="order-journey-steps">{events.map((event,index)=>{const next=events[index+1];const mins=next?Math.max(0,Math.round((new Date(next.occurred_at)-new Date(event.occurred_at))/60000)):null;return <div key={event.id} className="order-journey-step"><i/><div><b>{LABEL[event.stage]||event.stage.replaceAll('_',' ')}</b><small>{new Date(event.occurred_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}{mins!==null?` · ${mins} min in this stage`:''}</small>{event.note&&event.stage==='rejected'&&<small>{event.note}</small>}</div></div>})}</div></div></details>
 }
 
 function Orders({ rows, refresh }) {
@@ -573,6 +842,7 @@ function Orders({ rows, refresh }) {
       <div className="admin-order-items">{(order.order_items || []).map((item) => <div key={item.id}><span>{item.qty}×</span>{item.item_name}<b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
       <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
       {order.order_stage_events?.length>0&&<OrderJourney order={order}/>}
+      {['accepted','preparing'].includes(stageOf(order))&&<OrderReadyCountdown order={order}/>}
       {stageOf(order)==='pending'&&<PendingDecisionClock createdAt={order.created_at}/>}
       {['accepted','preparing'].includes(stageOf(order))&&order.prep_time_minutes&&<p className="admin-prep-estimate">Kitchen preparation estimate <b>{order.prep_time_minutes} min</b></p>}
       {order.rejection_reason&&<p className="admin-rejection-reason">Reason: {order.rejection_reason}</p>}
@@ -762,10 +1032,38 @@ function Promos(){
 }
 
 function Rewards(){
- const [rows,setRows]=useState([]),[form,setForm]=useState({milestone:'',gift:''}),[msg,setMsg]=useState('')
+ const blank={milestone:'',gift:'',coin_reward:'0',coupon_code:'',discount_type:'percent',discount_value:'10',minimum_order:'0',maximum_discount:''}
+ const [rows,setRows]=useState([]),[form,setForm]=useState(blank),[msg,setMsg]=useState('')
  const [deleteTarget,setDeleteTarget]=useState(null)
  const load=useCallback(async()=>{const {data,error}=await sb.from('streak_rewards').select('*').order('milestone');if(error)setMsg(error.message);else setRows(data||[])},[]);useEffect(()=>{load()},[load])
- const save=async()=>{const {error}=await sb.from('streak_rewards').upsert({milestone:Number(form.milestone),gift:form.gift.trim(),is_active:true});if(error)setMsg(error.message);else{setForm({milestone:'',gift:''});setMsg('Reward saved.');load()}}
+ const change=(key,value)=>setForm(current=>({...current,[key]:value}))
+ const editReward=async(reward)=>{
+  setForm({milestone:String(reward.milestone),gift:reward.gift,coin_reward:String(reward.coin_reward||0),coupon_code:reward.coupon_code||'',discount_type:'percent',discount_value:'10',minimum_order:'0',maximum_discount:''})
+  if(!reward.coupon_code)return
+  const {data,error}=await sb.from('coupons').select('discount_type,discount_value,minimum_order,maximum_discount').eq('code',reward.coupon_code).maybeSingle()
+  if(error){setMsg(error.message);return}
+  if(data)setForm(current=>current.coupon_code===reward.coupon_code?{...current,...data,discount_value:String(data.discount_value),minimum_order:String(data.minimum_order),maximum_discount:data.maximum_discount==null?'':String(data.maximum_discount)}:current)
+ }
+ const save=async()=>{
+  const milestone=Number(form.milestone),coinReward=Number(form.coin_reward),code=form.coupon_code.trim().toUpperCase()
+  const discountValue=Number(form.discount_value),minimumOrder=Number(form.minimum_order||0),maximumDiscount=form.maximum_discount===''?null:Number(form.maximum_discount)
+  if(!Number.isInteger(milestone)||milestone<1)return setMsg('Enter a whole-number streak milestone greater than zero.')
+  if(!form.gift.trim())return setMsg('Enter a reward description.')
+  if(!Number.isInteger(coinReward)||coinReward<0)return setMsg('Coin rewards must be a non-negative whole number.')
+  if(code&&(!Number.isInteger(discountValue)||discountValue<1||!Number.isInteger(minimumOrder)||minimumOrder<0||(maximumDiscount!==null&&(!Number.isInteger(maximumDiscount)||maximumDiscount<1))))return setMsg('Enter valid whole-number voucher amounts.')
+  const {error}=await sb.rpc('admin_save_streak_reward',{p_milestone:milestone,p_gift:form.gift.trim(),p_coin_reward:coinReward,p_coupon_code:code||null,p_discount_type:code?form.discount_type:null,p_discount_value:code?discountValue:null,p_minimum_order:code?minimumOrder:0,p_maximum_discount:code?maximumDiscount:null})
+  if(error){setMsg(error.code==='PGRST202'?'Run admin_ads_rewards.sql in Supabase to enable voucher-backed streak rewards.':error.message);return}
+  setForm(blank);setMsg('Streak reward and voucher saved.');load()
+ }
  const remove=async()=>{if(!deleteTarget)return 'The streak reward could not be found.';const {error}=await sb.from('streak_rewards').delete().eq('milestone',deleteTarget.milestone);if(error)return error.message;setRows(rows=>rows.filter(row=>row.milestone!==deleteTarget.milestone));return null}
- return <><section className="admin-content"><div className="admin-page-heading"><div><p>LOYALTY PROGRAM</p><h2>Streak rewards</h2><span>Choose the order streak milestones and customer rewards.</span></div></div><div className="admin-create-row"><input type="number" min="1" placeholder="Order streak milestone" value={form.milestone} onChange={e=>setForm({...form,milestone:e.target.value})}/><input placeholder="Reward description" value={form.gift} onChange={e=>setForm({...form,gift:e.target.value})}/><button className="admin-primary" onClick={save}>Save reward ＋</button></div>{msg&&<p className="admin-feedback">{msg}</p>}<div className="admin-promo-list">{rows.map(r=><article key={r.milestone}><div><b>{r.milestone} order streak</b><p>{r.gift}</p></div><button className={`admin-toggle ${r.is_active?'on':''}`} onClick={async()=>{const {error}=await sb.from('streak_rewards').update({is_active:!r.is_active}).eq('milestone',r.milestone);if(error)setMsg(error.message);else setRows(a=>a.map(x=>x.milestone===r.milestone?{...x,is_active:!x.is_active}:x))}}><i/>{r.is_active?'Active':'Paused'}</button><button className="admin-cancel-order" onClick={()=>setDeleteTarget(r)}>Delete</button></article>)}</div></section>{deleteTarget&&<ConfirmDialog title={`Delete ${deleteTarget.milestone}-day reward?`} message="Customers will no longer be able to earn this streak reward." onCancel={()=>setDeleteTarget(null)} onConfirm={remove}/>}</>
+ return <><section className="admin-content"><div className="admin-page-heading"><div><p>LOYALTY PROGRAM</p><h2>Streak rewards</h2><span>Combine coins, a gift description, and an optional personal checkout voucher.</span></div></div><div className="admin-feed-editor"><div className="admin-form-grid">
+   <label>Order streak milestone<input type="number" min="1" step="1" value={form.milestone} onChange={e=>change('milestone',e.target.value)}/></label>
+   <label>Reward description<input maxLength="120" value={form.gift} onChange={e=>change('gift',e.target.value)} placeholder="Free side or meal reward"/></label>
+   <label>Coins awarded<input type="number" min="0" step="1" value={form.coin_reward} onChange={e=>change('coin_reward',e.target.value)}/></label>
+   <label>Voucher code (optional)<input maxLength="32" value={form.coupon_code} onChange={e=>change('coupon_code',e.target.value.toUpperCase())} placeholder="STREAK20"/></label>
+   {form.coupon_code.trim()&&<><label>Discount type<select value={form.discount_type} onChange={e=>change('discount_type',e.target.value)}><option value="percent">Percent</option><option value="fixed">Fixed amount ₹</option></select></label>
+   <label>Discount value<input type="number" min="1" max={form.discount_type==='percent'?100:undefined} step="1" value={form.discount_value} onChange={e=>change('discount_value',e.target.value)}/></label>
+   <label>Minimum order ₹<input type="number" min="0" step="1" value={form.minimum_order} onChange={e=>change('minimum_order',e.target.value)}/></label>
+   <label>Maximum discount ₹<input type="number" min="1" step="1" value={form.maximum_discount} onChange={e=>change('maximum_discount',e.target.value)} placeholder="No cap"/></label></>}
+ </div><button className="admin-primary" onClick={save}>Save streak reward <span>＋</span></button></div>{msg&&<p className="admin-feedback" role="status">{msg}</p>}<div className="admin-promo-list">{rows.map(r=><article key={r.milestone}><div><b>{r.milestone} order streak</b><p>{r.gift}{Number(r.coin_reward)>0?` · ${r.coin_reward} coins`:''}{r.coupon_code?` · Voucher ${r.coupon_code}`:''}</p></div><button className={`admin-toggle ${r.is_active?'on':''}`} onClick={async()=>{const {error}=await sb.from('streak_rewards').update({is_active:!r.is_active}).eq('milestone',r.milestone);if(error)setMsg(error.message);else setRows(a=>a.map(x=>x.milestone===r.milestone?{...x,is_active:!x.is_active}:x))}}><i/>{r.is_active?'Active':'Paused'}</button><button className="admin-secondary" onClick={()=>editReward(r)}>Edit</button><button className="admin-cancel-order" onClick={()=>setDeleteTarget(r)}>Delete</button></article>)}</div></section>{deleteTarget&&<ConfirmDialog title={`Delete ${deleteTarget.milestone}-day reward?`} message="Customers will no longer be able to earn this streak reward." onCancel={() => setDeleteTarget(null)} onConfirm={remove}/>}</>
 }

@@ -11,6 +11,8 @@ test('customer screens resolve from their public route paths', () => {
   assert.deepEqual(resolveCustomerRoute('/cart'), { tab: 'cart' })
   assert.deepEqual(resolveCustomerRoute('/profile'), { tab: 'more', morePage: 'profile' })
   assert.deepEqual(resolveCustomerRoute('/about'), { tab: 'more', morePage: 'about' })
+  assert.deepEqual(resolveCustomerRoute('/refer'), { tab: 'more', morePage: 'refer' })
+  assert.deepEqual(resolveCustomerRoute('/careers'), { tab: 'more', morePage: 'careers' })
   assert.deepEqual(resolveCustomerRoute('/setting'), { tab: 'more' })
 })
 
@@ -28,5 +30,7 @@ test('navigation destinations map to stable route paths', () => {
   assert.equal(pathForMorePage('profile'), '/profile')
   assert.equal(pathForMorePage('support'), '/support')
   assert.equal(pathForMorePage('about'), '/about')
+  assert.equal(pathForMorePage('refer'), '/refer')
+  assert.equal(pathForMorePage('careers'), '/careers')
   assert.equal(pathForMorePage(null), '/setting')
 })
