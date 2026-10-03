@@ -404,6 +404,9 @@
 
 @media (max-width: 850px) {
   .admin-app .admin-header-actions { width: auto; display: flex; justify-content: flex-end; }
+  .admin-app .admin-settings-select-label { display: block; margin: 10px 0 14px; }
+  .admin-app .admin-setting-picker { display: none; }
+  .admin-app .admin-header-actions { width: auto; display: flex; justify-content: flex-end; }
   .admin-app .admin-header-actions .admin-exit[data-admin-action='shop'] { display: inline-flex; }
   .admin-app .admin-settings-select-label { display: block; margin: 10px 0 14px; }
   .admin-app .admin-setting-picker { display: none; }

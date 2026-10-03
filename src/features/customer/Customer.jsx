@@ -1362,7 +1362,7 @@ function Cart({
         </section>
         {cfg.gift_offer_active && giftVariant && <section className="checkout-gift-offer" aria-live="polite">
           <div><small>ORDER BONUS</small><h3>Free {giftVariant.item.name}</h3><p>{giftRemaining > 0 ? `Add ₹${giftRemaining.toLocaleString('en-IN')} more in items to unlock it.` : 'Your order qualifies for this free gift.'}</p></div>
-          {hasGift ? <button type="button" onClick={() => setCart(current => current.filter(item => !item.isGift))}>Remove gift</button> : giftCanApply ? <button type="button" onClick={addGift}>Add free gift</button> : <button type="button" onClick={addGiftUnlockSuggestion} disabled={!giftUnlockSuggestion}>{giftUnlockSuggestion ? `Add ${giftUnlockSuggestion.item.name} · ₹${giftUnlockSuggestion.price}` : 'Add an item to unlock'}</button>}
+          {hasGift ? <button type="button" onClick={() => { setCart(current => current.filter(item => !item.isGift)); setUseCoins(false); setCoupon(''); setCouponResult(null); }}>Remove gift</button> : giftCanApply ? <button type="button" onClick={addGift}>Add free gift</button> : <button type="button" onClick={addGiftUnlockSuggestion} disabled={!giftUnlockSuggestion}>{giftUnlockSuggestion ? `Add ${giftUnlockSuggestion.item.name} · ₹${giftUnlockSuggestion.price}` : 'Add an item to unlock'}</button>}
         </section>}
         <div className="cart-price-breakdown">
           {!minimumOrderMet && <p className="cart-minimum-note">Add ₹{minimumOrder - sub} more to meet the ₹{minimumOrder} minimum order.</p>}
