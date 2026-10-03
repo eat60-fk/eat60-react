@@ -649,3 +649,261 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Keep administrator edit workspaces readable and focused. */
+.admin-app .admin-settings-card.editing {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: clamp(20px, 5vw, 48px);
+  border: 0;
+  border-radius: 0;
+  background: #11120f;
+}
+
+.admin-app .admin-settings-card.editing > * {
+  width: min(100%, 1040px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.admin-app .admin-settings-card.editing .admin-settings-card-heading {
+  padding-bottom: 18px;
+  border-bottom: 1px solid #30322c;
+}
+
+.admin-app .admin-settings-card.editing .admin-settings-card-heading h3 {
+  font-size: clamp(22px, 4vw, 30px);
+}
+
+.admin-app .admin-settings-card.editing .admin-settings-card-heading p {
+  font-size: 14px;
+}
+
+.admin-app .admin-settings-card.editing .admin-settings-card-form {
+  margin-top: 22px;
+}
+
+.admin-app .admin-settings-card.editing .admin-settings-card-actions {
+  position: sticky;
+  bottom: -1px;
+  padding: 14px 0 max(14px, env(safe-area-inset-bottom));
+  background: #11120f;
+}
+
+.admin-editor-page {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow-y: auto;
+  padding: clamp(18px, 4vw, 42px);
+  background: #11120f;
+  color: #f1f2eb;
+}
+
+.admin-editor-page-content {
+  width: min(100%, 1040px);
+  margin: 0 auto;
+}
+
+.admin-editor-page-heading {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.admin-editor-page-heading > div > p {
+  margin: 0 0 6px;
+  color: #b7e95d;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .14em;
+}
+
+.admin-editor-page-heading h2 {
+  margin: 0;
+  font-size: clamp(25px, 5vw, 36px);
+}
+
+.admin-editor-page-heading > div > span {
+  display: block;
+  margin-top: 8px;
+  color: #a3a69c;
+}
+
+.admin-editor-page .admin-form-grid label,
+.admin-editor-page .admin-editor-list > b {
+  font-size: 13px;
+}
+
+.admin-editor-page .admin-form-grid input,
+.admin-editor-page .admin-form-grid select,
+.admin-editor-page .admin-form-grid textarea,
+.admin-editor-page .admin-editor-list input {
+  min-height: 48px;
+  font-size: 15px;
+}
+
+.admin-editor-page .admin-modal-actions {
+  position: sticky;
+  bottom: -1px;
+  z-index: 2;
+  padding: 14px 0 max(14px, env(safe-area-inset-bottom));
+  background: #11120f;
+}
+
+.admin-app .admin-ready-countdown {
+  width: 100%;
+  min-height: 58px;
+  justify-content: space-between;
+  box-sizing: border-box;
+  margin: 12px 0 0;
+  padding: 12px 16px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+}
+
+.admin-app .admin-ready-countdown > span {
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.admin-app .admin-ready-countdown > b {
+  font-size: 20px;
+}
+
+.admin-app .admin-ready-countdown > i {
+  font-size: 20px;
+  font-style: normal;
+}
+
+@media (max-width: 850px) {
+  .admin-app .admin-header-actions {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .admin-app .admin-live-state {
+    min-height: 44px;
+    padding: 0 4px;
+    font-size: 10px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .admin-app .admin-header-actions .admin-notify,
+  .admin-app .admin-header-actions .admin-settings-button,
+  .admin-app .admin-header-actions .admin-exit[data-admin-action='logout'] {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: 50px;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 2px;
+    font-size: 10px;
+    line-height: 1.15;
+  }
+
+  .admin-app .admin-header-actions .admin-notify > span,
+  .admin-app .admin-header-actions .admin-settings-button > span,
+  .admin-app .admin-header-actions .admin-exit > span {
+    font-size: 16px;
+  }
+
+  .admin-app .admin-header-actions .admin-notify b,
+  .admin-app .admin-header-actions .admin-settings-button b,
+  .admin-app .admin-header-actions .admin-exit b {
+    display: block;
+    font-size: 9px;
+    white-space: nowrap;
+  }
+
+  .admin-app .admin-order-tools {
+    position: static;
+  }
+
+  .admin-app .admin-filter-tabs button {
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 12px;
+  }
+
+  .admin-app .admin-order-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .admin-app .admin-order-card {
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .admin-app .admin-order-number,
+  .admin-app .admin-order-address > span {
+    font-size: 10px;
+  }
+
+  .admin-app .admin-order-card-top strong {
+    font-size: 18px;
+  }
+
+  .admin-app .admin-order-customer b {
+    font-size: 14px;
+  }
+
+  .admin-app .admin-order-customer small,
+  .admin-app .admin-order-customer time {
+    font-size: 11px;
+  }
+
+  .admin-app .admin-order-items > div {
+    font-size: 13px;
+  }
+
+  .admin-app .admin-order-items > div > b,
+  .admin-app .admin-order-address p {
+    font-size: 12px;
+  }
+
+  .admin-app .admin-order-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .admin-app .admin-order-actions > button:not(.admin-ready-countdown) {
+    min-height: 52px;
+    font-size: 14px;
+  }
+
+  .admin-app .admin-settings-card.editing {
+    padding: 20px 16px calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .admin-app .admin-settings-card.editing .admin-settings-card-actions {
+    grid-template-columns: 1fr 1.3fr;
+  }
+
+  .admin-editor-page {
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .admin-editor-page .admin-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .admin-editor-page .admin-editor-list > div {
+    grid-template-columns: minmax(0, 1fr) minmax(90px, .7fr) 42px;
+  }
+
+  .admin-editor-page .admin-modal-actions > button {
+    min-height: 48px;
+    flex: 1;
+  }
+}

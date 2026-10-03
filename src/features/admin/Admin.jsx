@@ -51,15 +51,15 @@ const SETTINGS_SECTIONS = [
   }
 ];
 const ORDER_FILTERS = [
-  ['new', 'New orders'],
-  ['preparing', 'Preparing'],
+  ['active', 'Active'],
+  ['ready', 'Ready'],
   ['delivery', 'On the way'],
   ['completed', 'Completed'],
   ['all', 'All orders']
 ];
 const ORDER_FILTER_STAGES = {
-  new: ['pending'],
-  preparing: ['accepted', 'preparing', 'ready'],
+  active: ['pending', 'accepted', 'preparing'],
+  ready: ['ready'],
   delivery: ['out_for_delivery', 'payment_received'],
   completed: ['delivered', 'rejected', 'cancelled']
 };
@@ -1176,9 +1176,7 @@ function playOrderTone(context) {
     osc.stop(now + offset + .18);
   });
 }
-function OrderReadyCountdown({
-  order
-}) {
+function OrderReadyCountdown({ order, actionLabel, onClick, disabled }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -1192,9 +1190,9 @@ function OrderReadyCountdown({
   const seconds = Math.ceil(remainingMs / 1000);
   if (!Number.isFinite(deadline) || !Number.isFinite(prepMinutes) || prepMinutes <= 0) return null;
   const text = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-  return <div className={`admin-ready-countdown${remainingMs === 0 ? ' expired' : ''}`} role="timer" aria-label={remainingMs === 0 ? 'Preparation estimate exceeded' : `Estimated time until ready ${text}`}>
-   {remainingMs === 0 ? <><span>PREPARATION TIME EXCEEDED</span><b>00:00</b></> : <><span>ORDER READY</span><b>{text}</b></>}
- </div>;
+  return <button type="button" className={`admin-ready-countdown${remainingMs === 0 ? ' expired' : ''}`} onClick={onClick} disabled={disabled} aria-label={`${actionLabel}, estimated time ${text}`}>
+    <span>{actionLabel}</span><b>{text}</b><i aria-hidden="true">→</i>
+  </button>;
 }
 function PendingDecisionClock({
   createdAt
@@ -1264,7 +1262,7 @@ function Orders({
   };
   return <section className="admin-content">
     <div className="admin-page-heading"><div><p>FULFILMENT</p><h2>Order management</h2><span>Review incoming orders and update their progress.</span></div><button className="admin-secondary" onClick={refresh}>↻ <span>Refresh</span></button></div>
-    <div className="admin-order-tools"><div className="admin-filter-tabs" aria-label="Filter orders">{ORDER_FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}{key === 'new' && rows.filter(order => stageOf(order) === 'pending').length > 0 && <b>{rows.filter(order => stageOf(order) === 'pending').length}</b>}</button>)}</div><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order or customer" /></label></div>
+    <div className="admin-order-tools"><div className="admin-filter-tabs" aria-label="Filter orders">{ORDER_FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}{key === 'active' && rows.filter(order => ['pending', 'accepted', 'preparing'].includes(stageOf(order))).length > 0 && <b>{rows.filter(order => ['pending', 'accepted', 'preparing'].includes(stageOf(order))).length}</b>}</button>)}</div><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order or customer" /></label></div>
     <div className="admin-report-tools"><select value={period} onChange={e => setPeriod(e.target.value)}><option value="today">Today</option><option value="week">Last 7 days</option><option value="month">This month</option><option value="custom">Choose dates</option></select>{period === 'custom' && <><input type="date" value={from} onChange={e => setFrom(e.target.value)} /><span>to</span><input type="date" value={to} onChange={e => setTo(e.target.value)} /></>}<b>{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
     {filtered.length ? <div className="admin-order-list">{filtered.map(order => <article className="admin-order-card" key={order.id}>
@@ -1276,7 +1274,6 @@ function Orders({
       <div className="admin-order-items">{(order.order_items || []).map(item => <div key={item.id}><span>{item.qty}×</span>{item.item_name}<b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
       <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
       {order.order_stage_events?.length > 0 && <OrderJourney order={order} />}
-      {['accepted', 'preparing'].includes(stageOf(order)) && <OrderReadyCountdown order={order} />}
       {stageOf(order) === 'pending' && <PendingDecisionClock createdAt={order.created_at} />}
       {['accepted', 'preparing'].includes(stageOf(order)) && order.prep_time_minutes && <p className="admin-prep-estimate">Kitchen preparation estimate <b>{order.prep_time_minutes} min</b></p>}
       {order.rejection_reason && <p className="admin-rejection-reason">Reason: {order.rejection_reason}</p>}
@@ -1305,7 +1302,7 @@ function Orders({
             ready: 'out_for_delivery',
             out_for_delivery: 'payment_received',
             payment_received: 'delivered'
-          }[stageOf(order)] && <button className="admin-primary" disabled={busyId === order.id} onClick={() => stageOf(order) === 'out_for_delivery' ? setPaymentId(order.id) : move(order.id, {
+          }[stageOf(order)] && !['accepted', 'preparing'].includes(stageOf(order)) && <button className="admin-primary" disabled={busyId === order.id} onClick={() => stageOf(order) === 'out_for_delivery' ? setPaymentId(order.id) : move(order.id, {
             accepted: 'preparing',
             preparing: 'ready',
             ready: 'out_for_delivery',
@@ -1315,8 +1312,8 @@ function Orders({
               preparing: 'ready',
               ready: 'out_for_delivery',
               payment_received: 'delivered'
-            }[stageOf(order)]]}`} <span>→</span></button>}</div>
-    </article>)}</div> : <div className="admin-empty"><span>⌕</span><b>{filter === 'new' && !query ? 'You’re all caught up' : 'No matching orders'}</b><small>{filter === 'new' && !query ? 'New orders will appear here as soon as customers place them.' : 'Try another order group, date range, or search term.'}</small></div>}
+            }[stageOf(order)]]}`} <span>→</span></button>}{['accepted', 'preparing'].includes(stageOf(order)) && <OrderReadyCountdown order={order} actionLabel={stageOf(order) === 'preparing' ? 'Order ready' : 'Start preparing'} disabled={busyId === order.id} onClick={() => move(order.id, stageOf(order) === 'preparing' ? 'ready' : 'preparing')} />}</div>
+    </article>)}</div> : <div className="admin-empty"><span>⌕</span><b>{filter === 'active' && !query ? 'No active orders' : 'No matching orders'}</b><small>{filter === 'active' && !query ? 'New orders and orders being prepared will appear here.' : 'Try another order group, date range, or search term.'}</small></div>}
   </section>;
 }
 function OrderRow({
@@ -1521,7 +1518,7 @@ function MenuEditor({
     }
     setBusy(false);
   };
-  return <div className="admin-modal-backdrop" onMouseDown={e => e.target === e.currentTarget && close()}><section className="admin-modal"><div className="admin-section-heading"><div><p>MENU ITEM</p><h3>{item.id ? 'Edit item' : 'New item'}</h3></div><button onClick={close}>×</button></div><div className="admin-form-grid"><label>Item name<input value={form.name} onChange={e => update('name', e.target.value)} /></label><label>Outlet<select value={form.brand_id} onChange={e => update('brand_id', e.target.value)}>{brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><label>Category<input value={form.category} onChange={e => update('category', e.target.value)} /></label><label>Image URL<input value={form.image_url} onChange={e => update('image_url', e.target.value)} placeholder="https://…" /></label><label className="admin-upload-label">Upload image<input type="file" accept="image/*" onChange={e => upload(e.target.files?.[0])} /></label><label className="admin-wide-label">Description<textarea value={form.description} onChange={e => update('description', e.target.value)} /></label></div><div className="admin-editor-list"><b>Sizes and prices</b>{variants.map((v, i) => <div key={i}><input placeholder="Size" value={v.label} onChange={e => setVariants(a => a.map((x, n) => n === i ? {
+  return <main className="admin-editor-page"><section className="admin-editor-page-content"><header className="admin-editor-page-heading"><button type="button" className="admin-secondary" onClick={close}>← <span>Back to menu</span></button><div><p>MENU ITEM</p><h2>{item.id ? 'Edit menu item' : 'Add menu item'}</h2><span>Update the dish, outlet, sizes, prices, and extras.</span></div></header><div className="admin-form-grid"><label>Item name<input value={form.name} onChange={e => update('name', e.target.value)} /></label><label>Outlet<select value={form.brand_id} onChange={e => update('brand_id', e.target.value)}>{brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><label>Category<input value={form.category} onChange={e => update('category', e.target.value)} /></label><label>Image URL<input value={form.image_url} onChange={e => update('image_url', e.target.value)} placeholder="https://…" /></label><label className="admin-upload-label">Upload image<input type="file" accept="image/*" onChange={e => upload(e.target.files?.[0])} /></label><label className="admin-wide-label">Description<textarea value={form.description} onChange={e => update('description', e.target.value)} /></label></div><div className="admin-editor-list"><b>Sizes and prices</b>{variants.map((v, i) => <div key={i}><input placeholder="Size" value={v.label} onChange={e => setVariants(a => a.map((x, n) => n === i ? {
             ...x,
             label: e.target.value
           } : x))} /><input type="number" min="1" placeholder="Price ₹" value={v.price} onChange={e => setVariants(a => a.map((x, n) => n === i ? {
@@ -1539,7 +1536,7 @@ function MenuEditor({
           } : q))} /><button onClick={() => setExtras(a => a.filter((_, n) => n !== i))}>×</button></div>)}<button onClick={() => setExtras(a => [...a, {
           name: '',
           price: ''
-        }])}>＋ Add extra</button></div>{error && <p className="admin-inline-error">{error}</p>}<div className="admin-modal-actions"><button className="admin-secondary" onClick={close}>Cancel</button><button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save item'}</button></div></section></div>;
+        }])}>＋ Add extra</button></div>{error && <p className="admin-inline-error">{error}</p>}<div className="admin-modal-actions"><button className="admin-secondary" onClick={close}>Cancel</button><button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save item'}</button></div></section></main>;
 }
 // Outlet, feed, coupon, and reward management.
 function Outlets() {
