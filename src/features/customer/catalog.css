@@ -360,3 +360,22 @@
     font-size: 9px;
   }
 }
+.checkout-gift-offer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 14px 0;
+  padding: 16px;
+  border: 1px solid #4e6830;
+  border-radius: 16px;
+  background: linear-gradient(110deg, #20261b, #1c1c19 70%);
+}
+.checkout-gift-offer small { color: #b8f04a; font-size: 10px; font-weight: 900; letter-spacing: .14em; }
+.checkout-gift-offer h3 { margin: 3px 0; font-size: 17px; }
+.checkout-gift-offer p { margin: 0; color: #aaa; font-size: 12px; }
+.checkout-gift-offer button { flex: 0 0 auto; min-height: 40px; padding: 0 14px; border: 0; border-radius: 999px; background: #b8f04a; color: #151515; font-weight: 850; }
+.checkout-gift-offer button:disabled { opacity: .5; }
+@media (max-width: 420px) {
+  .checkout-gift-offer { align-items: flex-start; flex-direction: column; }
+}

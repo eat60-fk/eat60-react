@@ -48,6 +48,12 @@ const SETTINGS_SECTIONS = [
     title: 'About page',
     description: 'Founder details and public About page links.',
     icon: 'ⓘ'
+  },
+  {
+    id: 'app',
+    title: 'App & alerts',
+    description: 'Version label, notifications, sound, and administrator access.',
+    icon: '⚙'
   }
 ];
 const ORDER_FILTERS = [
@@ -127,6 +133,9 @@ const emptyOfferSettings = {
   offer_ends_at: '',
   offer_title: 'OFFER OF THE DAY',
   offer_message: 'GRAB THIS OFFER BEFORE IT ENDS',
+  gift_offer_active: false,
+  gift_offer_variant_id: '',
+  gift_offer_minimum: 199,
   social_links: {
     instagram: '',
     facebook: '',
@@ -186,7 +195,7 @@ function AdBannerSettings() {
   const [message, setMessage] = useState('');
   useEffect(() => {
     let active = true;
-    Promise.all([sb.from('settings').select('tiffin_url,offer_variant_id,offer_price,offer_date,offer_ends_at,offer_title,offer_message,social_links,home_ad_image_url,home_ad_link,home_ad_alt,home_ad_active,home_ad_starts_at,home_ad_ends_at').eq('id', 1).maybeSingle(), sb.from('item_variants').select('id,item_id,label,price'), sb.from('menu_items').select('id,name,is_available')]).then(([settingsResult, variantsResult, itemsResult]) => {
+    Promise.all([sb.from('settings').select('tiffin_url,offer_variant_id,offer_price,offer_date,offer_ends_at,offer_title,offer_message,social_links,home_ad_image_url,home_ad_link,home_ad_alt,home_ad_active,home_ad_starts_at,home_ad_ends_at,gift_offer_active,gift_offer_variant_id,gift_offer_minimum').eq('id', 1).maybeSingle(), sb.from('item_variants').select('id,item_id,label,price'), sb.from('menu_items').select('id,name,is_available')]).then(([settingsResult, variantsResult, itemsResult]) => {
       if (!active) return;
       const error = settingsResult.error || variantsResult.error || itemsResult.error;
       if (error) setMessage(error.message);else {
@@ -194,6 +203,8 @@ function AdBannerSettings() {
         const loadedForm = {
           ...emptyOfferSettings,
           ...settings,
+          gift_offer_variant_id: settings.gift_offer_variant_id ? String(settings.gift_offer_variant_id) : '',
+          gift_offer_minimum: settings.gift_offer_minimum ?? 199,
           tiffin_url: settings.tiffin_url || '',
           offer_variant_id: settings.offer_variant_id ? String(settings.offer_variant_id) : '',
           offer_price: settings.offer_price ?? '',
@@ -274,6 +285,7 @@ function AdBannerSettings() {
   });
   const save = async () => {
     const selected = variants.find(variant => String(variant.id) === String(form.offer_variant_id));
+    const giftSelected = variants.find(variant => String(variant.id) === String(form.gift_offer_variant_id));
     const price = form.offer_price === '' ? null : Number(form.offer_price);
     if (form.tiffin_url) {
       try {
@@ -313,6 +325,8 @@ function AdBannerSettings() {
       setMessage('The offer end time must be in the future.');
       return;
     }
+    if (form.gift_offer_active && !giftSelected) return setMessage('Choose the item customers will receive for free.');
+    if (form.gift_offer_active && (!Number.isInteger(Number(form.gift_offer_minimum)) || Number(form.gift_offer_minimum) < 1)) return setMessage('Set a minimum order amount of at least ₹1.');
     const adImageUrl = String(form.home_ad_image_url || '').trim();
     const adLink = String(form.home_ad_link || '').trim();
     for (const [label, value] of [['Ad image', adImageUrl], ['Ad destination', adLink]]) {
@@ -354,7 +368,10 @@ function AdBannerSettings() {
       home_ad_alt: String(form.home_ad_alt || '').trim().slice(0, 120),
       home_ad_active: Boolean(form.home_ad_active),
       home_ad_starts_at: adStartsAt?.toISOString() || null,
-      home_ad_ends_at: adEndsAt?.toISOString() || null
+      home_ad_ends_at: adEndsAt?.toISOString() || null,
+      gift_offer_active: Boolean(form.gift_offer_active),
+      gift_offer_variant_id: form.gift_offer_variant_id ? Number(form.gift_offer_variant_id) : null,
+      gift_offer_minimum: Math.max(0, Number(form.gift_offer_minimum) || 0)
     };
     const {
       error
@@ -452,6 +469,13 @@ function AdBannerSettings() {
         <p className="admin-feedback" role="status">{offerStatus}</p>
       </>}
       </SettingsEditCard>
+      <SettingsEditCard title="Free item on qualifying orders" description="Offer a menu item at no charge after the order reaches your target amount." summary={form.gift_offer_active && form.gift_offer_variant_id ? `Free ${variants.find(variant => String(variant.id) === String(form.gift_offer_variant_id))?.item.name || 'selected item'} on orders over ₹${Number(form.gift_offer_minimum).toLocaleString('en-IN')}` : 'Threshold gift offer is turned off.'} editing={editingCard === 'gift-offer'} disabled={Boolean(editingCard && editingCard !== 'gift-offer')} busy={busy || loading} feedback={editingCard === 'gift-offer' ? message : ''} onEdit={() => { setEditingCard('gift-offer'); setMessage(''); }} onCancel={cancelEdit} onSave={save}>
+        {loading ? <p className="admin-feedback">Loading gift offer settings…</p> : <div className="admin-form-grid">
+          <label>Free item and size<select value={form.gift_offer_variant_id} onChange={event => setForm(current => ({ ...current, gift_offer_variant_id: event.target.value }))}><option value="">Choose an item</option>{variants.map(variant => <option key={variant.id} value={variant.id}>{variant.item.name} · {variant.label} · ₹{variant.price}{variant.item.is_available ? '' : ' (unavailable)'}</option>)}</select></label>
+          <label>Minimum paid item total ₹<input type="number" min="1" step="1" value={form.gift_offer_minimum} onChange={change('gift_offer_minimum')} /></label>
+          <label className="admin-delivery-free-toggle">Enable free item offer<input type="checkbox" checked={form.gift_offer_active === true} onChange={event => setForm(current => ({ ...current, gift_offer_active: event.target.checked }))} /></label>
+        </div>}
+      </SettingsEditCard>
       <SettingsEditCard title="Partner ad banner" description="Choose an image, destination, and schedule for the home-page ad." summary={partnerAdSummary} editing={editingCard === 'partner-ad'} disabled={Boolean(editingCard && editingCard !== 'partner-ad')} busy={busy || loading} feedback={editingCard === 'partner-ad' ? message : ''} onEdit={() => {
         setEditingCard('partner-ad');
         setMessage('');
@@ -528,6 +552,7 @@ export default function Admin({
   const [alertEnabled, setAlertEnabled] = useState(false);
   const [incomingOrders, setIncomingOrders] = useState([]);
   const [storeOnline, setStoreOnline] = useState(true);
+  const [appVersion, setAppVersion] = useState('1.0.0');
   const [storeMessage, setStoreMessage] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(false);
   const soundRef = useRef(null);
@@ -597,10 +622,11 @@ export default function Admin({
   const loadStore = useCallback(async () => {
     const {
       data
-    } = await sb.from('settings').select('store_online,offline_message').eq('id', 1).maybeSingle();
+    } = await sb.from('settings').select('store_online,offline_message,app_version').eq('id', 1).maybeSingle();
     if (data) {
       setStoreOnline(data.store_online !== false);
       setStoreMessage(data.offline_message || '');
+      setAppVersion(data.app_version || '1.0.0');
     }
   }, []);
   useEffect(() => {
@@ -721,14 +747,7 @@ export default function Admin({
       <header className="admin-header">
         <div className="admin-brand"><span className="admin-mark">EAT<b>60</b></span><div><p>FOODVERSE KITCHEN · ADMIN</p><h1>{tab === 'overview' ? 'Dashboard' : tab === 'explore' ? 'More tools' : tab.charAt(0).toUpperCase() + tab.slice(1)}</h1></div></div>
         <div className="admin-header-actions">
-          <span className={`admin-live-state ${connection}`}><i />{connection === 'connected' ? 'LIVE' : connection === 'connecting' ? 'CONNECTING' : 'RECONNECTING'}</span>
-          <button className={`admin-notify ${alertEnabled ? 'enabled' : ''}`} onClick={enableAlerts} disabled={permission === 'unsupported'}>
-            <span aria-hidden="true">{alertEnabled ? '✓' : '♧'}</span>{alertEnabled ? 'Alerts on' : permission === 'denied' ? 'Allow in browser' : 'Enable alerts'}
-          </button>
-          <button className={`admin-notify ${soundEnabled ? 'enabled' : ''}`} onClick={toggleSound}><span aria-hidden="true">{soundEnabled ? '🔊' : '🔈'}</span>{soundEnabled ? 'Sound on' : 'Sound off'}</button>
-          <button className={`admin-settings-button ${tab === 'settings' ? 'active' : ''}`} onClick={() => visitTab(tab === 'settings' ? 'orders' : 'settings')} aria-label={tab === 'settings' ? 'Close settings' : 'Open settings'} title="Settings"><span aria-hidden="true">⚙</span><b>Settings</b></button>
           <button className="admin-exit" data-admin-action="shop" onClick={onBack} title="Back to shop"><span aria-hidden="true">⌂</span><b>Shop</b></button>
-          <button className="admin-exit" data-admin-action="logout" onClick={() => sb.auth.signOut()} title="Log out"><span aria-hidden="true">↪</span><b>Log out</b></button>
         </div>
       </header>
 
@@ -769,18 +788,18 @@ export default function Admin({
       }} /></div>}
       {visitedTabs.has('growth') && <div hidden={tab !== 'growth'}><Growth orders={orders} /></div>}
       {visitedTabs.has('explore') && <div hidden={tab !== 'explore'}><Explore onNavigate={visitTab} /></div>}
-      {visitedTabs.has('settings') && <div hidden={tab !== 'settings'}><SettingsWorkspace section={settingsSection} onSelect={visitSettingsSection} /></div>}
+      {visitedTabs.has('settings') && <div hidden={tab !== 'settings'}><SettingsWorkspace section={settingsSection} onSelect={visitSettingsSection} appVersion={appVersion} setAppVersion={setAppVersion} connection={connection} soundEnabled={soundEnabled} toggleSound={toggleSound} alertEnabled={alertEnabled} permission={permission} enableAlerts={enableAlerts} /></div>}
       {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} /></div>}
       {visitedTabs.has('menu') && <div hidden={tab !== 'menu'}><Menu /></div>}
       {visitedTabs.has('outlets') && <div hidden={tab !== 'outlets'}><Outlets /></div>}
       {visitedTabs.has('feed') && <div hidden={tab !== 'feed'}><AdminFeed /></div>}
       {visitedTabs.has('promos') && <div hidden={tab !== 'promos'}><Promos /></div>}
       {visitedTabs.has('rewards') && <div hidden={tab !== 'rewards'}><Rewards /></div>}
-      <PoweredFooter className="admin-footer" />
+      <PoweredFooter className="admin-footer" online={connection === 'connected'} version={appVersion} />
     </main>;
 }
 
-function SettingsWorkspace({ section, onSelect }) {
+function SettingsWorkspace({ section, onSelect, appVersion, setAppVersion, connection, soundEnabled, toggleSound, alertEnabled, permission, enableAlerts }) {
   const activeSection = SETTINGS_SECTIONS.find(item => item.id === section) || SETTINGS_SECTIONS[0];
   return <section className="admin-content admin-settings-workspace">
     <div className="admin-page-heading">
@@ -812,10 +831,36 @@ function SettingsWorkspace({ section, onSelect }) {
           <span>{item.title}</span>
         </button>)}
       </nav>
+      <label className="admin-settings-select-label">Choose settings area<select aria-label="Choose settings area" value={section} onChange={event => onSelect(event.target.value)}>{SETTINGS_SECTIONS.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
     </div>
     <div id="settings-panel-delivery" role="tabpanel" aria-labelledby="settings-tab-delivery" tabIndex={0} hidden={section !== 'delivery'}><DeliverySettings /></div>
     <div id="settings-panel-business" role="tabpanel" aria-labelledby="settings-tab-business" tabIndex={0} hidden={section !== 'business'}><AdBannerSettings /></div>
     <div id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about" tabIndex={0} hidden={section !== 'about'}><AboutPageSettings /></div>
+    <div id="settings-panel-app" role="tabpanel" aria-labelledby="settings-tab-app" tabIndex={0} hidden={section !== 'app'}><AdminPreferences appVersion={appVersion} setAppVersion={setAppVersion} connection={connection} soundEnabled={soundEnabled} toggleSound={toggleSound} alertEnabled={alertEnabled} permission={permission} enableAlerts={enableAlerts} /></div>
+  </section>;
+}
+
+function AdminPreferences({ appVersion, setAppVersion, connection, soundEnabled, toggleSound, alertEnabled, permission, enableAlerts }) {
+  const [version, setVersion] = useState(appVersion);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  useEffect(() => setVersion(appVersion), [appVersion]);
+  const saveVersion = async () => {
+    const normalized = version.trim().replace(/^v\.?/i, '');
+    if (!/^\d+\.\d+\.\d+$/.test(normalized)) return setMessage('Use a version like 1.0.0.');
+    setBusy(true);
+    const { error } = await sb.from('settings').update({ app_version: normalized }).eq('id', 1);
+    setBusy(false);
+    setMessage(error ? error.message : 'App version saved.');
+    if (!error) setAppVersion(normalized);
+  };
+  return <section className="admin-settings-form">
+    <SettingsEditCard title="App version" description="The small version label shown in customer and admin footers." summary={`Current version · v.${appVersion}`} editing busy={busy} feedback={message} onSave={saveVersion} onCancel={() => { setVersion(appVersion); setMessage(''); }} onEdit={() => setMessage('')}>
+      <label>Version<input value={version} onChange={event => setVersion(event.target.value)} placeholder="1.0.0" inputMode="decimal" /></label>
+    </SettingsEditCard>
+    <article className="admin-settings-card"><header className="admin-settings-card-heading"><div><h3>Connection & alerts</h3><p>Choose when this device can notify you about new orders.</p></div><span className="admin-footer-connection">{connection === 'connected' ? 'ONLINE' : 'OFFLINE'}</span></header>
+      <div className="admin-settings-card-actions"><button className="admin-secondary" type="button" onClick={enableAlerts} disabled={permission === 'unsupported'}>{alertEnabled ? 'Alerts enabled' : permission === 'denied' ? 'Allow in browser settings' : 'Enable order alerts'}</button><button className="admin-secondary" type="button" onClick={toggleSound}>{soundEnabled ? 'Turn sound off' : 'Turn sound on'}</button><button className="admin-cancel-order" type="button" onClick={() => sb.auth.signOut()}>Log out</button></div>
+    </article>
   </section>;
 }
 

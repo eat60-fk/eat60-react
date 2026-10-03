@@ -13,7 +13,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Keep a pending app update from forcing a reload during checkout/payment.
+      registerType: 'prompt',
       includeAssets: ['avatars/*.png'],
       workbox: {
         navigateFallbackDenylist: [/^\/download-adminapp\/?$/, /^\/admin\/install\/?$/],

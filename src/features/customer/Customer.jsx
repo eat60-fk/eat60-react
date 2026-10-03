@@ -689,7 +689,7 @@ export default function Customer({
     }}>
         <div hidden={tab !== 'home'}><Home data={data} add={add} price={price} go={go} goMore={goMore} goGames={goGames} say={say} me={me} orderInsights={orderInsights} reloadRatings={reloadRatings} /></div>
         <div hidden={tab !== 'cart'}>
-          <Cart cart={cart} setCart={setCart} cfg={data.cfg} catalogItems={data.items} me={me} say={say} voucherCode={selectedVoucher} onBack={() => cart.length ? leaveCart() : go('home')} done={orderId => {
+          <Cart cart={cart} setCart={setCart} cfg={data.cfg} catalogItems={data.items} catalogBrands={data.brands} me={me} say={say} voucherCode={selectedVoucher} onBack={() => cart.length ? leaveCart() : go('home')} done={orderId => {
           setSelectedVoucher('');
           reload();
           setFullscreenNotice({
@@ -714,7 +714,7 @@ export default function Customer({
         {online && <button className="pill" onClick={loadCatalog}>TRY AGAIN</button>}
       </div>}
 
-      <PoweredFooter />
+      <PoweredFooter online={online} version={data.cfg.app_version || '1.0.0'} />
 
       <nav className="customer-nav" aria-label="Main navigation">
         {[['home', 'Home'], ['hist', 'History'], ['cart', 'Cart'], ['feed', 'Feed'], ['more', 'More']].map(([k, l]) => <button key={k} className={tab === k || tab === 'wallet' && k === 'home' ? 'on' : ''} onClick={() => k === 'more' ? goMore() : go(k)} aria-current={tab === k ? 'page' : undefined}>
@@ -865,10 +865,17 @@ function Home({
     return () => window.clearTimeout(storyTimer.current);
   }, [storyIndex, storyDuration, advanceStory]);
   useEffect(() => {
-    if (!data.cfg.offer_variant_id || !data.cfg.offer_date || data.cfg.offer_date > today() || offerExpiry(data.cfg) <= Date.now()) return undefined;
+    const offerIsScheduled = data.cfg.offer_variant_id && data.cfg.offer_date && data.cfg.offer_date <= today() && offerExpiry(data.cfg) > Date.now();
+    const currentTime = Date.now();
+    const adStarts = data.cfg.home_ad_starts_at ? new Date(data.cfg.home_ad_starts_at).getTime() : null;
+    const adEnds = data.cfg.home_ad_ends_at ? new Date(data.cfg.home_ad_ends_at).getTime() : null;
+    const adHasSchedule = data.cfg.home_ad_active === true
+      && /^https?:\/\//i.test(String(data.cfg.home_ad_image_url || '').trim())
+      && (adStarts !== null && !Number.isNaN(adStarts) && adStarts > currentTime || adEnds !== null && !Number.isNaN(adEnds) && adEnds > currentTime);
+    if (!offerIsScheduled && !adHasSchedule) return undefined;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [data.cfg.offer_date, data.cfg.offer_ends_at, data.cfg.offer_variant_id]);
+  }, [data.cfg.offer_date, data.cfg.offer_ends_at, data.cfg.offer_variant_id, data.cfg.home_ad_active, data.cfg.home_ad_image_url, data.cfg.home_ad_starts_at, data.cfg.home_ad_ends_at]);
   const brand = id => data.brands.find(x => x.id === id);
   const categories = [...new Set(data.items.map(item => String(item.category || '').trim()).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right));
@@ -889,7 +896,7 @@ function Home({
   const adStart = data.cfg.home_ad_starts_at ? new Date(data.cfg.home_ad_starts_at).getTime() : null;
   const adEnd = data.cfg.home_ad_ends_at ? new Date(data.cfg.home_ad_ends_at).getTime() : null;
   const adLink = /^https?:\/\//i.test(data.cfg.home_ad_link || '') ? data.cfg.home_ad_link : '';
-  const showPartnerAd = data.cfg.home_ad_active === true && /^https?:\/\//i.test(adImage) && (adStart === null || !Number.isNaN(adStart) && Date.now() >= adStart) && (adEnd === null || !Number.isNaN(adEnd) && Date.now() < adEnd);
+  const showPartnerAd = data.cfg.home_ad_active === true && /^https?:\/\//i.test(adImage) && (adStart === null || !Number.isNaN(adStart) && clock >= adStart) && (adEnd === null || !Number.isNaN(adEnd) && clock < adEnd);
   const sorted = i => [...i.item_variants].sort((x, y) => x.price - y.price);
   const activeVariant = item => item?.item_variants?.find(v => Number(v.id) === Number(data.cfg.offer_variant_id));
   const recentCutoff = Date.now() - 60 * 86400000;
@@ -1092,6 +1099,7 @@ function Cart({
   setCart,
   cfg,
   catalogItems,
+  catalogBrands = [],
   me,
   say,
   done,
@@ -1125,7 +1133,16 @@ function Cart({
     return base + (item.regularPrice == null && variant ? (item.extras || []).reduce((sum, extra) => sum + Number(extra.price || 0), 0) : 0);
   };
   const offerIsActive = cfg.offer_variant_id && cfg.offer_date && cfg.offer_date <= today() && (!cfg.offer_ends_at || new Date(cfg.offer_ends_at).getTime() > Date.now());
+  const giftVariant = catalogItems.flatMap(item => (item.item_variants || []).map(variant => ({ ...variant, item }))).find(variant => String(variant.id) === String(cfg.gift_offer_variant_id));
+  const hasGift = cart.some(item => item.isGift);
+  const giftMinimum = Number(cfg.gift_offer_minimum) || 0;
+  const giftSubtotal = cart.filter(item => !item.isGift).reduce((sum, item) => sum + regularUnitPrice(item) * item.qty, 0);
+  const giftRemaining = Math.max(0, giftMinimum - giftSubtotal);
+  const giftBrandOpen = giftVariant && catalogBrands.find(brand => brand.id === giftVariant.item.brand_id)?.is_open;
+  const giftCanApply = cfg.gift_offer_active === true && Boolean(giftVariant?.item?.is_available) && giftBrandOpen !== false && giftSubtotal >= giftMinimum;
+  const giftUnlockSuggestion = giftRemaining > 0 ? catalogItems.filter(item => item.is_available && catalogBrands.find(brand => brand.id === item.brand_id)?.is_open !== false && !(item.item_extras || []).some(extra => extra.is_available) && (item.item_variants || []).length).flatMap(item => item.item_variants.map(variant => ({ item, variant, price: Number(variant.price) }))).filter(choice => choice.price >= giftRemaining).sort((a, b) => a.price - b.price)[0] : null;
   const selectedUnitPrice = (item, useDailyOffer) => {
+    if (item.isGift) return 0;
     if (useDailyOffer && offerIsActive && String(item.vid) === String(cfg.offer_variant_id)) {
       const extras = (item.extras || []).reduce((sum, extra) => sum + Number(extra.price || 0), 0);
       return Number(cfg.offer_price) + extras;
@@ -1133,9 +1150,9 @@ function Cart({
     return regularUnitPrice(item);
   };
   // The daily deal, one coupon, and wallet coins are exclusive savings.
-  const useDailyOffer = !couponResult?.code && !useCoins;
-  const sub = cart.reduce((sum, item) => sum + selectedUnitPrice(item, useDailyOffer) * item.qty, 0);
-  const regularSubtotal = cart.reduce((sum, item) => sum + regularUnitPrice(item) * item.qty, 0);
+  const useDailyOffer = !couponResult?.code && !useCoins && !hasGift;
+  const sub = cart.filter(item => !item.isGift).reduce((sum, item) => sum + selectedUnitPrice(item, useDailyOffer) * item.qty, 0);
+  const regularSubtotal = cart.filter(item => !item.isGift).reduce((sum, item) => sum + regularUnitPrice(item) * item.qty, 0);
   const couponDisc = Number(couponResult?.discount_amount || 0);
   const minDistance = Number(cfg.min_delivery_km || 0);
   const extraDistance = Math.max(0, (deliveryDistance ?? minDistance) - minDistance);
@@ -1152,11 +1169,27 @@ function Cart({
   const gstIncluded = Math.round(sub * 5 / 105);
   const total = Math.max(0, sub + deliveryFee - disc - couponDisc);
   const qty = (k, d) => {
+    if (cart[k]?.isGift && d > 0) return;
     setCouponResult(null);
     setCart(c => c.map((x, i) => i === k ? {
       ...x,
       qty: x.qty + d
     } : x).filter(x => x.qty > 0));
+  };
+  const addGift = () => {
+    if (!giftCanApply || !giftVariant) return;
+    setCouponResult(null);
+    setCoupon('');
+    setUseCoins(false);
+    setCart(current => [...current.filter(item => !item.isGift), { vid: giftVariant.id, name: `${giftVariant.item.name} (${giftVariant.label}) · FREE GIFT`, price: 0, regularPrice: Number(giftVariant.price), extras: [], qty: 1, isGift: true }]);
+  };
+  const addGiftUnlockSuggestion = () => {
+    const candidate = giftUnlockSuggestion;
+    if (!candidate) return say('Browse the menu and add items to reach the gift offer amount.');
+    setCart(current => {
+      const existing = current.find(item => !item.isGift && String(item.vid) === String(candidate.variant.id));
+      return existing ? current.map(item => item === existing ? { ...item, qty: item.qty + 1 } : item) : [...current, { vid: candidate.variant.id, name: `${candidate.item.name} (${candidate.variant.label})`, price: candidate.price, regularPrice: candidate.price, extras: [], qty: 1 }];
+    });
   };
   const place = async () => {
     if (!navigator.onLine) return say('You’re offline. Your cart and checkout details are saved; reconnect to place the order.');
@@ -1169,7 +1202,7 @@ function Cart({
       const {
         data: orderId,
         error
-      } = await sb.rpc('place_order_with_coupon', {
+      } = await sb.rpc('place_order_with_gift', {
         p_items: cart.map(x => ({
           variant_id: x.vid,
           qty: x.qty,
@@ -1183,7 +1216,8 @@ function Cart({
         p_coupon_code: couponResult?.code || null,
         p_customer_name: customerName,
         p_distance_km: deliveryDistance === null ? null : Number(deliveryDistance.toFixed(2)),
-        p_use_offer: useDailyOffer
+        p_use_offer: useDailyOffer,
+        p_gift_variant_id: cart.find(item => item.isGift)?.vid || null
       });
       if (error) return say(error.message);
       setCart([]);
@@ -1290,7 +1324,7 @@ function Cart({
         <label className="row">
           <input type="checkbox" style={{
           width: 20
-        }} checked={useCoins} onChange={e => {
+          }} checked={useCoins} disabled={hasGift} onChange={e => {
           const checked = e.target.checked;
           setUseCoins(checked);
           if (checked) {
@@ -1300,11 +1334,11 @@ function Cart({
         }} />
           <span>Use coins (100 coins = ₹1). You have {me.coins}.</span>
         </label>
-        <small className="checkout-savings-note">Choose one saving per order: the daily deal, a coupon, or wallet coins.</small>
-        <div className="coupon-entry"><input aria-label="Voucher code" placeholder="Coupon / voucher code" value={coupon} onChange={e => {
+        <small className="checkout-savings-note">{hasGift ? 'The free gift is this order’s offer; coupons, wallet coins, and the daily deal cannot be combined.' : 'Choose one saving per order: the daily deal, a coupon, wallet coins, or a free gift.'}</small>
+        <div className="coupon-entry"><input disabled={hasGift} aria-label="Voucher code" placeholder="Coupon / voucher code" value={coupon} onChange={e => {
           setCoupon(e.target.value.toUpperCase());
           setCouponResult(null);
-        }} /><button type="button" className="pill" onClick={() => validateCoupon()}>Apply</button></div>
+        }} /><button type="button" className="pill" disabled={hasGift} onClick={() => validateCoupon()}>Apply</button></div>
         {couponResult && <small className="coupon-applied">{couponResult.code} applied · save ₹{couponDisc}</small>}
         <section className="checkout-payment" aria-labelledby="checkout-payment-heading">
           <div className="checkout-payment-heading"><h3 id="checkout-payment-heading">Payment method</h3><small>Choose how you’ll pay</small></div>
@@ -1326,6 +1360,10 @@ function Cart({
             </div>
           </div>
         </section>
+        {cfg.gift_offer_active && giftVariant && <section className="checkout-gift-offer" aria-live="polite">
+          <div><small>ORDER BONUS</small><h3>Free {giftVariant.item.name}</h3><p>{giftRemaining > 0 ? `Add ₹${giftRemaining.toLocaleString('en-IN')} more in items to unlock it.` : 'Your order qualifies for this free gift.'}</p></div>
+          {hasGift ? <button type="button" onClick={() => setCart(current => current.filter(item => !item.isGift))}>Remove gift</button> : giftCanApply ? <button type="button" onClick={addGift}>Add free gift</button> : <button type="button" onClick={addGiftUnlockSuggestion} disabled={!giftUnlockSuggestion}>{giftUnlockSuggestion ? `Add ${giftUnlockSuggestion.item.name} · ₹${giftUnlockSuggestion.price}` : 'Add an item to unlock'}</button>}
+        </section>}
         <div className="cart-price-breakdown">
           {!minimumOrderMet && <p className="cart-minimum-note">Add ₹{minimumOrder - sub} more to meet the ₹{minimumOrder} minimum order.</p>}
           <div className="row between"><span>Items (GST included)</span><span>₹{sub}</span></div>
@@ -1338,7 +1376,7 @@ function Cart({
           <div className="row between"><h3>Total</h3><h3>₹{total}</h3></div>
         </div>
         {!cfg.store_online && <p className="offline-banner">{cfg.offline_message || 'Ordering is offline right now. Please try later.'}</p>}
-        <motion.button className="pill wide checkout-place-order" whileTap={reduceMotion ? undefined : { scale: 0.98 }} disabled={busy || !customerName.trim() || !ph.trim() || !addr.trim() || !minimumOrderMet || deliveryDistance === null || beyondDeliveryRadius || cfg.store_online === false} onClick={place}>{busy ? <><span className="checkout-spinner" aria-hidden="true" /> Placing your COD order…</> : cfg.store_online === false ? 'Ordering unavailable' : beyondDeliveryRadius ? 'Outside delivery area' : !minimumOrderMet ? `Minimum order ₹${minimumOrder}` : deliveryDistance === null ? 'Confirm delivery location' : 'Place COD order'}</motion.button>
+        <motion.button className="pill wide checkout-place-order" whileTap={reduceMotion ? undefined : { scale: 0.98 }} disabled={!navigator.onLine || busy || hasGift && !giftCanApply || !customerName.trim() || !ph.trim() || !addr.trim() || !minimumOrderMet || deliveryDistance === null || beyondDeliveryRadius || cfg.store_online === false} onClick={place}>{!navigator.onLine ? 'Reconnect to place order' : busy ? <><span className="checkout-spinner" aria-hidden="true" /> Placing your COD order…</> : hasGift && !giftCanApply ? 'Order amount below free-gift target' : cfg.store_online === false ? 'Ordering unavailable' : beyondDeliveryRadius ? 'Outside delivery area' : !minimumOrderMet ? `Minimum order ₹${minimumOrder}` : deliveryDistance === null ? 'Confirm delivery location' : 'Place COD order'}</motion.button>
       </motion.div>
     </>;
 }
@@ -1850,6 +1888,7 @@ function Games({
   const [lobbyError, setLobbyError] = useState('');
   const [rank, setRank] = useState(() => readOfflineCache(leaderboardKey)?.find(row => row.is_me)?.rank ?? null);
   const sessionId = useRef(null);
+  const offlineRun = useRef(false);
   const [view, setView] = useState(initialView || 'games');
   const games = [{
     id: 'snake',
@@ -1926,12 +1965,15 @@ function Games({
   const finish = async (game, score) => {
     const currentSessionId = sessionId.current;
     sessionId.current = null;
-    if (!currentSessionId) {
-      const error = new Error('Game session missing. Please start a new game.');
-      say(error.message);
-      return {
-        error
-      };
+    if (offlineRun.current || !currentSessionId) {
+      offlineRun.current = false;
+      const localKey = `offline-game-scores:${me.id}`;
+      const localScores = readOfflineCache(localKey) || [];
+      const localResult = { game, score: Number(score) || 0, xp: 0, played_at: new Date().toISOString(), offline: true };
+      writeOfflineCache(localKey, [localResult, ...localScores].slice(0, 250));
+      setRes({ ...localResult, coins: 0 });
+      onAnnounce?.({ type: 'game-score', title: 'Score saved on this device', message: 'Offline games do not award XP or coins. Your score will stay on this device.' });
+      return { data: localResult };
     }
     setBusy(true);
     try {
@@ -1943,6 +1985,10 @@ function Games({
         p_score: score
       });
       if (error) {
+        if (isNetworkError(error)) {
+          offlineRun.current = true;
+          return finish(game, score);
+        }
         say(error.message);
         return {
           error
@@ -1964,6 +2010,10 @@ function Games({
         data
       };
     } catch (error) {
+      if (isNetworkError(error)) {
+        offlineRun.current = true;
+        return finish(game, score);
+      }
       const submissionError = error instanceof Error ? error : new Error('Could not save your game score.');
       say(submissionError.message);
       return {
@@ -1974,18 +2024,21 @@ function Games({
     }
   };
   const startGame = async id => {
-    if (!navigator.onLine) return say('Connect to the internet before starting a game so your score and rewards can be saved.');
     setRes(null);
     setStarting(true);
-    const {
-      data,
-      error
-    } = await sb.rpc('start_game_session', {
-      p_game: id
-    });
+    let data = null;
+    let error = null;
+    if (navigator.onLine) {
+      try {
+        ({ data, error } = await sb.rpc('start_game_session', { p_game: id }));
+      } catch (requestError) {
+        error = requestError;
+      }
+    }
     setStarting(false);
-    if (error) return say(error.message);
-    sessionId.current = data;
+    if (error && !isNetworkError(error)) return say(error.message);
+    offlineRun.current = !navigator.onLine || Boolean(error);
+    sessionId.current = offlineRun.current ? null : data;
     setLobbyGameId(null);
     setPlaying(id);
     setCountdown(null);
@@ -1993,6 +2046,7 @@ function Games({
   };
   const quitGame = () => {
     sessionId.current = null;
+    offlineRun.current = false;
     setPlaying(null);
     setCountdown(null);
     onFocus(false);
@@ -2040,7 +2094,7 @@ function Games({
         <button onClick={() => changeView('scores')}><span className="hub-link-icon score">✦</span><span><b>MY SCORES & BADGES</b><small>Personal bests and achievements</small></span><strong>{me?.xp ?? 0} XP →</strong></button>
       </div>
       <h3 className="games-list-title">PLAY THESE GAMES</h3>
-      {res && <div className="game-result"><b>{games.find(game => game.id === res.game)?.title}: {res.score}</b><span>+{res.xp} XP · +{res.coins} coins</span></div>}
+      {res && <div className="game-result"><b>{games.find(game => game.id === res.game)?.title}: {res.score}</b><span>{res.offline ? 'Offline score · no XP or coins awarded' : `+${res.xp} XP · +${res.coins} coins`}</span></div>}
       {busy && <p className="game-saving">Saving your score…</p>}
       {starting && <p className="game-saving">Starting a secure game session…</p>}
       <div className="games-list">
@@ -2058,11 +2112,13 @@ function MyGameScores({
 }) {
   const cacheKey = `game-scores:${me.id}`;
   const [cachedScores] = useState(() => readOfflineCache(cacheKey));
-  const [scores, setScores] = useState(cachedScores?.scores || []);
-  const [roundCount, setRoundCount] = useState(cachedScores?.roundCount || 0);
+  const [offlineScores] = useState(() => readOfflineCache(`offline-game-scores:${me.id}`) || []);
+  const [scores, setScores] = useState(() => [...(cachedScores?.scores || []), ...offlineScores].sort((a, b) => new Date(b.played_at) - new Date(a.played_at)));
+  const [roundCount, setRoundCount] = useState((cachedScores?.roundCount || 0) + offlineScores.length);
   const [loading, setLoading] = useState(!cachedScores);
   const [error, setError] = useState('');
   useEffect(() => {
+    const localScores = readOfflineCache(`offline-game-scores:${me.id}`) || [];
     sb.from('game_scores').select('game,score,xp,played_at', {
       count: 'exact'
     }).order('played_at', {
@@ -2074,20 +2130,25 @@ function MyGameScores({
     }) => {
       if (queryError) {
         setError(queryError.message);
+        if (offlineScores.length) {
+          const mergedScores = [...(cachedScores?.scores || []), ...offlineScores].sort((a, b) => new Date(b.played_at) - new Date(a.played_at));
+          setScores(mergedScores);
+          setRoundCount((cachedScores?.roundCount || 0) + offlineScores.length);
+        }
       } else {
-        const nextScores = data || [];
+        const nextScores = [...(data || []), ...localScores].sort((a, b) => new Date(b.played_at) - new Date(a.played_at));
         const nextCount = count || 0;
         setScores(nextScores);
-        setRoundCount(nextCount);
+        setRoundCount(nextCount + localScores.length);
         writeOfflineCache(cacheKey, {
           scores: nextScores,
-          roundCount: nextCount
+          roundCount: nextCount + localScores.length
         });
         setError('');
       }
       setLoading(false);
     });
-  }, [cacheKey]);
+  }, [cacheKey, me.id]);
   const best = game => Math.max(0, ...scores.filter(score => score.game === game).map(score => score.score));
   const playedGames = new Set(scores.map(score => score.game));
   const mathAnswers = scores.filter(score => score.game === 'qmaths').reduce((sum, score) => sum + score.score, 0);

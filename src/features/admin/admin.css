@@ -223,6 +223,10 @@
   box-shadow: inset 0 0 0 1px #90b75a;
 }
 
+.admin-app .admin-settings-select-label { display: none; min-width: 0; color: #aeb2a6; font-size: 12px; font-weight: 800; }
+.admin-app .admin-settings-select-label select { width: 100%; min-height: 44px; margin-top: 6px; padding: 0 12px; border: 1px solid #3a3d34; border-radius: 10px; color: #f0f1ec; background: #1d1e1a; }
+.admin-app .admin-footer-connection { color: #777b71; font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+
 .admin-app .admin-setting-icon {
   display: inline-grid;
   place-items: center;
@@ -399,6 +403,10 @@
 }
 
 @media (max-width: 850px) {
+  .admin-app .admin-header-actions { width: auto; display: flex; justify-content: flex-end; }
+  .admin-app .admin-header-actions .admin-exit[data-admin-action='shop'] { display: inline-flex; }
+  .admin-app .admin-settings-select-label { display: block; margin: 10px 0 14px; }
+  .admin-app .admin-setting-picker { display: none; }
   .admin-app {
     width: 100%;
     min-height: 100dvh;

@@ -44,12 +44,13 @@ export function adminSettingsSectionForPath(pathname) {
   const path = pathname.replace(/\/+$/, '') || '/';
   const section = path.split('/').at(-1);
   if (section === 'about') return 'about';
+  if (section === 'app') return 'app';
   if (section === 'home' || section === 'business') return 'business';
   return 'delivery';
 }
 
 export function adminPathForSettingsSection(section) {
-  if (section === 'about' || section === 'business') return `${ADMIN_ROOT}/setting/${section}`;
+  if (section === 'about' || section === 'business' || section === 'app') return `${ADMIN_ROOT}/setting/${section}`;
   return `${ADMIN_ROOT}/setting`;
 }
 

@@ -25,6 +25,7 @@ body {
   font: 13.8px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif
 }
 .powered-footer {
+  position: relative;
   width: min(100%,1080px);
   display: flex;
   flex-direction: column;
@@ -49,6 +50,22 @@ body {
   font-weight: 950;
   letter-spacing: -.035em
 }
+.powered-footer-meta {
+  position: absolute;
+  right: clamp(4px,3vw,18px);
+  bottom: 2px;
+  margin-top: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  color: #686868;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  line-height: 1;
+}
+.powered-footer-meta i { font-style: normal; }
 h1,h2,h3,.logo {
   font-family: Oswald,'Arial Narrow',Impact,sans-serif;
   font-weight: 700;
@@ -10165,7 +10182,7 @@ nav b {
 }
 .home-partner-ad::after {
   position: absolute;
-  z-index: 0;
+  z-index: 1;
   inset: 35% 0 0;
   background: linear-gradient(0deg,#090b08c9,transparent);
   content: '';
@@ -10173,7 +10190,7 @@ nav b {
 }
 .home-partner-ad img {
   position: absolute;
-  z-index: -1;
+  z-index: 0;
   inset: 0;
   display: block;
   width: 100%;
@@ -10184,7 +10201,7 @@ nav b {
 .home-partner-ad:hover img { transform: scale(1.025) }
 .home-partner-ad>span {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
   left: 14px;
   bottom: 13px;
   display: flex;
