@@ -265,6 +265,8 @@ function AdminLogin() {
 }
 export default function App() {
   const [session, setSession] = useState(undefined);
+  const sessionUserId = session?.user?.id || null;
+  const sessionUserIdRef = useRef(null);
   const [me, setMe] = useState(null);
   const [profileError, setProfileError] = useState('');
   const [adminRoute, setAdminRoute] = useState(() => isAdminPath(window.location.pathname));
@@ -318,9 +320,14 @@ export default function App() {
       data
     } = sb.auth.onAuthStateChange((_event, nextSession) => {
       if (!active) return;
+      const nextUserId = nextSession?.user?.id || null;
+      const userChanged = nextUserId !== sessionUserIdRef.current;
+      sessionUserIdRef.current = nextUserId;
       setSession(nextSession);
-      setMe(null);
-      setProfileError('');
+      if (userChanged) {
+        setMe(nextUserId ? readOfflineCache(`profile:${nextUserId}`) : null);
+        setProfileError('');
+      }
     });
     sb.auth.getSession().then(({
       data: result,
@@ -328,7 +335,10 @@ export default function App() {
     }) => {
       if (!active) return;
       if (error) setProfileError(error.message);
-      setSession(result?.session ?? null);
+      const currentSession = result?.session ?? null;
+      sessionUserIdRef.current = currentSession?.user?.id || null;
+      setSession(currentSession);
+      if (currentSession?.user?.id) setMe(current => current || readOfflineCache(`profile:${currentSession.user.id}`));
     }).catch(error => {
       if (active) {
         setProfileError(error.message || 'Could not check your sign in status.');
@@ -391,7 +401,7 @@ export default function App() {
     updateRouteMetadata('/');
   };
   useEffect(() => {
-    if (!adminRoute || !session) {
+    if (!adminRoute || !sessionUserId) {
       setAdminAccess({
         status: 'checking'
       });
@@ -411,42 +421,43 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [adminRoute, adminCheck, session]);
+  }, [adminRoute, adminCheck, sessionUserId]);
   const loadMe = useCallback(async () => {
-    if (!session) {
+    if (!sessionUserId) {
       setMe(null);
       return;
     }
+    const cachedProfile = readOfflineCache(`profile:${sessionUserId}`);
+    if (cachedProfile) setMe(current => current || cachedProfile);
     setProfileError('');
     try {
       const {
         data,
         error
-      } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+      } = await sb.from('profiles').select('*').eq('id', sessionUserId).maybeSingle();
       if (error) throw error;
       if (!data) throw new Error('PROFILE_ROW_MISSING');
       setMe(data);
-      writeOfflineCache(`profile:${session.user.id}`, data);
+      writeOfflineCache(`profile:${sessionUserId}`, data);
     } catch (error) {
-      const cachedProfile = readOfflineCache(`profile:${session.user.id}`);
       if (cachedProfile && isNetworkError(error)) {
-        setMe(cachedProfile);
+        setMe(current => current || cachedProfile);
         setProfileError('');
       } else {
-        setMe(null);
+        if (!cachedProfile) setMe(null);
         setProfileError(error.message || 'Could not load your profile.');
       }
     }
-  }, [session]);
+  }, [sessionUserId]);
   useEffect(() => {
-    if (session) loadMe();
-  }, [loadMe, session]);
+    if (sessionUserId) loadMe();
+  }, [loadMe, sessionUserId]);
   useEffect(() => {
-    if (!session) return;
+    if (!sessionUserId) return;
     const retryProfileWhenOnline = () => loadMe();
     window.addEventListener('online', retryProfileWhenOnline);
     return () => window.removeEventListener('online', retryProfileWhenOnline);
-  }, [loadMe, session]);
+  }, [loadMe, sessionUserId]);
   if (!isSupabaseConfigured) return <main className="app setup-page"><div className="card"><h2>App setup required</h2><p>Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to the environment, then restart the app.</p></div><PoweredFooter /></main>;
   if (adminDownloadRoute) return <main className="app download-route"><Suspense fallback={<p className="empty">Loading admin app details…</p>}><DownloadPage adminApp onBack={closeAdminDownloadPage} onInstall={installApp} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense></main>;
   if (downloadRoute) return <main className="app download-route"><Suspense fallback={<p className="empty">Loading EAT60 app details…</p>}><DownloadPage onBack={closeDownloadPage} onInstall={installApp} installAvailable={Boolean(installPrompt)} installMessage={installMessage} /></Suspense></main>;

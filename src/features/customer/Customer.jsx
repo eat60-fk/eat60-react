@@ -207,8 +207,8 @@ function BackConfirmation({
       action: 'QUIT GAME'
     },
     order: {
-      message: 'Do you want to cancel this order?',
-      action: 'CANCEL ORDER'
+      message: 'Leave checkout? Your cart and entered details will be saved so you can continue later.',
+      action: 'LEAVE CHECKOUT'
     }
   }[kind];
   return <div className="back-confirm-backdrop" onClick={onCancel}>
@@ -589,8 +589,6 @@ export default function Customer({
     if (action === 'game') {
       gameQuitRef.current?.();
     } else if (action === 'order') {
-      setCart([]);
-      setSelectedVoucher('');
       if (window.history.length > 1) {
         allowNextBackRef.current = true;
         window.history.back();
