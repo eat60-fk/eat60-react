@@ -253,7 +253,7 @@ export default function Customer({
   const [initialRoute] = useState(() => resolveCustomerRoute(window.location.pathname));
   const [tab, setTab] = useState(initialRoute.tab);
   const [gameView, setGameView] = useState(initialRoute.gameView || 'games');
-  const [gameFocus, setGameFocus] = useState(false);
+  const [gameFocus, setGameFocus] = useState(() => initialRoute.tab === 'wallet' || initialRoute.tab === 'games' && initialRoute.gameView !== 'games');
   const [moreInitialPage, setMoreInitialPage] = useState(initialRoute.morePage || null);
   const [cart, setCart] = useState(() => readOfflineCache(`cart:${me.id}`) || []);
   const [selectedVoucher, setSelectedVoucher] = useState(() => readOfflineCache(`voucher:${me.id}`) || '');
@@ -511,15 +511,20 @@ export default function Customer({
     updateRouteMetadata(path);
   };
   const go = (t, path = CUSTOMER_TAB_PATHS[t]) => {
-    if (t !== 'games') setGameFocus(false);
+    setGameFocus(t === 'wallet');
     setTab(t);
     if (t !== 'more') setMoreInitialPage(null);
     navigatePath(path);
     window.scrollTo(0, 0);
+    requestAnimationFrame(() => {
+      contentRef.current?.scrollTo(0, 0);
+      document.querySelector('.game-focus-surface')?.scrollTo(0, 0);
+    });
   };
   const goGames = (view = 'games') => {
     setGameView(view);
     go('games', view === 'rankings' ? '/leaderboard' : view === 'scores' ? '/game-scores' : '/games');
+    setGameFocus(view !== 'games');
   };
   const goMore = (page = null) => {
     setMoreInitialPage(page);
@@ -695,7 +700,7 @@ export default function Customer({
         </div>
         <div hidden={tab !== 'hist'}><History me={me} /></div>
         <div hidden={tab !== 'feed'}><Feed me={me} say={say} refreshKey={feedRefreshKey} /></div>
-        {tab === 'games' && <div className={`game-focus-surface${gameFocus ? ' focused' : ''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} onViewChange={goGames} onRequestQuit={() => setBackConfirmation('game')} quitRef={gameQuitRef} onAnnounce={announce} /></div>}
+        {tab === 'games' && <div className={`game-focus-surface${gameFocus ? ' focused' : ''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} onViewChange={goGames} onClosePage={() => go('home')} onRequestQuit={() => setBackConfirmation('game')} quitRef={gameQuitRef} onAnnounce={announce} /></div>}
         <div hidden={tab !== 'wallet'}><Wallet me={me} onBack={() => go('home')} /></div>
         <div hidden={tab !== 'more'}><More me={me} email={email} reload={reload} go={go} goGames={goGames} say={say} initialPage={moreInitialPage} onNavigatePath={navigateMorePage} onSelectVoucher={code => {
           setSelectedVoucher(code);
@@ -1783,6 +1788,42 @@ function Maths({
       <button className="math-submit" onClick={submitAnswer} disabled={!answer.trim()}>SUBMIT ANSWER <span>↗</span></button>
     </div>;
 }
+// A game-specific lobby shows the player's personal best and standings before a run.
+function GameLobby({ game, me, data, loading, error, activePlayers, starting, onBack, onStart }) {
+  const topPlayers = data?.top_players || [];
+  const myBest = data?.my_best_score;
+  const myRank = data?.my_rank == null ? null : Number(data.my_rank);
+  const outsideTopTen = myRank !== null && myRank > 10;
+  const initials = name => String(name || '?').trim().slice(0, 1).toUpperCase();
+  return <section className={`game-lobby-page ${game.color}`}>
+    <button className="game-lobby-back" type="button" onClick={onBack} aria-label="Back to games">×</button>
+    <header className="game-lobby-hero">
+      <span className="game-lobby-art" aria-hidden="true">{game.icon}</span>
+      <p>GAME · BEST SCORE</p>
+      <h1>{game.title}</h1>
+      <span>Points are your score. XP is earned separately as you play.</span>
+    </header>
+    <div className="game-lobby-stats">
+      <article><small>YOUR BEST POINTS</small><b>{myBest == null ? '—' : Number(myBest).toLocaleString('en-IN')}</b><span>{myBest == null ? 'Play to set your record' : 'Personal best'}</span></article>
+      <article><small>ALL-TIME RANK</small><b>{myRank == null ? '—' : `#${myRank}`}</b><span>{myRank == null ? 'Not ranked yet' : myRank <= 10 ? 'Top 10 by points' : 'Ranked by best points'}</span></article>
+      <article className="game-lobby-online"><small>PLAYERS THIS WEEK</small><b>{activePlayers == null ? '—' : activePlayers}</b><span>played this game this week</span></article>
+    </div>
+    {error && <p className="game-lobby-error" role="status">Leaderboard is not available right now. You can still play.</p>}
+    <button className="game-lobby-start" type="button" onClick={onStart} disabled={starting}>
+      <span>{starting ? 'GETTING READY…' : 'START GAME'}</span><b>{starting ? '…' : '→'}</b>
+    </button>
+    <section className="game-lobby-leaderboard" aria-label={`${game.title} top scores`}>
+      <header><div><small>{game.title} · POINTS</small><h2>LEADERBOARD</h2><p>TOP 10 BEST SCORES</p></div></header>
+      {loading ? <p className="game-lobby-state">Loading scores…</p> : topPlayers.length ? <div className="game-lobby-rows">
+        {topPlayers.map(player => <article className={`game-lobby-row${Number(player.rank) === myRank ? ' is-me' : ''}`} key={player.rank}>
+          <b className={`game-lobby-rank rank-${player.rank}`}>{player.rank}</b><i>{initials(player.name)}</i><strong>{player.name}{Number(player.rank) === myRank ? ' · YOU' : ''}</strong><span>{Number(player.score).toLocaleString('en-IN')}</span>
+        </article>)}
+        {outsideTopTen && <article className="game-lobby-row game-lobby-my-rank is-me"><b className="game-lobby-rank">{myRank}</b><i>{initials(me?.name || me?.username)}</i><strong>{me?.name || me?.username || 'You'} · YOU</strong><span>{Number(myBest).toLocaleString('en-IN')}</span></article>}
+      </div> : <p className="game-lobby-state">No scores yet. Set the first record!</p>}
+    </section>
+  </section>;
+}
+
 // Games, score history, leaderboard, and wallet components.
 function Games({
   reload,
@@ -1791,6 +1832,7 @@ function Games({
   initialView,
   onFocus = () => {},
   onViewChange = () => {},
+  onClosePage = () => {},
   onRequestQuit,
   quitRef,
   onAnnounce
@@ -1802,35 +1844,61 @@ function Games({
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [lobbyGameId, setLobbyGameId] = useState(null);
+  const [gameLobby, setGameLobby] = useState(null);
+  const [lobbyLoading, setLobbyLoading] = useState(false);
+  const [lobbyError, setLobbyError] = useState('');
   const [rank, setRank] = useState(() => readOfflineCache(leaderboardKey)?.find(row => row.is_me)?.rank ?? null);
   const sessionId = useRef(null);
   const [view, setView] = useState(initialView || 'games');
   const games = [{
     id: 'snake',
     title: 'Hungry Snakes',
-    subtitle: 'Improve rank, earn rewards & coins',
+    subtitle: 'Score points, earn XP separately',
     icon: '🐍',
     color: 'snake'
   }, {
     id: 'burger',
     title: 'Flying Burger',
-    subtitle: 'Improve rank, earn rewards & coins',
+    subtitle: 'Score points, earn XP separately',
     icon: '🍔',
     color: 'burger'
   }, {
     id: 'qmaths',
     title: 'Quick Maths',
-    subtitle: 'Improve rank, earn rewards & coins',
+    subtitle: 'Score points, earn XP separately',
     icon: '🧮',
     color: 'maths'
   }, {
     id: 'rider',
     title: 'Rider Rush',
-    subtitle: 'Deliver orders, dodge traffic & climb the league',
+    subtitle: 'Score points, earn XP separately',
     icon: '🛵',
     color: 'rider'
   }];
-  useEffect(() => setView(initialView || 'games'), [initialView]);
+  const selectedGame = games.find(game => game.id === lobbyGameId);
+  const openGameLobby = gameId => {
+    setLobbyGameId(gameId);
+    setGameLobby(null);
+    setLobbyError('');
+    onFocus(true);
+  };
+  useEffect(() => {
+    if (!lobbyGameId) return undefined;
+    let current = true;
+    setLobbyLoading(true);
+    sb.rpc('get_game_lobby', { p_game: lobbyGameId }).then(({ data, error }) => {
+      if (!current) return;
+      setLobbyLoading(false);
+      if (error) setLobbyError(error.message);
+      else setGameLobby(data);
+    });
+    return () => { current = false; };
+  }, [lobbyGameId]);
+  useEffect(() => {
+    setView(initialView || 'games');
+    onFocus(initialView !== 'games');
+  }, [initialView]);
   useEffect(() => {
     if (countdown === null) return;
     const timer = setInterval(() => setCountdown(n => {
@@ -1918,6 +1986,7 @@ function Games({
     setStarting(false);
     if (error) return say(error.message);
     sessionId.current = data;
+    setLobbyGameId(null);
     setPlaying(id);
     setCountdown(null);
     onFocus(true);
@@ -1957,8 +2026,9 @@ function Games({
     </div>;
   }
   const daysLeft = 7 - new Date().getDay();
-  if (view === 'rankings') return <WeeklyLeague rows={lb} daysLeft={daysLeft || 7} onBack={() => changeView('games')} />;
-  if (view === 'scores') return <MyGameScores me={me} onBack={() => changeView('games')} />;
+  if (view === 'rankings') return <WeeklyLeague rows={lb} daysLeft={daysLeft || 7} onBack={onClosePage} />;
+  if (view === 'scores') return <MyGameScores me={me} onBack={onClosePage} />;
+  if (selectedGame) return <GameLobby game={selectedGame} me={me} data={gameLobby} loading={lobbyLoading} error={lobbyError} activePlayers={lobbyLoading || lobbyError ? null : Number(gameLobby?.active_players) || 0} starting={starting} onBack={() => { setLobbyGameId(null); onFocus(false); }} onStart={() => startGame(selectedGame.id)} />;
   return <section className="games-page">
       <header className="games-hero">
         <div><p className="games-eyebrow">GAMES</p><h2>GETTING BORED?<br /><span>TIRED OF DOOM SCROLLING?</span></h2></div>
@@ -1974,7 +2044,7 @@ function Games({
       {busy && <p className="game-saving">Saving your score…</p>}
       {starting && <p className="game-saving">Starting a secure game session…</p>}
       <div className="games-list">
-        {games.map((game, index) => <button key={game.id} className={`game-card ${game.color}`} disabled={busy || starting} onClick={() => startGame(game.id)}>
+        {games.map((game, index) => <button key={game.id} className={`game-card ${game.color}`} disabled={busy || starting} onClick={() => openGameLobby(game.id)}>
             <span className="game-card-number">GAME {String(index + 1).padStart(2, '0')}</span>
             <span className="game-card-copy"><b>{game.title}</b><small>{game.subtitle}</small><span className="game-card-play">PLAY NOW <i>→</i></span></span>
             <span className="game-card-art">{game.icon}</span>
@@ -2125,7 +2195,7 @@ function WeeklyLeague({
         <div className="league-countdown">◷ <b>{daysLeft} days left</b></div>
       </header>
       <div className="league-emblem"><span>#{me?.rank ?? '—'}</span></div>
-      <h1 className="league-title">WEEKLY LEAGUE</h1>
+      <h1 className="league-title">LEADERBOARD</h1>
       {me && <p className="league-your-rank">YOU ARE RANKED <b>#{me.rank}</b> · <strong className={`movement ${movement(me).type}`}>{movement(me).text} THIS WEEK</strong></p>}
       <p className="league-prize-rules">Weekly prizes: 1st 500 · 2nd 300 · 3rd 200 · ranks 4–10 100 coins. Only your best 3 plays per day count.</p>
       <div className="league-rule" />

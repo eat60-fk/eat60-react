@@ -188,6 +188,32 @@
   line-height: 1.45;
 }
 
+/* Keep the offer wide and cinematic on desktop, with a compact edge timer. */
+@media (min-width: 1001px) {
+  .offer-card {
+    min-height: 290px;
+    padding: 42px 52px;
+    border-radius: 36px;
+  }
+
+  .offer-card > div:first-child {
+    width: min(76%, 980px);
+  }
+
+  .offer-art {
+    margin-right: clamp(0px, 2vw, 34px);
+    font-size: clamp(145px, 15vw, 220px);
+  }
+
+  .offer-wrap .offer-countdown {
+    top: -17px;
+    right: 4%;
+    min-height: 40px;
+    padding: 6px 12px;
+    font-size: 11px;
+  }
+}
+
 @media (max-width: 620px) {
   .offer-card {
     align-items: flex-end;
@@ -241,6 +267,78 @@
 
   .menu-display-controls .menu-shuffle-button {
     margin-left: auto;
+  }
+}
+
+/* Keep the offer clock attached to the banner edge on narrow screens. */
+@media (max-width: 620px) {
+  .offer-wrap {
+    margin: 14px 4px 24px;
+  }
+
+  .offer-card {
+    align-items: center;
+    min-height: 0;
+    padding: 32px 18px 17px;
+    border-radius: 24px;
+  }
+
+  .offer-card > div:first-child {
+    width: min(100%, 440px);
+  }
+
+  .offer-wrap .offer-countdown {
+    position: absolute;
+    top: -13px;
+    right: 12px;
+    display: inline-flex;
+    margin: 0;
+    min-height: 34px;
+    padding: 5px 9px;
+    border-color: #171914;
+    font-size: 9px;
+  }
+
+  .offer-countdown svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .offer-card h2 {
+    font-size: clamp(23px, 6.4vw, 29px);
+  }
+
+  .offer-card p {
+    display: block;
+    max-width: calc(100% - 26px);
+    margin: 11px 0 9px;
+    font-size: clamp(18px, 4.8vw, 22px);
+    line-height: 1.08;
+  }
+
+  .offer-price-line {
+    display: block;
+    margin-top: 3px;
+    white-space: nowrap;
+  }
+
+  .offer-original-price {
+    display: inline-block;
+    margin-left: 7px;
+    font-size: .58em;
+    vertical-align: middle;
+  }
+
+  .offer-card .offer-add {
+    min-height: 42px;
+    padding: 8px 15px;
+  }
+
+  .offer-art {
+    right: 4px;
+    bottom: 8px;
+    font-size: clamp(70px, 22vw, 112px);
+    opacity: .1;
   }
 }
 

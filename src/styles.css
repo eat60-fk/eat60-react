@@ -1484,7 +1484,7 @@ nav b {
   background: linear-gradient(#171815,#171815) padding-box,linear-gradient(135deg,#b8f04a,#00c78b,#b8f04a) border-box;
   box-shadow: 0 0 0 2px #b8f04a30;
 }
-.quick-actions .story-active-icon .brand-story-logo { font-size: clamp(24px,3.5vw,43px) }
+.quick-actions .story-active-icon .brand-story-logo { font-size: clamp(16px,2.6vw,34px) }
 .quick-actions .story-active-icon::after {
   position: absolute;
   bottom: 2%;
@@ -1537,6 +1537,10 @@ nav b {
 .quick-icon>svg {
   width: 55%;
   height: 55%
+}
+@media (min-width: 1001px) {
+  .quick-actions.has-active-story .quick-icon { width: clamp(128px,11vw,158px) }
+  .quick-actions .story-active-icon .brand-story-logo { font-size: clamp(28px,3.1vw,44px) }
 }
 .profile-icon {
   color: #b8f04a
@@ -2532,6 +2536,69 @@ nav b {
   max-width: 1120px;
   margin: 10px auto 0
 }
+.game-lobby-page {
+  --lobby-accent: #b8f04a;
+  position: relative;
+  max-width: 900px;
+  min-height: 680px;
+  margin: 18px auto 32px;
+  padding: 30px clamp(18px,4vw,42px) 38px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb,var(--lobby-accent) 32%,#383a34);
+  border-radius: 30px;
+  background: radial-gradient(ellipse at 50% 0%,color-mix(in srgb,var(--lobby-accent) 13%,transparent),transparent 42%),linear-gradient(145deg,#1b1c19,#111210 65%);
+  box-shadow: 0 24px 70px #0005;
+  color: #f5f5f0;
+}
+.game-lobby-page.burger { --lobby-accent: #ffb347 }
+.game-lobby-page.maths { --lobby-accent: #64d8ff }
+.game-lobby-page.rider { --lobby-accent: #ff796b }
+.game-lobby-back {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 2;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid #ffffff30;
+  border-radius: 14px;
+  background: #ffffff0b;
+  color: #f4f4ed;
+  font: 300 28px/1 system-ui,sans-serif;
+}
+.game-lobby-hero { display: flex; flex-direction: column; align-items: center; padding: 12px 48px 26px; text-align: center }
+.game-lobby-art { display: grid; width: 94px; aspect-ratio: 1; margin-bottom: 14px; place-items: center; border: 1px solid color-mix(in srgb,var(--lobby-accent) 40%,transparent); border-radius: 28px; background: color-mix(in srgb,var(--lobby-accent) 12%,#20211e); font-size: 52px; filter: drop-shadow(0 8px 18px color-mix(in srgb,var(--lobby-accent) 18%,transparent)) }
+.game-lobby-hero p,.game-lobby-leaderboard header small { margin: 0 0 6px; color: var(--lobby-accent); font-size: 11px; font-weight: 900; letter-spacing: .18em }
+.game-lobby-hero h1 { margin: 0; font-family: Oswald,Impact,sans-serif; font-size: clamp(34px,5vw,56px); line-height: 1.08 }
+.game-lobby-hero>span:last-child { margin-top: 8px; color: #a5a69f; font-size: 14px }
+.game-lobby-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px }
+.game-lobby-stats article { display: flex; min-height: 108px; flex-direction: column; justify-content: center; padding: 16px 18px; border: 1px solid #393b35; border-radius: 18px; background: #20211e }
+.game-lobby-stats small { color: #a1a39a; font-size: 10px; font-weight: 850; letter-spacing: .09em }
+.game-lobby-stats b { margin-top: 5px; color: var(--lobby-accent); font-family: Oswald,Impact,sans-serif; font-size: 30px; line-height: 1.1 }
+.game-lobby-stats span { margin-top: 4px; color: #92948b; font-size: 11px }
+.game-lobby-online b { display: flex; align-items: center; gap: 9px }
+.game-lobby-online b i { width: 9px; height: 9px; border-radius: 50%; background: #36d487; box-shadow: 0 0 12px #36d48788 }
+.game-lobby-start { display: flex; width: min(100%,430px); min-height: 64px; align-items: center; justify-content: space-between; margin: 18px auto 24px; padding: 0 24px; border: 1px solid color-mix(in srgb,var(--lobby-accent) 70%,#fff); border-radius: 18px; background: var(--lobby-accent); box-shadow: 0 5px 0 color-mix(in srgb,var(--lobby-accent) 52%,#080908),0 12px 28px color-mix(in srgb,var(--lobby-accent) 16%,transparent); color: #11130d; font-size: 17px; font-weight: 950; letter-spacing: .04em }
+.game-lobby-start b { font-size: 25px }
+.game-lobby-start:disabled { opacity: .7 }
+.game-lobby-leaderboard { padding: 20px; border: 1px solid #363831; border-radius: 20px; background: #191a17 }
+.game-lobby-leaderboard>header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 14px; border-bottom: 1px solid #33352f }
+.game-lobby-leaderboard header h2 { margin: 0; font-family: Oswald,Impact,sans-serif; font-size: 24px }
+.game-lobby-leaderboard header>span { font-size: 27px }
+.game-lobby-rows { display: grid; gap: 5px; margin-top: 10px }
+.game-lobby-row { display: grid; grid-template-columns: 36px 34px minmax(0,1fr) auto; min-height: 47px; align-items: center; gap: 10px; padding: 5px 10px; border-radius: 12px; color: #e8e9e2 }
+.game-lobby-row.is-me { border: 1px solid color-mix(in srgb,var(--lobby-accent) 45%,transparent); background: color-mix(in srgb,var(--lobby-accent) 10%,#20211e) }
+.game-lobby-row.game-lobby-my-rank { margin-top: 6px; border-top: 1px dashed #57594f; padding-top: 11px }
+.game-lobby-rank { color: #aaa; text-align: center; font-variant-numeric: tabular-nums }
+.game-lobby-rank.rank-1 { color: #ffd45b }.game-lobby-rank.rank-2 { color: #d7dbe1 }.game-lobby-rank.rank-3 { color: #d79562 }
+.game-lobby-row>i { display: grid; width: 32px; aspect-ratio: 1; place-items: center; border-radius: 50%; background: #30322c; color: var(--lobby-accent); font-size: 12px; font-style: normal; font-weight: 900 }
+.game-lobby-row strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap }
+.game-lobby-row>span { color: var(--lobby-accent); font-weight: 900; font-variant-numeric: tabular-nums }
+.game-lobby-state,.game-lobby-error { margin: 20px 0 4px; color: #a7a99f; text-align: center }
+.game-lobby-error { color: #ffbd75; font-size: 12px }
+.game-lobby-page+.customer-bottom-nav { display: none }
 .games-hero {
   display: grid;
   grid-template-columns: minmax(0,1fr) auto;
@@ -2811,9 +2878,9 @@ nav b {
   min-height: calc(100vh - 170px);
   margin: 0 auto 30px;
   padding: clamp(14px,3vw,28px);
-  border: 1px solid #513d1c;
+  border: 1px solid #17412f;
   border-radius: 25px;
-  background: radial-gradient(ellipse at 50% 16%,#56421d 0,transparent 38%),linear-gradient(180deg,#242016 0,#191817 40%,#171717 100%);
+  background: repeating-radial-gradient(ellipse 125% 44% at 50% -8%,transparent 0 18px,#0aca6a12 19px 20px,transparent 22px 38px),radial-gradient(ellipse at 50% 8%,#063e291c 0,transparent 48%),linear-gradient(180deg,#111714 0,#151816 44%,#111312 100%);
   box-shadow: 0 20px 65px #0007
 }
 .league-header {
@@ -2870,12 +2937,16 @@ nav b {
   text-shadow: 1px 1px #fff
 }
 .league-title {
-  margin: 12px 0 7px;
-  color: #f3d66d;
-  font-size: clamp(16.56px,2.76vw,23px);
-  font-weight: 500;
-  letter-spacing: .3em;
-  text-align: center
+  margin: 12px 0 16px;
+  color: #08d879;
+  font-family: Oswald,Impact,'Arial Narrow',sans-serif;
+  font-size: clamp(34px,8vw,68px);
+  font-weight: 1000;
+  letter-spacing: .015em;
+  line-height: 1;
+  text-align: center;
+  text-shadow: 3px 4px 0 #075332,6px 8px 0 #000b;
+  transform: rotate(-2deg) skew(-3deg)
 }
 .league-your-rank {
   margin: 0 0 28px;
@@ -10082,25 +10153,40 @@ nav b {
 }
 .home-partner-ad {
   position: relative;
+  isolation: isolate;
   display: block;
-  max-height: 220px;
+  height: clamp(150px,19vw,230px);
   margin: 0 0 18px;
   overflow: hidden;
   border: 1px solid #3d4932;
   border-radius: 17px;
   background: #20231d;
-  box-shadow: 0 10px 26px #0003
+  box-shadow: 0 10px 26px #0005
+}
+.home-partner-ad::after {
+  position: absolute;
+  z-index: 0;
+  inset: 35% 0 0;
+  background: linear-gradient(0deg,#090b08c9,transparent);
+  content: '';
+  pointer-events: none
 }
 .home-partner-ad img {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
   display: block;
   width: 100%;
-  max-height: 220px;
-  object-fit: cover
+  height: 100%;
+  object-fit: cover;
+  transition: transform .35s ease
 }
+.home-partner-ad:hover img { transform: scale(1.025) }
 .home-partner-ad>span {
   position: absolute;
-  right: 9px;
-  bottom: 9px;
+  z-index: 1;
+  left: 14px;
+  bottom: 13px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -10235,8 +10321,161 @@ nav b {
     grid-template-columns: 1fr auto
   }
 }
+/* The game lobby is a focused, edge-to-edge screen rather than a floating card. */
+.game-lobby-page {
+  width: 100%;
+  max-width: none;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 34px max(22px,calc((100vw - 980px)/2)) 48px;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 0;
+  background-color: #111210;
+  background-image: repeating-linear-gradient(177deg,transparent 0 28px,color-mix(in srgb,var(--lobby-accent) 4%,transparent) 29px 30px,transparent 31px 48px);
+  box-shadow: none
+}
+.game-lobby-page .game-lobby-back { position: fixed; top: max(22px,env(safe-area-inset-top)); left: max(22px,calc((100vw - 1220px)/2)); border-radius: 10px; background: #1c1d1a }
+.game-lobby-page .game-lobby-hero { padding: 12px 0 28px }
+.game-lobby-page .game-lobby-art { width: auto; height: auto; margin-bottom: 6px; border: 0; border-radius: 0; background: transparent; font-size: 54px; filter: none }
+.game-lobby-page .game-lobby-stats { width: min(100%,880px); margin: 0 auto; border-top: 1px solid #343630; border-bottom: 1px solid #343630 }
+.game-lobby-page .game-lobby-stats article { min-height: 91px; padding: 13px 22px; border: 0; border-radius: 0; background: transparent }
+.game-lobby-page .game-lobby-stats article+article { border-left: 1px solid #343630 }
+.game-lobby-page .game-lobby-stats b { font-size: 28px }
+.game-lobby-page .game-lobby-start { width: min(100%,360px); min-height: 58px; margin: 23px auto 28px; border: 0; border-radius: 12px; background: var(--lobby-accent); box-shadow: none; font-size: 15px }
+.game-lobby-page .game-lobby-start:hover { filter: brightness(1.07) }
+.game-lobby-page .game-lobby-leaderboard { width: min(100%,880px); margin: 0 auto; padding: 22px 0 30px; border: 0; border-radius: 0; background: transparent }
+.game-lobby-page .game-lobby-leaderboard>header { position: relative; display: block; min-height: 142px; padding: 24px 0 28px; overflow: hidden; border: 0; text-align: center }
+.game-lobby-page .game-lobby-leaderboard>header::before { position: absolute; inset: 0; background: repeating-linear-gradient(176deg,transparent 0 12px,color-mix(in srgb,var(--lobby-accent) 9%,transparent) 13px 14px,transparent 15px 27px); content: ''; opacity: .65 }
+.game-lobby-page .game-lobby-leaderboard header>div { position: relative; z-index: 1 }
+.game-lobby-page .game-lobby-leaderboard header small { color: #a4a69e }
+.game-lobby-page .game-lobby-leaderboard header h2 { margin: 1px 0 2px; color: var(--lobby-accent); font-family: Oswald,Impact,sans-serif; font-size: clamp(50px,8vw,86px); line-height: 1; letter-spacing: -.04em; transform: rotate(-2deg) skew(-5deg); text-shadow: 2px 3px #090a08 }
+.game-lobby-page .game-lobby-leaderboard header p { position: relative; margin: 8px 0 0; color: #a5a69f; font-size: 11px; font-weight: 800; letter-spacing: .14em }
+.game-lobby-page .game-lobby-rows { gap: 0; margin-top: 0 }
+.game-lobby-page .game-lobby-row { min-height: 54px; padding: 7px 12px; border: 0; border-bottom: 1px solid #2c2e29; border-radius: 0; background: transparent }
+.game-lobby-page .game-lobby-row.is-me { border-color: #414737; border-left: 3px solid var(--lobby-accent); background: color-mix(in srgb,var(--lobby-accent) 7%,transparent) }
+.game-lobby-page .game-lobby-row.game-lobby-my-rank { margin-top: 10px; border-top: 1px dashed #55584e; border-bottom: 0 }
+.game-lobby-page .game-lobby-row>i { background: #292b26 }
+@media(max-width:700px) {
+  .game-lobby-page { min-height: 100dvh; padding: calc(20px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom)) }
+  .game-lobby-page .game-lobby-back { top: max(14px,env(safe-area-inset-top)); left: 14px }
+  .game-lobby-page .game-lobby-hero { padding: 34px 0 20px }
+  .game-lobby-page .game-lobby-art { font-size: 46px }
+  .game-lobby-page .game-lobby-stats article { min-height: 82px; padding: 10px 8px }
+  .game-lobby-page .game-lobby-stats small { font-size: 8px }
+  .game-lobby-page .game-lobby-stats b { font-size: clamp(19px,6vw,26px) }
+  .game-lobby-page .game-lobby-stats span { font-size: 9px }
+  .game-lobby-page .game-lobby-leaderboard>header { min-height: 118px; padding: 18px 0 20px }
+  .game-lobby-page .game-lobby-leaderboard header h2 { font-size: clamp(45px,13vw,68px) }
+}
+@media(max-width:700px) {
+  .game-lobby-page {
+    min-height: calc(100dvh - 150px);
+    margin: 6px -4px 22px;
+    padding: 22px 14px calc(28px + env(safe-area-inset-bottom));
+    border-radius: 24px
+  }
+  .game-lobby-back { top: 13px; left: 13px; width: 40px; height: 40px }
+  .game-lobby-hero { padding: 8px 34px 20px }
+  .game-lobby-art { width: 76px; border-radius: 23px; font-size: 42px }
+  .game-lobby-hero h1 { font-size: clamp(32px,9vw,44px) }
+  .game-lobby-hero>span:last-child { font-size: 12px }
+  .game-lobby-stats { gap: 7px }
+  .game-lobby-stats article { min-height: 92px; padding: 11px 9px; border-radius: 14px }
+  .game-lobby-stats small { font-size: 8px; letter-spacing: .04em }
+  .game-lobby-stats b { font-size: clamp(21px,6vw,28px) }
+  .game-lobby-stats span { font-size: 9px }
+  .game-lobby-start { min-height: 58px; margin: 16px auto 19px; font-size: 15px }
+  .game-lobby-leaderboard { padding: 15px 10px; border-radius: 17px }
+  .game-lobby-leaderboard header h2 { font-size: 21px }
+  .game-lobby-row { grid-template-columns: 27px 30px minmax(0,1fr) auto; gap: 7px; padding-right: 6px; padding-left: 5px }
+  .game-lobby-row>i { width: 28px }
+  .game-lobby-row strong { font-size: 11px }
+  .game-lobby-row>span { font-size: 12px }
+}
 @media(prefers-reduced-motion:reduce) {
   .admin-explore-card,.admin-sales-bar>i,.customer-order-journey>summary>span i {
     transition: none
   }
+}
+@media(max-width:700px) {
+  .game-lobby-page { min-height: 100dvh; margin: 0; padding: calc(20px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom)); border: 0; border-radius: 0; box-shadow: none }
+  .game-lobby-page .game-lobby-back { position: fixed; top: max(14px,env(safe-area-inset-top)); left: 14px }
+  .game-lobby-page .game-lobby-hero { padding: 34px 0 20px }
+  .game-lobby-page .game-lobby-art { width: auto; height: auto; border: 0; border-radius: 0; background: transparent; font-size: 46px }
+  .game-lobby-page .game-lobby-stats { gap: 0 }
+  .game-lobby-page .game-lobby-stats article { min-height: 82px; padding: 10px 8px; border: 0; border-radius: 0; background: transparent }
+  .game-lobby-page .game-lobby-stats article+article { border-left: 1px solid #343630 }
+  .game-lobby-page .game-lobby-stats small { font-size: 8px }
+  .game-lobby-page .game-lobby-stats b { font-size: clamp(19px,6vw,26px) }
+  .game-lobby-page .game-lobby-stats span { font-size: 9px }
+  .game-lobby-page .game-lobby-start { min-height: 56px; margin: 18px auto 22px; border-radius: 12px; box-shadow: none }
+  .game-lobby-page .game-lobby-leaderboard { padding: 15px 0 26px; border: 0; border-radius: 0; background: transparent }
+  .game-lobby-page .game-lobby-leaderboard>header { min-height: 118px; padding: 18px 0 20px }
+  .game-lobby-page .game-lobby-leaderboard header h2 { font-size: clamp(45px,13vw,68px) }
+  .game-lobby-page .game-lobby-row { grid-template-columns: 27px 30px minmax(0,1fr) auto; gap: 7px; padding: 7px 5px; border-radius: 0; background: transparent }
+  .game-lobby-page .game-lobby-row>i { width: 28px }
+  .game-lobby-page .game-lobby-row strong { font-size: 11px }
+  .game-lobby-page .game-lobby-row>span { font-size: 12px }
+}
+/* Dedicated full-screen customer destinations opened from Home. */
+.game-focus-app .game-focus-surface.focused { background: #111210 }
+.game-focus-app .wallet-page,
+.game-focus-app .scores-page,
+.game-focus-app .league-page {
+  width: 100%;
+  max-width: none;
+  min-height: 100dvh;
+  margin: 0;
+  padding: max(28px,env(safe-area-inset-top)) max(20px,calc((100vw - 1020px)/2)) calc(38px + env(safe-area-inset-bottom));
+  border: 0;
+  border-radius: 0;
+  box-shadow: none
+}
+.game-focus-app .wallet-page { overflow-y: auto; background: linear-gradient(155deg,#171714,#121310 58%,#17150f) }
+.game-focus-app .scores-page { background: linear-gradient(155deg,#141914,#111210 58%,#151915) }
+.game-focus-app .league-page { background: repeating-radial-gradient(ellipse 125% 44% at 50% -8%,transparent 0 18px,#0aca6a0d 19px 20px,transparent 22px 38px),#111411 }
+.game-focus-app .wallet-page .floating-back,
+.game-focus-app .scores-page .floating-back,
+.game-focus-app .league-page .floating-back { position: sticky; top: max(14px,env(safe-area-inset-top)); z-index: 4 }
+.game-focus-app .wallet-balance { margin-top: clamp(36px,8vh,88px) }
+.game-focus-app .wallet-coming { margin-top: clamp(42px,9vh,92px) }
+.game-focus-app .scores-page .scores-header,
+.game-focus-app .league-page .league-header { max-width: 900px; margin: 0 auto }
+.game-focus-app .scores-summary,
+.game-focus-app .achievement-heading,
+.game-focus-app .achievement-grid,
+.game-focus-app .score-history-heading,
+.game-focus-app .score-history,
+.game-focus-app .league-standings,
+.game-focus-app .league-title,
+.game-focus-app .league-your-rank,
+.game-focus-app .league-prize-rules,
+.game-focus-app .league-rule,
+.game-focus-app .league-emblem { width: min(100%,900px); margin-right: auto; margin-left: auto }
+@media(max-width:700px) {
+  .game-focus-app .wallet-page,
+  .game-focus-app .scores-page,
+  .game-focus-app .league-page { min-height: 100dvh; padding: calc(18px + env(safe-area-inset-top)) 18px calc(30px + env(safe-area-inset-bottom)) }
+  .game-focus-app .wallet-balance { margin-top: 42px; padding: 22px 18px }
+  .game-focus-app .wallet-coming { margin-top: 46px }
+  .game-focus-app .scores-summary { gap: 6px }
+  .game-focus-app .scores-summary article { padding: 12px 8px }
+  .game-focus-app .league-row { grid-template-columns: 32px 36px minmax(0,1fr) auto; gap: 7px; min-height: 62px; padding: 7px 4px; border-width: 0 0 1px; border-radius: 0; background: transparent }
+  .game-focus-app .league-avatar { width: 34px; height: 34px; font-size: 15px }
+  .game-focus-app .league-name { font-size: 11px }
+  .game-focus-app .league-xp { font-size: 11px }
+  .game-focus-app .league-row .movement { grid-column: 4; font-size: 10px }
+}
+@media(max-width:700px) {
+  .customer-header { margin-bottom: 8px }
+  .stat-pills { margin-top: 8px; margin-bottom: 14px }
+  .quick-actions { margin: 4px -6px 38px }
+  .quick-actions.has-active-story { gap: 3px }
+  .quick-actions.has-active-story .quick-icon { width: min(19vw,76px); flex: 0 0 auto }
+  .quick-actions.has-active-story .story-active-icon .brand-story-logo { font-size: clamp(18px,5vw,27px) }
+  .quick-actions.has-active-story button { gap: 5px; font-size: clamp(9px,2.6vw,11px) }
+  .quick-actions .offer-icon { box-sizing: border-box; overflow: hidden; padding: 0 5px; font-size: clamp(24px,7vw,30px); line-height: .86 }
+  .quick-actions .offer-icon>b { max-width: 100%; font-size: .88em; letter-spacing: -.1em }
+  .quick-actions .offer-icon>small { font-size: .4em }
 }
