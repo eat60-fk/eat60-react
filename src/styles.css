@@ -1302,7 +1302,9 @@ nav b {
 .wordmark-button small {
   font-size: 13.8px;
   font-weight: 800;
-  color: #f4f4f4
+  color: #f4f4f4;
+  font-family: Poppins,system-ui,sans-serif;
+  text-transform: uppercase
 }
 .location-button {
   display: flex;
@@ -1851,6 +1853,24 @@ nav b {
   font-weight: 750;
   letter-spacing: .04em
 }
+.wallet-header>div>span { display: block; color: #b9a66d; font-size: 10px; font-weight: 900; letter-spacing: .16em }
+.wallet-header h1 { margin: 4px 0 0; color: #f5f2e9; font-size: clamp(27px,4vw,38px); letter-spacing: -.04em }
+.wallet-balance-main { min-width: 0 }
+.wallet-balance-main>small { color: #b9a66d; font-size: 10px; font-weight: 900; letter-spacing: .15em }
+.wallet-balance-main>b { display: flex; align-items: center; gap: 12px; margin-top: 12px; color: #ffe08a; font-size: clamp(34px,6vw,52px); line-height: 1 }
+.wallet-balance-main>b svg { width: 40px; height: 40px }
+.wallet-balance-main>b span { align-self: flex-end; margin-bottom: 4px; color: #d2bd80; font-size: 12px; letter-spacing: .1em }
+.wallet-balance-main>p { margin: 10px 0 0; color: #aaa28a; font-size: 12px }
+.wallet-value-note { display: grid; justify-items: end; gap: 3px; color: #c9bd98; font-size: 13px }
+.wallet-value-note>b { color: #f6d67c; font-size: 24px }
+.wallet-value-note>small { color: #a49a7e; font-size: 11px }
+.wallet-coming h2 { margin: 0; color: #f3f1e9; font-size: clamp(23px,4.6vw,33px); letter-spacing: -.03em }
+.wallet-guide-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; max-width: 920px; margin: 40px auto 0 }
+.wallet-guide-grid article { display: flex; align-items: flex-start; gap: 12px; min-width: 0; padding: 18px; border: 1px solid #33342d; border-radius: 17px; background: #1b1c19 }
+.wallet-guide-grid article>i { display: grid; flex: 0 0 38px; width: 38px; height: 38px; place-items: center; border-radius: 12px; background: #28291f; font-style: normal; font-size: 18px }
+.wallet-guide-grid article>div { display: grid; gap: 5px }
+.wallet-guide-grid article b { color: #eae8df; font-size: 13px }
+.wallet-guide-grid article span { color: #9d9d91; font-size: 12px; line-height: 1.45 }
 .category-section {
   margin: 0 10px 26px
 }
@@ -3470,6 +3490,18 @@ nav b {
 .feed-engagement>button.liked {
   color: #ff6684
 }
+.feed-engagement>button { position: relative; overflow: visible; }
+.feed-like-sparks { position: absolute; top: 50%; left: 14px; width: 0; height: 0; pointer-events: none; }
+.feed-like-sparks i {
+  position: absolute;
+  width: 3px;
+  height: 7px;
+  border-radius: 999px;
+  background: #ff6684;
+  opacity: 0;
+  transform: translate(-50%,-50%) rotate(var(--spark-angle)) translateY(-9px) scale(.4);
+}
+.feed-like-sparks i.dot { width: 4px; height: 4px; border-radius: 50%; background: #ffc56d; }
 .feed-engagement svg {
   width: 21.16px;
   height: 21.16px;
@@ -10455,8 +10487,17 @@ nav b {
 .game-focus-app .wallet-page .floating-back,
 .game-focus-app .scores-page .floating-back,
 .game-focus-app .league-page .floating-back { position: sticky; top: max(14px,env(safe-area-inset-top)); z-index: 4 }
-.game-focus-app .wallet-balance { margin-top: clamp(36px,8vh,88px) }
-.game-focus-app .wallet-coming { margin-top: clamp(42px,9vh,92px) }
+.game-focus-app .wallet-page>.floating-back { position: fixed; top: max(22px,env(safe-area-inset-top)); left: max(22px,calc((100vw - 1240px)/2 + 30px)); z-index: 10 }
+.game-focus-app .wallet-header,
+.game-focus-app .wallet-balance,
+.game-focus-app .wallet-coming,
+.game-focus-app .wallet-guide-grid,
+.game-focus-app .wallet-footer { width: min(100%,920px); margin-right: auto; margin-left: auto }
+.game-focus-app .wallet-header { margin-top: 8px }
+.game-focus-app .wallet-balance { display: flex; justify-content: space-between; align-items: center; gap: 20px; max-width: none; margin-top: clamp(32px,6vh,60px) }
+.game-focus-app .wallet-coming { max-width: 760px; margin-top: clamp(34px,5vh,56px) }
+.game-focus-app .wallet-guide-grid { margin-top: clamp(26px,4vh,42px) }
+.game-focus-app .wallet-footer { margin-top: 34px }
 .game-focus-app .scores-page .scores-header,
 .game-focus-app .league-page .league-header { max-width: 900px; margin: 0 auto }
 .game-focus-app .scores-summary,
@@ -10474,8 +10515,17 @@ nav b {
   .game-focus-app .wallet-page,
   .game-focus-app .scores-page,
   .game-focus-app .league-page { min-height: 100dvh; padding: calc(18px + env(safe-area-inset-top)) 18px calc(30px + env(safe-area-inset-bottom)) }
-  .game-focus-app .wallet-balance { margin-top: 42px; padding: 22px 18px }
-  .game-focus-app .wallet-coming { margin-top: 46px }
+  .game-focus-app .wallet-page>.floating-back { top: max(14px,env(safe-area-inset-top)); left: 14px }
+  .game-focus-app .wallet-header { margin-top: 2px; padding-left: 54px }
+  .game-focus-app .wallet-balance { align-items: flex-start; margin-top: 30px; padding: 22px 18px }
+  .game-focus-app .wallet-value-note { padding-top: 3px; font-size: 11px }
+  .game-focus-app .wallet-value-note>b { font-size: 20px }
+  .game-focus-app .wallet-coming { margin-top: 34px }
+  .game-focus-app .wallet-orbit { width: 76px; height: 76px; margin-bottom: 15px }
+  .game-focus-app .wallet-orbit svg { width: 40px; height: 40px }
+  .game-focus-app .wallet-guide-grid { grid-template-columns: 1fr; gap: 9px; margin-top: 24px }
+  .game-focus-app .wallet-guide-grid article { padding: 13px 14px }
+  .game-focus-app .wallet-footer { margin-top: 26px; font-size: 9px }
   .game-focus-app .scores-summary { gap: 6px }
   .game-focus-app .scores-summary article { padding: 12px 8px }
   .game-focus-app .league-row { grid-template-columns: 32px 36px minmax(0,1fr) auto; gap: 7px; min-height: 62px; padding: 7px 4px; border-width: 0 0 1px; border-radius: 0; background: transparent }

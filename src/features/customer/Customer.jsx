@@ -137,9 +137,10 @@ function NavigationIcon({
 }
 function FloatingBack({
   onClick,
-  label = 'Go back'
+  label = 'Go back',
+  icon = '←'
 }) {
-  return <button className="floating-back" type="button" onClick={onClick} aria-label={label}><span aria-hidden="true">×</span></button>;
+  return <button className="floating-back" type="button" onClick={onClick} aria-label={label}><span aria-hidden="true">{icon}</span></button>;
 }
 function fetchFeedSnapshot(userId) {
   const pending = feedRequests.get(userId);
@@ -530,6 +531,27 @@ export default function Customer({
     setMoreInitialPage(page);
     go('more', pathForMorePage(page));
   };
+  const openWallet = () => {
+    // Make the wallet's browser-back destination Home, not an older More/settings entry.
+    window.history.replaceState({ eat60Route: CUSTOMER_TAB_PATHS.home }, '', CUSTOMER_TAB_PATHS.home);
+    currentPathRef.current = CUSTOMER_TAB_PATHS.home;
+    updateRouteMetadata(CUSTOMER_TAB_PATHS.home);
+    go('wallet');
+    window.history.replaceState({ ...window.history.state, walletHomeOrigin: true }, '', CUSTOMER_TAB_PATHS.wallet);
+  };
+  const returnFromWallet = () => {
+    if (window.history.state?.walletHomeOrigin && window.history.length > 1) {
+      allowNextBackRef.current = true;
+      window.history.back();
+      return;
+    }
+    window.history.replaceState({ eat60Route: CUSTOMER_TAB_PATHS.home }, '', CUSTOMER_TAB_PATHS.home);
+    currentPathRef.current = CUSTOMER_TAB_PATHS.home;
+    setTab('home');
+    setGameFocus(false);
+    updateRouteMetadata(CUSTOMER_TAB_PATHS.home);
+    window.scrollTo(0, 0);
+  };
   useEffect(() => {
     if (me.address?.trim() && me.area?.trim() && me.phone?.trim()) return;
     const key = `eat60:profile-reminder:${me.id}`;
@@ -554,7 +576,7 @@ export default function Customer({
       if (allowNextBackRef.current) {
         allowNextBackRef.current = false;
       } else {
-        const confirmation = gameFocus ? 'game' : tab === 'cart' && cart.length > 0 ? 'order' : tab === 'home' ? 'exit' : null;
+        const confirmation = tab === 'games' && gameFocus ? 'game' : tab === 'cart' && cart.length > 0 ? 'order' : tab === 'home' ? 'exit' : null;
         if (confirmation) {
           window.history.pushState({
             eat60Route: currentPathRef.current
@@ -664,14 +686,14 @@ export default function Customer({
         <header className="customer-header">
           <button className="wordmark-button" onClick={() => go('home')} aria-label="EAT60 home">
             <span className="logo">EAT<b>60</b></span>
-            <small>Ballia’s first food delivery app</small>
+            <small>BALLIA’S FIRST FOOD DELIVERY APP</small>
           </button>
           <button className={`location-button location-${locationStatus}`} onClick={checkDeliveryArea} aria-label="Check delivery availability using your location" disabled={locationStatus === 'checking'}>
             <span>{locationStatus === 'checking' ? 'Checking location…' : locationLabel}</span><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" fill="currentColor" /><circle cx="12" cy="10" r="2.5" fill="#171717" /></svg></i>
           </button>
         </header>
         <div className="stat-pills">
-          <button className="stat-wallet" onClick={() => go('wallet')}><i><CoinIcon /></i><span><small>YOUR WALLET</small><b>{me.coins} COINS</b></span></button>
+          <button className="stat-wallet" onClick={openWallet}><i><CoinIcon /></i><span><small>YOUR WALLET</small><b>{me.coins} COINS</b></span></button>
           <button className="stat-streak" onClick={() => goMore('rewards')}><i><FlameAnimation /></i><span><small>ORDER STREAK</small><b>{me.streak} DAYS</b></span></button>
           <button className="stat-rank" onClick={() => goGames('rankings')}><i><MoreIcon name="ranks" /></i><span><small>WEEKLY LEAGUE</small><b>{rank ? `#${rank} RANK` : 'PLAY TO RANK'}</b></span></button>
           <button className="stat-track" onClick={() => go('hist')}><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 12 18-9-7 18-3-7-8-2Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" /><path d="m11 14 5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg></i><span><small>YOUR DELIVERY</small><b>TRACK ORDER</b></span></button>
@@ -699,7 +721,7 @@ export default function Customer({
         <div hidden={tab !== 'hist'}><History me={me} /></div>
         <div hidden={tab !== 'feed'}><Feed me={me} say={say} refreshKey={feedRefreshKey} /></div>
         {tab === 'games' && <div className={`game-focus-surface${gameFocus ? ' focused' : ''}`}><Games reload={reload} say={say} me={me} initialView={gameView} onFocus={setGameFocus} onViewChange={goGames} onClosePage={() => go('home')} onRequestQuit={() => setBackConfirmation('game')} quitRef={gameQuitRef} onAnnounce={announce} /></div>}
-        <div hidden={tab !== 'wallet'}><Wallet me={me} onBack={() => go('home')} /></div>
+        <div hidden={tab !== 'wallet'}><Wallet me={me} onBack={returnFromWallet} /></div>
         <div hidden={tab !== 'more'}><More me={me} email={email} reload={reload} go={go} goGames={goGames} say={say} initialPage={moreInitialPage} onNavigatePath={navigateMorePage} onSelectVoucher={code => {
           setSelectedVoucher(code);
           go('cart');
@@ -1023,8 +1045,9 @@ function Home({
           const displayVariant = hasDeal ? offer : variants[0];
           const recentlyOrdered = purchasedItemIds.has(String(i.id));
           const favourite = favouriteItemId === String(i.id);
-          return <motion.article key={i.id} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: reduceMotion ? 0 : 0.2, ease: 'easeOut' }} className={`menu-card${ok ? '' : ' unavailable'}`}>
-                {(recentlyOrdered || favourite || hasDeal) && <div className="menu-card-badges">{favourite && <span className="menu-badge favorite">♥ Your favourite</span>}{recentlyOrdered && <span className="menu-badge recent">↺ Recently ordered</span>}{hasDeal && <span className="menu-badge deal">Offer</span>}</div>}
+          const cardBadge = hasDeal ? { label: '✦ Offer', tone: 'deal' } : favourite ? { label: '♥ Your favourite', tone: 'favorite' } : recentlyOrdered ? { label: '↺ Recently ordered', tone: 'recent' } : null;
+          return <motion.article key={i.id} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: reduceMotion ? 0 : 0.2, ease: 'easeOut' }} className={`menu-card${ok ? '' : ' unavailable'}${cardBadge ? ' has-menu-badge' : ''}`}>
+                {cardBadge && <div className="menu-card-badges"><span className={`menu-badge ${cardBadge.tone}`}>{cardBadge.label}</span></div>}
                 <button className="menu-card-main" onClick={() => ok && setOpen(i)} disabled={!ok} aria-label={`View ${i.name}`}>
                   {i.image_url ? <img className="menu-image" src={i.image_url} alt={i.name} loading="lazy" /> : <span className="menu-image menu-image-fallback">{CATEGORY_ICONS[i.category] || brand(i.brand_id)?.emoji || '🍽️'}</span>}
                   <span className="menu-card-copy">
@@ -1533,21 +1556,41 @@ function Feed({
   const [commentOpen, setCommentOpen] = useState({});
   const [loading, setLoading] = useState(!initialSnapshot);
   const [loadError, setLoadError] = useState('');
+  const [pendingReactions, setPendingReactions] = useState({});
+  const pendingReactionRef = useRef(new Map());
+  const loadSequence = useRef(0);
   const hasSnapshot = useRef(Boolean(initialSnapshot));
   const lastRefreshKey = useRef(refreshKey);
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     if (!hasSnapshot.current) setLoading(true);
     setLoadError('');
     try {
       const snapshot = await fetchFeedSnapshot(me.id);
-      setD(snapshot);
+      if (sequence !== loadSequence.current) return;
+      const reconciled = { ...snapshot, mr: [...snapshot.mr], rc: [...snapshot.rc] };
+      for (const pending of pendingReactionRef.current.values()) {
+        const { postId, emoji } = pending;
+        const serverLiked = reconciled.mr.some(item => item.post_id === postId && item.emoji === emoji);
+        reconciled.mr = reconciled.mr.filter(item => item.post_id !== postId || item.emoji !== emoji);
+        if (pending.liked) reconciled.mr.push({ post_id: postId, emoji });
+        const countIndex = reconciled.rc.findIndex(item => item.post_id === postId && item.emoji === emoji);
+        const count = countIndex >= 0 ? reconciled.rc[countIndex] : null;
+        const currentCount = Number(count?.total) || 0;
+        const delta = Number(pending.liked) - Number(serverLiked);
+        const adjusted = Math.max(0, currentCount + delta);
+        if (count) reconciled.rc[countIndex] = { ...count, total: adjusted };
+        else if (adjusted > 0) reconciled.rc.push({ post_id: postId, emoji, total: adjusted });
+      }
+      setD(reconciled);
       hasSnapshot.current = true;
-      writeOfflineCache(key, snapshot);
+      writeOfflineCache(key, reconciled);
     } catch (error) {
+      if (sequence !== loadSequence.current) return;
       setLoadError(error.message || 'Could not load feed updates.');
       say(error.message || 'Could not load feed updates.');
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, [key, me.id, say]);
   useEffect(() => {
@@ -1580,7 +1623,23 @@ function Feed({
     error ? say(error.message) : load();
   };
   const react = async (post, emoji) => {
+    const reactionKey = `${post}::${emoji}`;
+    if (pendingReactionRef.current.has(reactionKey)) return;
     const mine = d.mr.some(x => x.post_id === post && x.emoji === emoji);
+    const pending = { postId: post, emoji, liked: !mine };
+    pendingReactionRef.current.set(reactionKey, pending);
+    setPendingReactions(current => ({ ...current, [reactionKey]: true }));
+    setD(current => {
+      const mr = current.mr.filter(item => item.post_id !== post || item.emoji !== emoji);
+      if (!mine) mr.push({ post_id: post, emoji });
+      const countIndex = current.rc.findIndex(item => item.post_id === post && item.emoji === emoji);
+      const rc = [...current.rc];
+      const count = countIndex >= 0 ? rc[countIndex] : null;
+      const nextCount = Math.max(0, (Number(count?.total) || 0) + (mine ? -1 : 1));
+      if (count) rc[countIndex] = { ...count, total: nextCount };
+      else if (nextCount) rc.push({ post_id: post, emoji, total: nextCount });
+      return { ...current, mr, rc };
+    });
     const {
       error
     } = await (mine ? sb.from('reactions').delete().match({
@@ -1592,7 +1651,28 @@ function Feed({
       user_id: me.id,
       emoji
     }));
-    if (error) return say(error.message);
+    pendingReactionRef.current.delete(reactionKey);
+    setPendingReactions(current => {
+      const next = { ...current };
+      delete next[reactionKey];
+      return next;
+    });
+    // Discard any pre-action feed request so it cannot overwrite the latest count.
+    feedRequests.delete(me.id);
+    if (error) {
+      setD(current => {
+        const mr = current.mr.filter(item => item.post_id !== post || item.emoji !== emoji);
+        if (mine) mr.push({ post_id: post, emoji });
+        const rc = [...current.rc];
+        const countIndex = rc.findIndex(item => item.post_id === post && item.emoji === emoji);
+        const count = countIndex >= 0 ? rc[countIndex] : null;
+        const restoredCount = Math.max(0, (Number(count?.total) || 0) + (mine ? 1 : -1));
+        if (count) rc[countIndex] = { ...count, total: restoredCount };
+        else if (restoredCount) rc.push({ post_id: post, emoji, total: restoredCount });
+        return { ...current, mr, rc };
+      });
+      say(error.message);
+    }
     load();
   };
   const comment = async post => {
@@ -1641,7 +1721,33 @@ function Feed({
                   }} /><span>{option.label}</span><b>{percent}%</b></div> : <button className="feed-poll-option" key={option.id} onClick={() => vote(p.id, option.id)}>{option.label}<span>→</span></button>;
               })}</div>}
           <div className="feed-engagement">
-            <button className={liked ? 'liked' : ''} onClick={() => react(p.id, '❤️')} aria-label={liked ? 'Unlike post' : 'Like post'}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" /></svg><span>{d.rc.find(item => item.post_id === p.id && item.emoji === '❤️')?.total || 0}</span></button>
+            <button className={liked ? 'liked' : ''} disabled={Boolean(pendingReactions[`${p.id}::❤️`])} onClick={event => {
+              const button = event.currentTarget;
+              if (!liked && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                button.querySelector('svg')?.animate([
+                  { transform: 'scale(.72)' },
+                  { transform: 'scale(1.4)', offset: .65 },
+                  { transform: 'scale(1)' }
+                ], { duration: 300, easing: 'cubic-bezier(.2,1.5,.4,1)' });
+                const sparks = button.querySelector('.feed-like-sparks');
+                sparks.replaceChildren();
+                for (let index = 0; index < 8; index += 1) {
+                  const spark = document.createElement('i');
+                  if (index % 2) spark.className = 'dot';
+                  sparks.append(spark);
+                }
+                sparks.querySelectorAll('i').forEach((spark, index) => {
+                  const angle = `${index * 45}deg`;
+                  const animation = spark.animate([
+                    { opacity: 0, transform: `translate(-50%,-50%) rotate(${angle}) translateY(-7px) scale(.35)` },
+                    { opacity: 1, offset: .2 },
+                    { opacity: 0, transform: `translate(-50%,-50%) rotate(${angle}) translateY(-22px) scale(1)` }
+                  ], { duration: 380, delay: index % 2 ? 20 : 0, easing: 'ease-out' });
+                  if (index === 7) animation.onfinish = () => sparks.replaceChildren();
+                });
+              }
+              react(p.id, '❤️');
+            }} aria-label={liked ? 'Unlike post' : 'Like post'} aria-pressed={liked}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" /></svg><span className="feed-like-sparks" aria-hidden="true" /><span>{d.rc.find(item => item.post_id === p.id && item.emoji === '❤️')?.total || 0}</span></button>
             <button onClick={() => setCommentOpen(current => ({
                 ...current,
                 [p.id]: !current[p.id]
@@ -1832,7 +1938,7 @@ function GameLobby({ game, me, data, loading, error, activePlayers, starting, on
   const outsideTopTen = myRank !== null && myRank > 10;
   const initials = name => String(name || '?').trim().slice(0, 1).toUpperCase();
   return <section className={`game-lobby-page ${game.color}`}>
-    <button className="game-lobby-back" type="button" onClick={onBack} aria-label="Back to games">×</button>
+    <button className="game-lobby-back" type="button" onClick={onBack} aria-label="Back to games">←</button>
     <header className="game-lobby-hero">
       <span className="game-lobby-art" aria-hidden="true">{game.icon}</span>
       <p>GAME · BEST SCORE</p>
@@ -2302,9 +2408,10 @@ function Wallet({
 }) {
   return <section className="wallet-page">
     <FloatingBack onClick={onBack} label="Back to home" />
-    <header className="wallet-header"><span>MY WALLET</span><i><CoinIcon /></i></header>
-    <div className="wallet-balance"><small>AVAILABLE BALANCE</small><b><CoinIcon /> {me.coins} <span>COINS</span></b><p>Your EAT60 rewards balance</p></div>
-    <div className="wallet-coming"><span className="wallet-orbit"><CoinIcon /></span><p>COMING SOON</p><h1>Your wallet is getting ready</h1><small>We’re preparing new ways to use your coins. Your balance is safe and will be ready here soon.</small></div>
+    <header className="wallet-header"><div><span>YOUR REWARDS</span><h1>Wallet</h1></div><i><CoinIcon /></i></header>
+    <div className="wallet-balance"><div className="wallet-balance-main"><small>AVAILABLE BALANCE</small><b><CoinIcon /> {me.coins.toLocaleString('en-IN')} <span>COINS</span></b><p>Your EAT60 rewards balance</p></div><div className="wallet-value-note"><span>100 coins</span><b>= ₹1</b><small>towards an order</small></div></div>
+    <div className="wallet-coming"><span className="wallet-orbit"><CoinIcon /></span><p>REWARDS THAT ADD UP</p><h2>Use your coins on your next order</h2><small>At checkout, turn on wallet coins to save on eligible items. Your available balance stays here until you choose to use it.</small></div>
+    <div className="wallet-guide-grid"><article><i>🎮</i><div><b>Earn while you play</b><span>Play EAT60 games and collect rewards.</span></div></article><article><i>🛍</i><div><b>Save at checkout</b><span>Choose how many eligible coins to apply to an order.</span></div></article><article><i>🔒</i><div><b>Your balance stays safe</b><span>Coins remain in your wallet until you use them.</span></div></article></div>
     <div className="wallet-footer"><span>COINS EARNED THROUGH EAT60</span><span>100 coins = ₹1 reward value</span></div>
   </section>;
 }

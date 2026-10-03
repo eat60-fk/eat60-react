@@ -117,32 +117,34 @@
 
 .menu-card-badges {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 14px;
+  left: 0;
   z-index: 3;
-  max-width: 48%;
+  max-width: min(58%, 230px);
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
+  align-items: flex-start;
   pointer-events: none;
 }
 
 .menu-badge {
   max-width: 100%;
   overflow: hidden;
-  padding: 6px 9px;
-  border: 1px solid #ffffff22;
-  border-radius: 999px;
-  background: #171914ed;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid #ffffff20;
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+  background: #171914f2;
   color: #f1f2eb;
   font-size: 10px;
   font-weight: 850;
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
-  box-shadow: 0 3px 12px #0007;
+  box-shadow: 0 3px 10px #0005;
 }
+
+.menu-card.has-menu-badge .menu-card-main { padding-top: 43px; }
 
 .menu-badge.favorite {
   border-color: #d17e8866;
@@ -350,15 +352,15 @@
   }
 
   .menu-card-badges {
-    top: 8px;
-    right: 8px;
-    gap: 4px;
+    top: 12px;
+    max-width: 58%;
   }
 
   .menu-badge {
-    padding: 5px 7px;
+    padding: 5px 8px 5px 10px;
     font-size: 9px;
   }
+  .menu-card.has-menu-badge .menu-card-main { padding-top: 39px; }
 }
 .checkout-gift-offer {
   display: flex;
