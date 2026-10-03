@@ -1,0 +1,256 @@
+/* Offer card clock and crossed-out sale pricing. */
+.offer-card {
+  isolation: isolate;
+}
+
+.offer-card > div:first-child {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 980px);
+}
+
+.offer-card h2 {
+  max-width: calc(100% - 190px);
+}
+
+.offer-card .offer-countdown {
+  position: absolute;
+  top: 22px;
+  right: 26px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 9px 13px;
+  background: #171914;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.offer-countdown svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.offer-card p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+.offer-price-line {
+  white-space: nowrap;
+}
+
+.offer-original-price {
+  color: #a3a69c;
+  font-family: system-ui, sans-serif;
+  font-size: .5em;
+  font-weight: 700;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+/* Catalog filters, shuffle control, and customer-specific dish labels. */
+.menu-section-heading {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.menu-display-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.menu-display-controls button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid #3a3c35;
+  border-radius: 999px;
+  background: #20211e;
+  color: #c8cbc1;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.menu-display-controls button.selected {
+  border-color: #8cac4d;
+  background: #2a3321;
+  color: #d3f394;
+}
+
+.menu-display-controls button b {
+  min-width: 19px;
+  height: 19px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #373a32;
+  font-size: 10px;
+}
+
+.menu-display-controls .menu-shuffle-button {
+  color: #e1e4da;
+}
+
+.menu-card-badges {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  max-width: 48%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.menu-badge {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 6px 9px;
+  border: 1px solid #ffffff22;
+  border-radius: 999px;
+  background: #171914ed;
+  color: #f1f2eb;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 3px 12px #0007;
+}
+
+.menu-badge.favorite {
+  border-color: #d17e8866;
+  color: #ffb2bc;
+}
+
+.menu-badge.recent {
+  border-color: #88a85a66;
+  color: #d3ef9a;
+}
+
+.menu-badge.deal {
+  border-color: #a9d95788;
+  background: #303b1f;
+  color: #d5f69b;
+}
+
+.menu-card-copy strong .menu-price-line {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.menu-price-line s,
+.vr s {
+  color: #999b92;
+  font-family: system-ui, sans-serif;
+  font-size: .76em;
+  font-weight: 600;
+  text-decoration-thickness: 1.5px;
+}
+
+.vr > span s {
+  margin-right: 6px;
+}
+
+.checkout-savings-note {
+  display: block;
+  margin: -5px 0 12px 29px;
+  color: #a3a69c;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 620px) {
+  .offer-card {
+    align-items: flex-end;
+    min-height: 245px;
+    padding: 24px 20px;
+  }
+
+  .offer-card > div:first-child {
+    padding-top: 36px;
+  }
+
+  .offer-card h2 {
+    max-width: 100%;
+  }
+
+  .offer-card .offer-countdown {
+    top: 15px;
+    right: 15px;
+    min-height: 36px;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    font-size: 10px;
+  }
+
+  .offer-card p {
+    margin-top: 18px;
+  }
+
+  .offer-art {
+    position: absolute;
+    right: 5px;
+    bottom: 7px;
+    opacity: .34;
+    pointer-events: none;
+  }
+
+  .menu-section-heading {
+    align-items: flex-start;
+  }
+
+  .menu-display-controls {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .menu-display-controls button {
+    min-height: 42px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  .menu-display-controls .menu-shuffle-button {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 390px) {
+  .menu-display-controls .menu-shuffle-button {
+    width: 100%;
+    justify-content: center;
+    margin-left: 0;
+  }
+
+  .menu-card-badges {
+    top: 8px;
+    right: 8px;
+    gap: 4px;
+  }
+
+  .menu-badge {
+    padding: 5px 7px;
+    font-size: 9px;
+  }
+}

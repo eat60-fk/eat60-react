@@ -429,7 +429,7 @@ function AdBannerSettings() {
   const businessLinksSummary = loading ? 'Loading business links…' : `${socialLinkCount} public/support links · ${form.tiffin_url ? 'Tiffin service link added' : 'No Tiffin service link'}`;
   const additionalLinksSummary = loading ? 'Loading additional links…' : `${additionalSocialLinkCount} additional social ${additionalSocialLinkCount === 1 ? 'link' : 'links'}`;
   return <section className="admin-settings-form admin-business-settings">
-      <SettingsEditCard title="Offer banner" description="Set the featured menu item, price, and display dates." summary={offerSummary} editing={editingCard === 'offer'} disabled={Boolean(editingCard && editingCard !== 'offer')} busy={busy || loading} feedback={editingCard === 'offer' ? message : ''} onEdit={() => {
+      <SettingsEditCard title="Offer banner" description="Schedule one discounted item and size. Customers choose this deal, a coupon, or wallet coins at checkout." summary={offerSummary} editing={editingCard === 'offer'} disabled={Boolean(editingCard && editingCard !== 'offer')} busy={busy || loading} feedback={editingCard === 'offer' ? message : ''} onEdit={() => {
         setEditingCard('offer');
         setMessage('');
       }} onCancel={cancelEdit} onSave={save}>

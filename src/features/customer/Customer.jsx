@@ -6,6 +6,7 @@ import LoadingIndicator from '../../components/LoadingIndicator';
 import { CUSTOMER_TAB_PATHS, pathForMorePage, resolveCustomerRoute } from '../../lib/customerRoutes';
 import { isNetworkError, readOfflineCache, writeOfflineCache } from '../../lib/offlineCache';
 import { updateRouteMetadata } from '../../lib/routeMetadata';
+import './catalog.css';
 import HungrySnakes from './games/HungrySnakes';
 import FlyingBurger from './games/FlyingBurger';
 import QuickMathGame from './games/QuickMath';
@@ -239,6 +240,7 @@ export default function Customer({
   const [moreInitialPage, setMoreInitialPage] = useState(initialRoute.morePage || null);
   const [cart, setCart] = useState(() => readOfflineCache(`cart:${me.id}`) || []);
   const [selectedVoucher, setSelectedVoucher] = useState(() => readOfflineCache(`voucher:${me.id}`) || '');
+  const [orderInsights, setOrderInsights] = useState(() => readOfflineCache(`order-insights:${me.id}`) || []);
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
   const [rank, setRank] = useState(null);
   const [fullscreenNotice, setFullscreenNotice] = useState(null);
@@ -337,6 +339,24 @@ export default function Customer({
   useEffect(() => {
     loadCatalog();
   }, [loadCatalog]);
+  useEffect(() => {
+    let active = true;
+    sb.from('orders').select('created_at,order_items(menu_item_id,qty)').eq('user_id', me.id).order('created_at', { ascending: false }).limit(40).then(({ data: orders, error }) => {
+      if (!active || error) return;
+      const insights = (orders || []).map(order => ({
+        created_at: order.created_at,
+        items: (order.order_items || []).filter(item => item.menu_item_id).map(item => ({
+          menu_item_id: String(item.menu_item_id),
+          qty: Number(item.qty) || 1
+        }))
+      }));
+      setOrderInsights(insights);
+      writeOfflineCache(`order-insights:${me.id}`, insights);
+    });
+    return () => {
+      active = false;
+    };
+  }, [me.id]);
   useEffect(() => {
     writeOfflineCache(`cart:${me.id}`, cart);
   }, [cart, me.id]);
@@ -441,7 +461,7 @@ export default function Customer({
       sb.removeChannel(channel);
     };
   }, [handleDelivered, me.id]);
-  const price = v => Number(v.id) === Number(data.cfg.offer_variant_id) && data.cfg.offer_date === today() && (!data.cfg.offer_ends_at || new Date(data.cfg.offer_ends_at).getTime() > Date.now()) ? data.cfg.offer_price : v.price;
+  const price = v => Number(v.id) === Number(data.cfg.offer_variant_id) && data.cfg.offer_date && data.cfg.offer_date <= today() && (!data.cfg.offer_ends_at || new Date(data.cfg.offer_ends_at).getTime() > Date.now()) ? data.cfg.offer_price : v.price;
   const add = (item, v, extras = []) => {
     const b = data.brands.find(x => x.id === item.brand_id);
     if (!item.is_available || !b?.is_open) return say('This outlet is closed right now');
@@ -455,6 +475,7 @@ export default function Customer({
         vid: v.id,
         name: `${item.name} (${v.label})`,
         price: price(v) + extras.reduce((sum, x) => sum + Number(x.price), 0),
+        regularPrice: Number(v.price) + extras.reduce((sum, x) => sum + Number(x.price), 0),
         extras,
         qty: 1
       }];
@@ -644,9 +665,9 @@ export default function Customer({
       duration: reduceMotion ? 0 : 0.2,
       ease: 'easeOut'
     }}>
-        <div hidden={tab !== 'home'}><Home data={data} add={add} price={price} go={go} goMore={goMore} goGames={goGames} say={say} me={me} reloadRatings={reloadRatings} /></div>
+        <div hidden={tab !== 'home'}><Home data={data} add={add} price={price} go={go} goMore={goMore} goGames={goGames} say={say} me={me} orderInsights={orderInsights} reloadRatings={reloadRatings} /></div>
         <div hidden={tab !== 'cart'}>
-          <Cart cart={cart} setCart={setCart} cfg={data.cfg} me={me} say={say} voucherCode={selectedVoucher} onBack={() => cart.length ? leaveCart() : go('home')} done={orderId => {
+          <Cart cart={cart} setCart={setCart} cfg={data.cfg} catalogItems={data.items} me={me} say={say} voucherCode={selectedVoucher} onBack={() => cart.length ? leaveCart() : go('home')} done={orderId => {
           setSelectedVoucher('');
           reload();
           setFullscreenNotice({
@@ -740,6 +761,7 @@ function Home({
   goGames,
   say,
   me,
+  orderInsights,
   reloadRatings
 }) {
   const [b, setB] = useState('');
@@ -748,19 +770,24 @@ function Home({
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(null);
   const [selectedExtras, setSelectedExtras] = useState([]);
+  const [stockFilter, setStockFilter] = useState('in-stock');
+  const [shuffleIds, setShuffleIds] = useState([]);
   const [clock, setClock] = useState(Date.now());
   const offerRef = useRef(null);
   const menuRef = useRef(null);
   useEffect(() => {
-    if (!data.cfg.offer_variant_id || data.cfg.offer_date !== today()) return undefined;
+    if (!data.cfg.offer_variant_id || !data.cfg.offer_date || data.cfg.offer_date > today() || offerExpiry(data.cfg) <= Date.now()) return undefined;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [data.cfg.offer_date, data.cfg.offer_variant_id]);
+  }, [data.cfg.offer_date, data.cfg.offer_ends_at, data.cfg.offer_variant_id]);
   const brand = id => data.brands.find(x => x.id === id);
   const categories = [...new Set(data.items.map(item => String(item.category || '').trim()).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right));
-  const items = data.items.filter(i => (!b || i.brand_id === b) && (!c || i.category === c) && (i.name + (i.description || '')).toLowerCase().includes(q.toLowerCase()));
-  const scheduledOffer = data.cfg.offer_date === today() && data.items.find(i => i.item_variants.some(v => Number(v.id) === Number(data.cfg.offer_variant_id)));
+  const matchingItems = data.items.filter(i => (!b || i.brand_id === b) && (!c || i.category === c) && (i.name + (i.description || '')).toLowerCase().includes(q.toLowerCase()));
+  const stockItems = matchingItems.filter(item => stockFilter === 'out-of-stock' ? item.is_available === false : item.is_available !== false);
+  const shuffleRank = new Map(shuffleIds.map((id, index) => [String(id), index]));
+  const items = shuffleIds.length ? [...stockItems].sort((left, right) => (shuffleRank.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) - (shuffleRank.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER)) : stockItems;
+  const scheduledOffer = data.cfg.offer_date && data.cfg.offer_date <= today() && data.items.find(i => i.item_variants.some(v => Number(v.id) === Number(data.cfg.offer_variant_id)));
   const offerEndsAt = offerExpiry(data.cfg);
   const offerItem = scheduledOffer && clock < offerEndsAt ? scheduledOffer : null;
   const offerRemaining = Math.max(0, offerEndsAt - clock);
@@ -775,6 +802,11 @@ function Home({
   const showPartnerAd = data.cfg.home_ad_active === true && /^https?:\/\//i.test(adImage) && (adStart === null || !Number.isNaN(adStart) && Date.now() >= adStart) && (adEnd === null || !Number.isNaN(adEnd) && Date.now() < adEnd);
   const sorted = i => [...i.item_variants].sort((x, y) => x.price - y.price);
   const activeVariant = item => item?.item_variants?.find(v => Number(v.id) === Number(data.cfg.offer_variant_id));
+  const recentCutoff = Date.now() - 60 * 86400000;
+  const purchasedItemIds = new Set((orderInsights || []).filter(order => new Date(order.created_at).getTime() >= recentCutoff).flatMap(order => order.items.map(item => item.menu_item_id)));
+  const purchaseCounts = (orderInsights || []).flatMap(order => order.items).reduce((counts, item) => counts.set(item.menu_item_id, (counts.get(item.menu_item_id) || 0) + item.qty), new Map());
+  const favouriteEntry = [...purchaseCounts.entries()].sort((left, right) => right[1] - left[1])[0];
+  const favouriteItemId = favouriteEntry?.[1] > 1 ? favouriteEntry[0] : null;
   const scrollToOffer = () => {
     if (!offerItem) return say('No active offer right now. Check back soon!');
     offerRef.current?.scrollIntoView({
@@ -814,8 +846,8 @@ function Home({
           <div>
             <h2>{data.cfg.offer_title || 'OFFER OF THE DAY'}</h2>
             <small>{data.cfg.offer_message || 'GRAB THIS OFFER BEFORE IT ENDS'}</small>
-            <small className="offer-countdown" aria-live="off">ENDS IN {offerCountdown}</small>
-            <p>{`GET ${offerItem.name.toUpperCase()} @ ₹${data.cfg.offer_price}/-`}</p>
+            <small className="offer-countdown" aria-live="off"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>ENDS IN {offerCountdown}</small>
+            <p>GET {offerItem.name.toUpperCase()} <span className="offer-price-line">@ ₹{data.cfg.offer_price}/-</span>{Number(data.cfg.offer_price) < Number(activeVariant(offerItem)?.price) && <s className="offer-original-price">₹{Number(activeVariant(offerItem)?.price).toLocaleString('en-IN')}</s>}</p>
             <button className="offer-add" onClick={() => add(offerItem, activeVariant(offerItem))}>Add to cart <span>→</span></button>
           </div>
           <div className="offer-art" aria-hidden="true">🍕</div>
@@ -849,20 +881,33 @@ function Home({
       </label>
 
       <section className="menu-section" ref={menuRef}>
-        <div className="section-heading"><h2>{c || b ? 'MENU' : 'OUR MENU'}</h2></div>
+        <div className="section-heading menu-section-heading"><h2>{c || b ? 'MENU' : 'OUR MENU'}</h2><div className="menu-display-controls" role="group" aria-label="Menu stock filter"><button type="button" aria-pressed={stockFilter === 'in-stock'} className={stockFilter === 'in-stock' ? 'selected' : ''} onClick={() => setStockFilter('in-stock')}>In stock <b>{matchingItems.filter(item => item.is_available !== false).length}</b></button><button type="button" aria-pressed={stockFilter === 'out-of-stock'} className={stockFilter === 'out-of-stock' ? 'selected' : ''} onClick={() => setStockFilter('out-of-stock')}>Out of stock <b>{matchingItems.filter(item => item.is_available === false).length}</b></button><button type="button" className="menu-shuffle-button" onClick={() => {
+          const next = [...stockItems].map(item => item.id);
+          for (let index = next.length - 1; index > 0; index -= 1) {
+            const randomIndex = Math.floor(Math.random() * (index + 1));
+            [next[index], next[randomIndex]] = [next[randomIndex], next[index]];
+          }
+          setShuffleIds(next);
+        }}>↕ Surprise me</button></div></div>
         {data.ratingError && <div className="menu-rating-error" role="alert">
           <b>Customer ratings could not be loaded.</b>
           <p>{data.ratingError}</p>
           <small>In the Supabase project connected to this app, run order_reviews.sql, then rerun admin_operations.sql. If both have already completed, run <code>NOTIFY pgrst, 'reload schema';</code>, wait briefly, and retry.</small>
           <button type="button" onClick={reloadRatings}>Retry ratings</button>
         </div>}
-        {items.length === 0 && <div className="empty">No items match. Clear a filter or try another search.</div>}
+        {items.length === 0 && <div className="empty">{matchingItems.length === 0 ? 'No items match. Clear a filter or try another search.' : stockFilter === 'in-stock' ? 'No items are in stock right now.' : 'There are no out-of-stock items right now.'}</div>}
         <div className="menu-grid">
           <AnimatePresence initial={false} mode="popLayout">
           {items.map(i => {
           const ok = i.is_available && brand(i.brand_id)?.is_open;
           const variants = sorted(i);
+          const offer = activeVariant(i);
+          const hasDeal = offer && Number(price(offer)) < Number(offer.price);
+          const displayVariant = hasDeal ? offer : variants[0];
+          const recentlyOrdered = purchasedItemIds.has(String(i.id));
+          const favourite = favouriteItemId === String(i.id);
           return <motion.article key={i.id} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: reduceMotion ? 0 : 0.2, ease: 'easeOut' }} className={`menu-card${ok ? '' : ' unavailable'}`}>
+                {(recentlyOrdered || favourite || hasDeal) && <div className="menu-card-badges">{favourite && <span className="menu-badge favorite">♥ Your favourite</span>}{recentlyOrdered && <span className="menu-badge recent">↺ Recently ordered</span>}{hasDeal && <span className="menu-badge deal">Offer</span>}</div>}
                 <button className="menu-card-main" onClick={() => ok && setOpen(i)} disabled={!ok} aria-label={`View ${i.name}`}>
                   {i.image_url ? <img className="menu-image" src={i.image_url} alt={i.name} loading="lazy" /> : <span className="menu-image menu-image-fallback">{CATEGORY_ICONS[i.category] || brand(i.brand_id)?.emoji || '🍽️'}</span>}
                   <span className="menu-card-copy">
@@ -873,7 +918,7 @@ function Home({
                       {data.ratings[i.id] ? `${Number(data.ratings[i.id].average_rating).toFixed(1)} · ${data.ratings[i.id].review_count} ${data.ratings[i.id].review_count === 1 ? 'rating' : 'ratings'}` : 'No ratings yet'}
                     </span>
                     <span>{i.description || i.category}</span>
-                    <strong>{!ok ? 'CLOSED RIGHT NOW' : variants[0] ? `FROM ₹${price(variants[0])}` : 'TEMPORARILY UNAVAILABLE'}</strong>
+                    <strong>{!ok ? 'CLOSED RIGHT NOW' : displayVariant ? <span className="menu-price-line">{displayVariant === offer ? '' : 'FROM ' }₹{price(displayVariant)}{displayVariant === offer && Number(price(displayVariant)) < Number(displayVariant.price) && <s>₹{Number(displayVariant.price).toLocaleString('en-IN')}</s>}</span> : 'TEMPORARILY UNAVAILABLE'}</strong>
                   </span>
                 </button>
                 <button className="menu-add" disabled={!ok || !variants.length} onClick={() => addFromCard(i)} aria-label={`Add ${i.name} to cart`}>
@@ -919,7 +964,7 @@ function Home({
             </div>
             {(open.item_extras || []).some(e => e.is_available) && <div className="extra-picker"><b>Add extras</b>{open.item_extras.filter(e => e.is_available).map(x => <label key={x.id}><input type="checkbox" checked={selectedExtras.some(e => e.id === x.id)} onChange={e => setSelectedExtras(a => e.target.checked ? [...a, x] : a.filter(y => y.id !== x.id))} /><span>{x.name}</span><strong>+₹{x.price}</strong></label>)}</div>}
             {sorted(open).map(v => <div key={v.id} className="vr">
-                <span>₹{price(v)} &nbsp; {v.label}</span>
+                <span>{Number(price(v)) < Number(v.price) && <s>₹{Number(v.price).toLocaleString('en-IN')}</s>} ₹{price(v)} &nbsp; {v.label}</span>
                 <button className="pill" onClick={() => {
               add(open, v, selectedExtras);
               setOpen(null);
@@ -934,6 +979,7 @@ function Cart({
   cart,
   setCart,
   cfg,
+  catalogItems,
   me,
   say,
   done,
@@ -961,8 +1007,23 @@ function Cart({
     });
   }, [addr, coupon, customerName, me.id, ph, useCoins]);
 
-  // These numbers are only a preview. The server recalculates the real total.
-  const sub = cart.reduce((a, x) => a + x.price * x.qty, 0);
+  const regularUnitPrice = item => {
+    const variant = catalogItems.flatMap(menuItem => menuItem.item_variants || []).find(value => String(value.id) === String(item.vid));
+    const base = Number(item.regularPrice ?? variant?.price ?? item.price);
+    return base + (item.regularPrice == null && variant ? (item.extras || []).reduce((sum, extra) => sum + Number(extra.price || 0), 0) : 0);
+  };
+  const offerIsActive = cfg.offer_variant_id && cfg.offer_date && cfg.offer_date <= today() && (!cfg.offer_ends_at || new Date(cfg.offer_ends_at).getTime() > Date.now());
+  const selectedUnitPrice = (item, useDailyOffer) => {
+    if (useDailyOffer && offerIsActive && String(item.vid) === String(cfg.offer_variant_id)) {
+      const extras = (item.extras || []).reduce((sum, extra) => sum + Number(extra.price || 0), 0);
+      return Number(cfg.offer_price) + extras;
+    }
+    return regularUnitPrice(item);
+  };
+  // The daily deal, one coupon, and wallet coins are exclusive savings.
+  const useDailyOffer = !couponResult?.code && !useCoins;
+  const sub = cart.reduce((sum, item) => sum + selectedUnitPrice(item, useDailyOffer) * item.qty, 0);
+  const regularSubtotal = cart.reduce((sum, item) => sum + regularUnitPrice(item) * item.qty, 0);
   const couponDisc = Number(couponResult?.discount_amount || 0);
   const minDistance = Number(cfg.min_delivery_km || 0);
   const extraDistance = Math.max(0, (deliveryDistance ?? minDistance) - minDistance);
@@ -975,7 +1036,7 @@ function Cart({
   const beyondDeliveryRadius = deliveryDistance !== null && deliveryDistance > deliveryRadius;
   const minimumOrder = Number(cfg.min_order || 0);
   const minimumOrderMet = sub >= minimumOrder;
-  const disc = useCoins ? Math.min(Math.floor(me.coins / 100), Math.floor(Math.max(0, sub - couponDisc) * (cfg.max_coin_pct || 20) / 100)) : 0;
+  const disc = useCoins && !couponResult ? Math.min(Math.floor(me.coins / 100), Math.floor(Math.max(0, sub) * (cfg.max_coin_pct || 20) / 100)) : 0;
   const gstIncluded = Math.round(sub * 5 / 105);
   const total = Math.max(0, sub + deliveryFee - disc - couponDisc);
   const qty = (k, d) => {
@@ -1009,7 +1070,8 @@ function Cart({
         p_phone: ph,
         p_coupon_code: couponResult?.code || null,
         p_customer_name: customerName,
-        p_distance_km: deliveryDistance === null ? null : Number(deliveryDistance.toFixed(2))
+        p_distance_km: deliveryDistance === null ? null : Number(deliveryDistance.toFixed(2)),
+        p_use_offer: useDailyOffer
       });
       if (error) return say(error.message);
       setCart([]);
@@ -1033,7 +1095,7 @@ function Cart({
         error
       } = await sb.rpc('validate_coupon', {
         p_code: code,
-        p_subtotal: sub
+        p_subtotal: regularSubtotal
       });
       if (error) {
         setCouponResult(null);
@@ -1045,12 +1107,13 @@ function Cart({
       }
       setCouponResult(data);
       setCoupon(data.code);
+      setUseCoins(false);
       say(`Voucher applied · save ₹${data.discount_amount}`);
     } catch (error) {
       setCouponResult(null);
       say(error.message || 'Could not validate the voucher. Please try again.');
     }
-  }, [coupon, sub, say]);
+  }, [coupon, regularSubtotal, say]);
   useEffect(() => {
     if (voucherCode) {
       setCoupon(voucherCode);
@@ -1101,7 +1164,7 @@ function Cart({
           <b style={{
         width: 60,
         textAlign: 'right'
-      }}>₹{x.price * x.qty}</b>
+      }}>₹{selectedUnitPrice(x, useDailyOffer) * x.qty}</b>
         </motion.div>)}
       </AnimatePresence>
       <motion.div className="card customer-checkout-details" initial={reduceMotion ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.06 }}>
@@ -1115,9 +1178,17 @@ function Cart({
         <label className="row">
           <input type="checkbox" style={{
           width: 20
-        }} checked={useCoins} onChange={e => setUseCoins(e.target.checked)} />
+        }} checked={useCoins} onChange={e => {
+          const checked = e.target.checked;
+          setUseCoins(checked);
+          if (checked) {
+            setCouponResult(null);
+            setCoupon('');
+          }
+        }} />
           <span>Use coins (100 coins = ₹1). You have {me.coins}.</span>
         </label>
+        <small className="checkout-savings-note">Choose one saving per order: the daily deal, a coupon, or wallet coins.</small>
         <div className="coupon-entry"><input aria-label="Voucher code" placeholder="Coupon / voucher code" value={coupon} onChange={e => {
           setCoupon(e.target.value.toUpperCase());
           setCouponResult(null);
@@ -1332,13 +1403,24 @@ function Feed({
     }
   }, [key, me.id, say]);
   useEffect(() => {
-    if (!hasSnapshot.current) load();
+    // Keep cached posts visible while refreshing them when the Feed opens.
+    load();
   }, [load]);
   useEffect(() => {
     if (lastRefreshKey.current === refreshKey) return;
     lastRefreshKey.current = refreshKey;
     load();
   }, [load, refreshKey]);
+  useEffect(() => {
+    const channel = sb.channel(`customer-feed-live-${me.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'feed_posts' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'poll_options' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'poll_votes' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reactions' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, load)
+      .subscribe();
+    return () => sb.removeChannel(channel);
+  }, [load, me.id]);
   const vote = async (post, option) => {
     const {
       error

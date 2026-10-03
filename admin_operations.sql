@@ -287,6 +287,7 @@ begin
 end $$;
 
 drop function if exists public.place_order_with_coupon(jsonb,boolean,text,text,text);
+drop function if exists public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric);
 create or replace function public.place_order_with_coupon(
   p_items jsonb,
   p_use_coins boolean,
@@ -294,7 +295,8 @@ create or replace function public.place_order_with_coupon(
   p_phone text,
   p_coupon_code text default null,
   p_customer_name text default null,
-  p_distance_km numeric default null
+  p_distance_km numeric default null,
+  p_use_offer boolean default true
 )
 returns bigint language plpgsql security definer set search_path = public as $$
 declare
@@ -330,7 +332,9 @@ begin
 
   for r in select value from jsonb_array_elements(p_items) loop
     select vr.id as variant_id,vr.item_id,
-      case when vr.id=s.offer_variant_id and s.offer_date=today_ist()
+      case when coalesce(p_use_offer,true) and not coalesce(p_use_coins,false)
+        and nullif(upper(trim(coalesce(p_coupon_code,''))),'') is null
+        and vr.id=s.offer_variant_id and s.offer_date<=today_ist()
         and (s.offer_ends_at is null or s.offer_ends_at>now()) then s.offer_price else vr.price end as price,
       vr.label,i.name,i.brand_id,i.is_available,b.is_open
     into v from item_variants vr join menu_items i on i.id=vr.item_id join brands b on b.id=i.brand_id
@@ -366,6 +370,9 @@ begin
     delivery_fee_before_discount=v_delivery_fee_before_discount,gst_amount=v_gst_amount where id=v_oid;
 
   v_coupon_code:=nullif(upper(trim(coalesce(p_coupon_code,''))),'');
+  if v_coupon_code is not null and coalesce(p_use_coins,false) then
+    raise exception 'Apply either a coupon or wallet coins, not both';
+  end if;
   if v_coupon_code is not null then
     select * into c from coupons where code=v_coupon_code for update;
     if not found or not c.is_active then raise exception 'This coupon is not available'; end if;
@@ -498,14 +505,14 @@ end $$;
 
 revoke all on function public.validate_coupon(text,int) from public,anon;
 revoke all on function public.customer_available_coupons() from public,anon;
-revoke all on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric) from public,anon;
+revoke all on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric,boolean) from public,anon;
 revoke all on function public.admin_update_order(bigint,text,text,text,int) from public,anon;
 revoke all on function public.auto_reject_expired_orders() from public,anon,authenticated;
 revoke all on function public.admin_delete_outlet(text) from public,anon;
 revoke all on function public.set_order_status(bigint,order_status) from public,anon,authenticated;
 grant execute on function public.validate_coupon(text,int) to authenticated;
 grant execute on function public.customer_available_coupons() to authenticated;
-grant execute on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric) to authenticated;
+grant execute on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric,boolean) to authenticated;
 grant execute on function public.admin_update_order(bigint,text,text,text,int) to authenticated;
 grant execute on function public.admin_delete_outlet(text) to authenticated;
 revoke all on function public.place_order(jsonb,boolean,text,text) from public,anon,authenticated;
