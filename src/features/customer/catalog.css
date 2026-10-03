@@ -200,8 +200,12 @@
   }
 
   .offer-wrap .offer-countdown {
-    top: -20px;
-    right: 15px;
+    position: relative;
+    top: auto;
+    right: auto;
+    display: flex;
+    margin: 0 10px 12px auto;
+    width: max-content;
     min-height: 42px;
     box-sizing: border-box;
     padding: 7px 11px;
@@ -216,7 +220,7 @@
     position: absolute;
     right: 5px;
     bottom: 7px;
-    opacity: .34;
+    opacity: .16;
     pointer-events: none;
   }
 

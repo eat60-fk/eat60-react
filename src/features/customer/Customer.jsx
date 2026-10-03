@@ -139,7 +139,7 @@ function FloatingBack({
   onClick,
   label = 'Go back'
 }) {
-  return <button className="floating-back" type="button" onClick={onClick} aria-label={label}><span aria-hidden="true">←</span></button>;
+  return <button className="floating-back" type="button" onClick={onClick} aria-label={label}><span aria-hidden="true">×</span></button>;
 }
 function fetchFeedSnapshot(userId) {
   const pending = feedRequests.get(userId);
@@ -793,6 +793,7 @@ function Home({
   const [stories, setStories] = useState([]);
   const [seenStoryIds, setSeenStoryIds] = useState([]);
   const [storyIndex, setStoryIndex] = useState(null);
+  const [storyDuration, setStoryDuration] = useState(6000);
   const offerRef = useRef(null);
   const menuRef = useRef(null);
   const storyTimer = useRef(null);
@@ -846,13 +847,18 @@ function Home({
   useEffect(() => {
     if (storyIndex === null || !stories[storyIndex]) return undefined;
     const story = stories[storyIndex];
+    const duration = story.media_type === 'video' ? 30000 : 6000;
+    setStoryDuration(duration);
     sb.rpc('record_feed_story_view', { p_story_id: story.id }).then(({ error }) => {
       if (!error) setSeenStoryIds(current => current.includes(String(story.id)) ? current : [...current, String(story.id)]);
     });
-    if (story.media_type === 'video') return undefined;
-    storyTimer.current = window.setTimeout(advanceStory, 6000);
-    return () => window.clearTimeout(storyTimer.current);
+    return undefined;
   }, [storyIndex, stories, advanceStory]);
+  useEffect(() => {
+    if (storyIndex === null) return undefined;
+    storyTimer.current = window.setTimeout(advanceStory, storyDuration);
+    return () => window.clearTimeout(storyTimer.current);
+  }, [storyIndex, storyDuration, advanceStory]);
   useEffect(() => {
     if (!data.cfg.offer_variant_id || !data.cfg.offer_date || data.cfg.offer_date > today() || offerExpiry(data.cfg) <= Date.now()) return undefined;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
@@ -920,15 +926,15 @@ function Home({
       <AnimatePresence>
         {storyIndex !== null && stories[storyIndex] && <motion.div className={`story-viewer${stories[storyIndex].media_type === 'video' ? ' story-video-only' : ''}`} role="dialog" aria-modal="true" aria-label="EAT60 story" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeStory}>
           <div className="story-viewer-content" onClick={event => event.stopPropagation()}>
+            <div className="story-progress" aria-hidden="true">{stories.map((story, index) => <i key={story.id} className={`${index < storyIndex ? 'complete' : ''}${index === storyIndex ? ' current' : ''}`} style={index === storyIndex ? { '--story-duration': `${storyDuration}ms` } : undefined} />)}</div>
             {stories[storyIndex].media_type !== 'video' && <>
-              <div className="story-progress" aria-hidden="true">{stories.map((story, index) => <i key={story.id} className={index <= storyIndex ? 'seen' : ''} />)}</div>
               <header className="story-viewer-header"><span className="story-viewer-logo">EAT<b>60</b></span><strong>@eat60.in</strong><button type="button" onClick={closeStory} aria-label="Close story">×</button></header>
             </>}
             {stories[storyIndex].media_type === 'video' ? (getYouTubeEmbedUrl(stories[storyIndex].media_url)
               ? <iframe key={stories[storyIndex].id} className="story-youtube-embed" src={getYouTubeEmbedUrl(stories[storyIndex].media_url)} title="EAT60 story video" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
-              : <video key={stories[storyIndex].id} className="story-direct-video" src={stories[storyIndex].media_url} autoPlay playsInline onEnded={advanceStory} />)
+              : <video key={stories[storyIndex].id} className="story-direct-video" src={stories[storyIndex].media_url} autoPlay playsInline onLoadedMetadata={event => Number.isFinite(event.currentTarget.duration) && setStoryDuration(event.currentTarget.duration * 1000)} onEnded={advanceStory} />)
               : <img src={stories[storyIndex].media_url} alt={stories[storyIndex].caption || 'EAT60 story'} />}
-            {stories[storyIndex].media_type === 'video' && <button className="story-video-close-hit" type="button" onClick={closeStory} aria-label="Close story" />}
+            {stories[storyIndex].media_type === 'video' && <button className="story-video-close" type="button" onClick={closeStory} aria-label="Close story">×</button>}
             {stories[storyIndex].media_type !== 'video' && stories[storyIndex].caption && <p className="story-viewer-caption">{stories[storyIndex].caption}</p>}
             <button className="story-hit story-hit-prev" type="button" aria-label="Previous story" onClick={() => setStoryIndex(index => Math.max(0, index - 1))} />
             <button className="story-hit story-hit-next" type="button" aria-label="Next story" onClick={advanceStory} />
