@@ -65,7 +65,7 @@ function getYouTubeEmbedUrl(value) {
       ? segments[0]
       : url.searchParams.get('v') || (['shorts', 'embed', 'live'].includes(segments[0]) ? segments[1] : '');
     if (!videoId || !/^[\w-]{11}$/.test(videoId)) return '';
-    const params = new URLSearchParams({ autoplay: '1', controls: '0', playsinline: '1', rel: '0', modestbranding: '1' });
+    const params = new URLSearchParams({ autoplay: '1', controls: '0', disablekb: '1', fs: '0', playsinline: '1', rel: '0' });
     return `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`;
   } catch {
     return '';
@@ -791,6 +791,7 @@ function Home({
   const [shuffleIds, setShuffleIds] = useState([]);
   const [clock, setClock] = useState(Date.now());
   const [stories, setStories] = useState([]);
+  const [seenStoryIds, setSeenStoryIds] = useState([]);
   const [storyIndex, setStoryIndex] = useState(null);
   const offerRef = useRef(null);
   const menuRef = useRef(null);
@@ -800,8 +801,17 @@ function Home({
       .select('id,media_url,media_type,caption,created_at,expires_at')
       .gt('expires_at', new Date().toISOString())
       .order('created_at', { ascending: true });
-    if (!error) setStories(rows || []);
-  }, []);
+    if (error) return;
+    const activeStories = rows || [];
+    setStories(activeStories);
+    if (activeStories.length) {
+      const { data: views, error: viewsError } = await sb.from('feed_story_views')
+        .select('story_id')
+        .eq('user_id', me.id)
+        .in('story_id', activeStories.map(story => story.id));
+      if (!viewsError) setSeenStoryIds((views || []).map(view => String(view.story_id)));
+    } else setSeenStoryIds([]);
+  }, [me.id]);
   useEffect(() => {
     loadStories();
     const channel = sb.channel('customer-feed-stories')
@@ -836,7 +846,9 @@ function Home({
   useEffect(() => {
     if (storyIndex === null || !stories[storyIndex]) return undefined;
     const story = stories[storyIndex];
-    sb.rpc('record_feed_story_view', { p_story_id: story.id });
+    sb.rpc('record_feed_story_view', { p_story_id: story.id }).then(({ error }) => {
+      if (!error) setSeenStoryIds(current => current.includes(String(story.id)) ? current : [...current, String(story.id)]);
+    });
     if (story.media_type === 'video') return undefined;
     storyTimer.current = window.setTimeout(advanceStory, 6000);
     return () => window.clearTimeout(storyTimer.current);
@@ -861,6 +873,7 @@ function Home({
   const offerMinutes = Math.floor(offerRemaining % 3600000 / 60000);
   const offerSeconds = Math.floor(offerRemaining % 60000 / 1000);
   const offerCountdown = `${String(offerHours).padStart(2, '0')}:${String(offerMinutes).padStart(2, '0')}:${String(offerSeconds).padStart(2, '0')}`;
+  const allStoriesSeen = stories.length > 0 && stories.every(story => seenStoryIds.includes(String(story.id)));
   const adImage = String(data.cfg.home_ad_image_url || '').trim();
   const adStart = data.cfg.home_ad_starts_at ? new Date(data.cfg.home_ad_starts_at).getTime() : null;
   const adEnd = data.cfg.home_ad_ends_at ? new Date(data.cfg.home_ad_ends_at).getTime() : null;
@@ -898,7 +911,7 @@ function Home({
   return <>
       <div className={`quick-actions${stories.length ? ' has-active-story' : ''}`}>
         <button onClick={() => goMore('profile')}><i className="quick-icon profile-icon"><ProfileAvatar avatarId={me.avatar_id} /></i><span>{me.username || me.name || 'My Profile'}</span></button>
-        {stories.length > 0 && <button className="quick-story-button" type="button" onClick={() => setStoryIndex(0)} aria-label={`Watch ${stories.length} EAT60 stories`}><i className="quick-icon story-active-icon"><span className="brand-story-logo">EAT<b>60</b></span></i><span>@eat60.in</span></button>}
+        {stories.length > 0 && <button className="quick-story-button" type="button" onClick={() => setStoryIndex(0)} aria-label={`Watch ${stories.length} EAT60 stories${allStoriesSeen ? ', viewed' : ''}`}><i className={`quick-icon story-active-icon${allStoriesSeen ? ' story-seen' : ''}`}><span className="brand-story-logo">EAT<b>60</b></span></i><span>@eat60.in</span></button>}
         <button onClick={() => goGames()}><i className="quick-icon game-icon"><ActionIcon name="game" /></i><span>Play Game</span></button>
         <button onClick={scrollToOffer}><i className="quick-icon offer-icon"><b>50%</b><small>OFF</small></i><span>Offers & Coupon</span></button>
         <button onClick={() => data.cfg.tiffin_url ? window.open(data.cfg.tiffin_url, '_blank', 'noopener,noreferrer') : say('Tiffin service details are coming soon')}><i className="quick-icon tiffin-icon"><ActionIcon name="tiffin" /></i><span>Tiffin Service</span></button>

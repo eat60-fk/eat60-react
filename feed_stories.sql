@@ -44,8 +44,9 @@ drop policy if exists "admins delete stories" on public.feed_stories;
 create policy "admins delete stories" on public.feed_stories
   for delete to authenticated using (public.is_admin());
 drop policy if exists "admins read story views" on public.feed_story_views;
-create policy "admins read story views" on public.feed_story_views
-  for select to authenticated using (public.is_admin());
+drop policy if exists "owners and admins read story views" on public.feed_story_views;
+create policy "owners and admins read story views" on public.feed_story_views
+  for select to authenticated using (user_id = auth.uid() or public.is_admin());
 
 -- View recording is server-side so viewers cannot read or alter the private totals.
 create or replace function public.record_feed_story_view(p_story_id bigint)

@@ -1452,6 +1452,7 @@ nav b {
 .story-video-only { background: #000 }
 .story-video-only .story-viewer-content { width: min(100vw,56.25dvh); height: 100dvh; max-height: 100dvh; border-radius: 0; background: #000 }
 .story-youtube-embed,.story-direct-video { position: relative; z-index: 0; display: block; width: 100%; height: 100%; border: 0; background: #000; object-fit: contain }
+.story-youtube-embed { pointer-events: none }
 .story-video-close-hit { position: absolute; z-index: 3; top: 0; right: 0; width: 56px; height: 58px; padding: 0; background: transparent }
 .story-viewer-caption { position: absolute; z-index: 2; right: 16px; bottom: max(24px,env(safe-area-inset-bottom)); left: 16px; margin: 0; color: white; text-align: center; text-shadow: 0 1px 6px #000; font-weight: 700 }
 .story-hit { position: absolute; z-index: 1; top: 70px; bottom: 70px; width: 35%; padding: 0; background: transparent }
@@ -1473,10 +1474,37 @@ nav b {
   background: #303030
 }
 .quick-actions .story-active-icon {
+  position: relative;
   border: 3px solid transparent;
   background: linear-gradient(#171815,#171815) padding-box,linear-gradient(135deg,#b8f04a,#00c78b,#b8f04a) border-box;
   box-shadow: 0 0 0 2px #b8f04a30;
 }
+.quick-actions .story-active-icon .brand-story-logo { font-size: clamp(24px,3.5vw,43px) }
+.quick-actions .story-active-icon::after {
+  position: absolute;
+  bottom: 2%;
+  right: 2%;
+  display: grid;
+  width: clamp(18px,2vw,26px);
+  aspect-ratio: 1;
+  place-items: center;
+  border: 2px solid #171815;
+  border-radius: 50%;
+  background: #2787ed;
+  color: #fff;
+  content: '✓';
+  font-family: Arial,sans-serif;
+  font-size: clamp(10px,1.35vw,14px);
+  font-style: normal;
+  font-weight: 900;
+}
+.quick-actions .story-active-icon.story-seen {
+  border-color: #666;
+  background: #242424;
+  box-shadow: none;
+}
+.quick-actions button:hover .story-active-icon.story-seen { background: #303030 }
+.quick-actions .story-active-icon.story-seen::after { border-color: #242424 }
 .quick-actions button:hover .story-active-icon {
   background: linear-gradient(#252720,#252720) padding-box,linear-gradient(135deg,#b8f04a,#00c78b,#b8f04a) border-box;
 }
@@ -2294,6 +2322,8 @@ nav b {
     width: min(20vw,110px);
     font-size: clamp(31.28px,8.28vw,53.36px)
   }
+  .quick-actions.has-active-story { gap: 4px }
+  .quick-actions.has-active-story .quick-icon { width: min(16vw,90px) }
   .offer-card {
     min-height: 180px;
     margin: 0 0 30px;
@@ -6090,9 +6120,6 @@ nav b {
 .admin-story-meta small { color: #aaa; font-size: 10px }
 .admin-story-meta strong { color: #b8f04a }
 @media (max-width: 640px) {
-  .brand-story-rail { margin: -22px 0 28px }
-  .brand-story-button { min-width: 70px }
-  .brand-story-ring { width: 64px }
   .story-viewer { padding: 0; }
   .story-viewer-content { width: 100%; height: 100dvh; max-height: none; border-radius: 0 }
   .story-video-only .story-viewer-content { width: min(100vw,56.25dvh); height: min(100dvh,177.78vw); max-height: none; margin: auto }
