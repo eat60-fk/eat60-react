@@ -1676,13 +1676,20 @@ function AdminFeed() {
   const [likes, setLikes] = useState([]);
   const [userId, setUserId] = useState('');
   const [reply, setReply] = useState({});
+  const [storyUrl, setStoryUrl] = useState('');
+  const [storyCaption, setStoryCaption] = useState('');
+  const [storyType, setStoryType] = useState('image');
+  const [stories, setStories] = useState([]);
+  const [storyViews, setStoryViews] = useState([]);
   const load = useCallback(async () => {
-    const [p, c, l, u] = await Promise.all([sb.from('feed_posts').select('id,kind,body,image_url,created_at').order('created_at', {
+    const [p, c, l, u, s, v] = await Promise.all([sb.from('feed_posts').select('id,kind,body,image_url,created_at').order('created_at', {
       ascending: false
-    }), sb.from('feed_comments').select('*').order('created_at'), sb.from('reaction_counts').select('*').eq('emoji', '❤️'), sb.auth.getUser()]);
+    }), sb.from('feed_comments').select('*').order('created_at'), sb.from('reaction_counts').select('*').eq('emoji', '❤️'), sb.auth.getUser(), sb.from('feed_stories').select('id,media_url,media_type,caption,created_at,expires_at').order('created_at', { ascending: false }), sb.from('feed_story_views').select('story_id')]);
     if (p.error) setMsg(p.error.message);else setPosts(p.data || []);
     if (!c.error) setComments(c.data || []);
     if (!l.error) setLikes(l.data || []);
+    if (!s.error) setStories(s.data || []);
+    if (!v.error) setStoryViews(v.data || []);
     setUserId(u.data?.user?.id || '');
   }, []);
   useEffect(() => {
@@ -1697,6 +1704,14 @@ function AdminFeed() {
       event: '*',
       schema: 'public',
       table: 'reactions'
+    }, load).on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'feed_stories'
+    }, load).on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'feed_story_views'
     }, load).subscribe();
     return () => sb.removeChannel(ch);
   }, [load]);
@@ -1739,6 +1754,33 @@ function AdminFeed() {
     await load();
     setBusy(false);
   };
+  const publishStory = async () => {
+    const url = storyUrl.trim();
+    if (!/^https?:\/\//i.test(url)) return setMsg('Enter a valid public image or video URL.');
+    setBusy(true);
+    setMsg('');
+    const { error } = await sb.from('feed_stories').insert({
+      media_url: url,
+      media_type: storyType,
+      caption: storyCaption.trim() || null
+    });
+    if (error) setMsg(error.message);
+    else {
+      setStoryUrl('');
+      setStoryCaption('');
+      setMsg('Story published. It will expire automatically after 24 hours.');
+      await load();
+    }
+    setBusy(false);
+  };
+  const deleteStory = async story => {
+    const { error } = await sb.from('feed_stories').delete().eq('id', story.id);
+    if (error) setMsg(error.message);
+    else {
+      setStories(current => current.filter(row => row.id !== story.id));
+      setStoryViews(current => current.filter(row => row.story_id !== story.id));
+    }
+  };
   const sendReply = async commentId => {
     const text = (reply[commentId] || '').trim();
     if (!text || !userId) return;
@@ -1768,7 +1810,12 @@ function AdminFeed() {
     setComments(current => current.filter(comment => comment.post_id !== deleteTarget.id));
     return null;
   };
-  return <><section className="admin-content"><div className="admin-page-heading"><div><p>CUSTOMER COMMUNITY</p><h2>Feed studio</h2><span>Publish announcements for live in-app alerts, share posts, and reply to customers.</span></div><span className="admin-total-chip">{posts.length} posts</span></div><div className="admin-feed-editor"><div className="admin-feed-editor-heading"><div className="admin-feed-icon">✳</div><div><b>Write an announcement or post</b><small>News announcements appear as a live full-screen alert for customers</small></div></div><label>YOUR POST<textarea value={body} onChange={event => setBody(event.target.value)} maxLength={1000} placeholder="Share an announcement, offer, or question…" /></label><div className="admin-feed-count">{body.length} / 1000</div><label>IMAGE URL <span>(optional)</span><input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://…" /></label><label>POLL OPTIONS <span>(optional, comma-separated)</span><input value={opts} onChange={event => setOpts(event.target.value)} placeholder="For a poll: Pizza, Burger, Wraps" /></label><button className="admin-primary" disabled={busy || !body.trim()} onClick={publish}>{busy ? 'Publishing…' : 'Publish to feed'} <span>→</span></button>{msg && <p className="admin-feedback" role="status">{msg}</p>}</div><h3 className="admin-list-title">Live feed and conversations</h3><div className="admin-feed-list">{posts.map(p => {
+  const storyCount = story => storyViews.filter(row => String(row.story_id) === String(story.id)).length;
+  return <><section className="admin-content"><div className="admin-page-heading"><div><p>CUSTOMER COMMUNITY</p><h2>Feed studio</h2><span>Publish announcements for live in-app alerts, share posts, and reply to customers.</span></div><span className="admin-total-chip">{posts.length} posts</span></div>
+  <div className="admin-story-studio"><div className="admin-feed-editor-heading"><div className="admin-feed-icon">◉</div><div><b>EAT60 Stories</b><small>Full-screen customer stories disappear after 24 hours. View totals are private to admins.</small></div></div><div className="admin-story-fields"><label>MEDIA TYPE<select value={storyType} onChange={event => setStoryType(event.target.value)}><option value="image">Image</option><option value="video">Video</option></select></label><label>PUBLIC MEDIA URL<input value={storyUrl} onChange={event => setStoryUrl(event.target.value)} placeholder="https://…" />{storyType === 'video' && <small className="admin-story-help">Paste a YouTube Shorts link or a direct video file URL.</small>}</label></div><label className="admin-story-caption-label">CAPTION <span>(optional)</span><input value={storyCaption} onChange={event => setStoryCaption(event.target.value)} maxLength={160} placeholder="Add a short story caption" /></label><button className="admin-primary" disabled={busy || !storyUrl.trim()} onClick={publishStory}>{busy ? 'Publishing…' : 'Publish 24-hour story'} <span>→</span></button>{msg && <p className="admin-feedback" role="status">{msg}</p>}
+    <div className="admin-story-list">{stories.map(story => <article className="admin-story-row" key={story.id}><div className="admin-story-thumb">{story.media_type === 'video' ? <video src={story.media_url} muted playsInline /> : <img src={story.media_url} alt="" />}</div><div className="admin-story-meta"><b>{story.caption || `${story.media_type} story`}</b><small>Expires {new Date(story.expires_at).toLocaleString()} · <strong>{storyCount(story)} views</strong></small></div><button type="button" className="admin-cancel-order" onClick={() => deleteStory(story)}>Delete</button></article>)}</div>
+  </div>
+  <div className="admin-feed-editor"><div className="admin-feed-editor-heading"><div className="admin-feed-icon">✳</div><div><b>Write an announcement or post</b><small>News announcements appear as a live full-screen alert for customers</small></div></div><label>YOUR POST<textarea value={body} onChange={event => setBody(event.target.value)} maxLength={1000} placeholder="Share an announcement, offer, or question…" /></label><div className="admin-feed-count">{body.length} / 1000</div><label>IMAGE URL <span>(optional)</span><input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://…" /></label><label>POLL OPTIONS <span>(optional, comma-separated)</span><input value={opts} onChange={event => setOpts(event.target.value)} placeholder="For a poll: Pizza, Burger, Wraps" /></label><button className="admin-primary" disabled={busy || !body.trim()} onClick={publish}>{busy ? 'Publishing…' : 'Publish to feed'} <span>→</span></button></div><h3 className="admin-list-title">Live feed and conversations</h3><div className="admin-feed-list">{posts.map(p => {
           const postComments = comments.filter(c => c.post_id === p.id);
           const topComments = postComments.filter(c => !c.parent_comment_id);
           return <article className="admin-feed-post-card" key={p.id}><div><span>{p.kind === 'poll' ? 'POLL' : 'POST'} · {new Date(p.created_at).toLocaleDateString()}</span><p>{p.body}</p>{p.image_url && <img className="admin-feed-preview" src={p.image_url} alt="" />}<div className="admin-feed-stats"><b>♥ {likes.find(x => x.post_id === p.id)?.total || 0} likes</b><b>▢ {postComments.length} comments</b></div>{topComments.map(c => <div className="admin-comment-thread" key={c.id}><p><b>{c.author}</b><span>{c.body}</span></p>{postComments.filter(r => r.parent_comment_id === c.id).map(r => <p className="admin-comment-reply" key={r.id}><b>{r.author} · EAT60</b><span>{r.body}</span></p>)}<div className="admin-reply-form"><input maxLength={300} value={reply[c.id] || ''} onChange={e => setReply(r => ({

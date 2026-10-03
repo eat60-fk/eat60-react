@@ -54,6 +54,23 @@ const CATEGORY_ICONS = {
   Maggie: '🍜',
   Chinese: '🥡'
 };
+// Convert common YouTube URLs, including Shorts links, into a quiet inline embed.
+function getYouTubeEmbedUrl(value) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, '').replace(/^m\./, '');
+    if (host !== 'youtube.com' && host !== 'youtu.be') return '';
+    const segments = url.pathname.split('/').filter(Boolean);
+    const videoId = host === 'youtu.be'
+      ? segments[0]
+      : url.searchParams.get('v') || (['shorts', 'embed', 'live'].includes(segments[0]) ? segments[1] : '');
+    if (!videoId || !/^[\w-]{11}$/.test(videoId)) return '';
+    const params = new URLSearchParams({ autoplay: '1', controls: '0', playsinline: '1', rel: '0', modestbranding: '1' });
+    return `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`;
+  } catch {
+    return '';
+  }
+}
 const PROFILE_AVATAR_COUNT = 10;
 const GENDER_OPTIONS = [
   { value: 'male', label: 'Male' },
@@ -773,8 +790,57 @@ function Home({
   const [stockFilter, setStockFilter] = useState('in-stock');
   const [shuffleIds, setShuffleIds] = useState([]);
   const [clock, setClock] = useState(Date.now());
+  const [stories, setStories] = useState([]);
+  const [storyIndex, setStoryIndex] = useState(null);
   const offerRef = useRef(null);
   const menuRef = useRef(null);
+  const storyTimer = useRef(null);
+  const loadStories = useCallback(async () => {
+    const { data: rows, error } = await sb.from('feed_stories')
+      .select('id,media_url,media_type,caption,created_at,expires_at')
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: true });
+    if (!error) setStories(rows || []);
+  }, []);
+  useEffect(() => {
+    loadStories();
+    const channel = sb.channel('customer-feed-stories')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'feed_stories' }, loadStories)
+      .subscribe();
+    return () => {
+      sb.removeChannel(channel);
+      window.clearTimeout(storyTimer.current);
+    };
+  }, [loadStories]);
+  const closeStory = useCallback(() => {
+    setStoryIndex(null);
+    window.clearTimeout(storyTimer.current);
+  }, []);
+  const advanceStory = useCallback(() => {
+    setStoryIndex(index => {
+      if (index === null) return null;
+      if (index + 1 >= stories.length) return null;
+      return index + 1;
+    });
+  }, [stories.length]);
+  useEffect(() => {
+    if (storyIndex === null) return undefined;
+    const onKeyDown = event => {
+      if (event.key === 'Escape') closeStory();
+      if (event.key === 'ArrowRight') advanceStory();
+      if (event.key === 'ArrowLeft') setStoryIndex(index => Math.max(0, (index ?? 0) - 1));
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [storyIndex, closeStory, advanceStory]);
+  useEffect(() => {
+    if (storyIndex === null || !stories[storyIndex]) return undefined;
+    const story = stories[storyIndex];
+    sb.rpc('record_feed_story_view', { p_story_id: story.id });
+    if (story.media_type === 'video') return undefined;
+    storyTimer.current = window.setTimeout(advanceStory, 6000);
+    return () => window.clearTimeout(storyTimer.current);
+  }, [storyIndex, stories, advanceStory]);
   useEffect(() => {
     if (!data.cfg.offer_variant_id || !data.cfg.offer_date || data.cfg.offer_date > today() || offerExpiry(data.cfg) <= Date.now()) return undefined;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
@@ -830,12 +896,32 @@ function Home({
     }
   };
   return <>
-      <div className="quick-actions">
+      <div className={`quick-actions${stories.length ? ' has-active-story' : ''}`}>
         <button onClick={() => goMore('profile')}><i className="quick-icon profile-icon"><ProfileAvatar avatarId={me.avatar_id} /></i><span>{me.username || me.name || 'My Profile'}</span></button>
+        {stories.length > 0 && <button className="quick-story-button" type="button" onClick={() => setStoryIndex(0)} aria-label={`Watch ${stories.length} EAT60 stories`}><i className="quick-icon story-active-icon"><span className="brand-story-logo">EAT<b>60</b></span></i><span>@eat60.in</span></button>}
         <button onClick={() => goGames()}><i className="quick-icon game-icon"><ActionIcon name="game" /></i><span>Play Game</span></button>
         <button onClick={scrollToOffer}><i className="quick-icon offer-icon"><b>50%</b><small>OFF</small></i><span>Offers & Coupon</span></button>
         <button onClick={() => data.cfg.tiffin_url ? window.open(data.cfg.tiffin_url, '_blank', 'noopener,noreferrer') : say('Tiffin service details are coming soon')}><i className="quick-icon tiffin-icon"><ActionIcon name="tiffin" /></i><span>Tiffin Service</span></button>
       </div>
+
+      <AnimatePresence>
+        {storyIndex !== null && stories[storyIndex] && <motion.div className={`story-viewer${stories[storyIndex].media_type === 'video' ? ' story-video-only' : ''}`} role="dialog" aria-modal="true" aria-label="EAT60 story" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeStory}>
+          <div className="story-viewer-content" onClick={event => event.stopPropagation()}>
+            {stories[storyIndex].media_type !== 'video' && <>
+              <div className="story-progress" aria-hidden="true">{stories.map((story, index) => <i key={story.id} className={index <= storyIndex ? 'seen' : ''} />)}</div>
+              <header className="story-viewer-header"><span className="story-viewer-logo">EAT<b>60</b></span><strong>@eat60.in</strong><button type="button" onClick={closeStory} aria-label="Close story">×</button></header>
+            </>}
+            {stories[storyIndex].media_type === 'video' ? (getYouTubeEmbedUrl(stories[storyIndex].media_url)
+              ? <iframe key={stories[storyIndex].id} className="story-youtube-embed" src={getYouTubeEmbedUrl(stories[storyIndex].media_url)} title="EAT60 story video" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
+              : <video key={stories[storyIndex].id} className="story-direct-video" src={stories[storyIndex].media_url} autoPlay playsInline onEnded={advanceStory} />)
+              : <img src={stories[storyIndex].media_url} alt={stories[storyIndex].caption || 'EAT60 story'} />}
+            {stories[storyIndex].media_type === 'video' && <button className="story-video-close-hit" type="button" onClick={closeStory} aria-label="Close story" />}
+            {stories[storyIndex].media_type !== 'video' && stories[storyIndex].caption && <p className="story-viewer-caption">{stories[storyIndex].caption}</p>}
+            <button className="story-hit story-hit-prev" type="button" aria-label="Previous story" onClick={() => setStoryIndex(index => Math.max(0, index - 1))} />
+            <button className="story-hit story-hit-next" type="button" aria-label="Next story" onClick={advanceStory} />
+          </div>
+        </motion.div>}
+      </AnimatePresence>
 
       {showPartnerAd && (adLink ? <a className="home-partner-ad" href={adLink} target="_blank" rel="noopener noreferrer" aria-label={data.cfg.home_ad_alt || 'Partner promotion'}>
           <img src={adImage} alt={data.cfg.home_ad_alt || 'Partner promotion'} loading="lazy" />
