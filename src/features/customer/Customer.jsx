@@ -842,16 +842,18 @@ function Home({
           <span>PARTNER SPOTLIGHT <i aria-hidden="true">↗</i></span>
         </a> : <div className="home-partner-ad"><img src={adImage} alt={data.cfg.home_ad_alt || 'Partner promotion'} loading="lazy" /><span>PARTNER SPOTLIGHT</span></div>)}
 
-      {offerItem && <div className="offer-card" id="daily-offer" ref={offerRef}>
+      {offerItem && <div className="offer-wrap">
+        <small className="offer-countdown" aria-live="off"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>ENDS IN {offerCountdown}</small>
+        <div className="offer-card" id="daily-offer" ref={offerRef}>
           <div>
             <h2>{data.cfg.offer_title || 'OFFER OF THE DAY'}</h2>
             <small>{data.cfg.offer_message || 'GRAB THIS OFFER BEFORE IT ENDS'}</small>
-            <small className="offer-countdown" aria-live="off"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>ENDS IN {offerCountdown}</small>
             <p>GET {offerItem.name.toUpperCase()} <span className="offer-price-line">@ ₹{data.cfg.offer_price}/-</span>{Number(data.cfg.offer_price) < Number(activeVariant(offerItem)?.price) && <s className="offer-original-price">₹{Number(activeVariant(offerItem)?.price).toLocaleString('en-IN')}</s>}</p>
             <button className="offer-add" onClick={() => add(offerItem, activeVariant(offerItem))}>Add to cart <span>→</span></button>
           </div>
           <div className="offer-art" aria-hidden="true">🍕</div>
-        </div>}
+        </div>
+      </div>}
 
       <section className="category-section">
         <div className="section-heading"><h2>CATEGORIES</h2>{(c || b) && <button onClick={() => {

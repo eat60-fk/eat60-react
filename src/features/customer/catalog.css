@@ -1,31 +1,39 @@
-/* Offer card clock and crossed-out sale pricing. */
+/* Float the offer clock above the card, as on the supplied reference. */
+.offer-wrap {
+  position: relative;
+  margin: 0 10px 40px;
+}
+
 .offer-card {
   isolation: isolate;
+  margin: 0;
 }
 
 .offer-card > div:first-child {
   position: relative;
   z-index: 1;
-  width: min(100%, 980px);
+  width: min(75%, 980px);
 }
 
-.offer-card h2 {
-  max-width: calc(100% - 190px);
-}
-
-.offer-card .offer-countdown {
+.offer-wrap .offer-countdown {
   position: absolute;
-  top: 22px;
-  right: 26px;
-  z-index: 2;
+  top: -27px;
+  right: 5%;
+  z-index: 4;
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  min-height: 52px;
+  box-sizing: border-box;
   margin: 0;
-  padding: 9px 13px;
-  background: #171914;
+  padding: 9px 15px;
+  border: 1px solid #171914;
+  border-radius: 999px;
+  background: #292929;
+  color: #c6f26b;
+  box-shadow: 0 5px 14px #0005;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 850;
 }
 
@@ -188,19 +196,15 @@
   }
 
   .offer-card > div:first-child {
-    padding-top: 36px;
+    width: 100%;
   }
 
-  .offer-card h2 {
-    max-width: 100%;
-  }
-
-  .offer-card .offer-countdown {
-    top: 15px;
+  .offer-wrap .offer-countdown {
+    top: -20px;
     right: 15px;
-    min-height: 36px;
+    min-height: 42px;
     box-sizing: border-box;
-    padding: 7px 10px;
+    padding: 7px 11px;
     font-size: 10px;
   }
 
