@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { isSupabaseConfigured, sb } from './lib/supabase';
 import PoweredFooter from './components/PoweredFooter';
 import LoadingIndicator from './components/LoadingIndicator';
@@ -6,6 +6,7 @@ import { resolveAdminAccess } from './lib/adminAccess';
 import { updateRouteMetadata } from './lib/routeMetadata';
 import { isNetworkError, readOfflineCache, writeOfflineCache } from './lib/offlineCache';
 import { isAdminPath } from './lib/adminRoutes';
+import { firebaseConfig, isFirebaseSyncConfigured } from './lib/firebaseConfig';
 const Customer = lazy(() => import('./features/customer/Customer'));
 const Admin = lazy(() => import('./features/admin/Admin'));
 const DownloadPage = lazy(() => import('./components/DownloadPage'));
@@ -28,6 +29,9 @@ function Login({
   const [messageType, setMessageType] = useState('error');
   const [busy, setBusy] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
+  const [googleReady, setGoogleReady] = useState(false);
+  const googleButtonRef = useRef(null);
+  const googleFlowRef = useRef(null);
   const signup = mode === 'signup';
   useEffect(() => {
     writeOfflineCache('signup-referral-code', referralCode);
@@ -59,6 +63,76 @@ function Login({
       setBusy(false);
     }
   };
+  googleFlowRef.current = async credential => {
+    setBusy(true);
+    setMsg('');
+    setMessageType('error');
+    try {
+      const { createFirebaseSession, syncFirebaseProfile } = await import('./lib/firebaseSync');
+      const firebaseSession = await createFirebaseSession(credential);
+      const { data, error } = await sb.auth.signInWithIdToken({
+        provider: 'google',
+        token: credential
+      });
+      if (error) throw error;
+      if (!data.user?.email || data.user.email.trim().toLowerCase() !== firebaseSession.email.trim().toLowerCase()) {
+        await sb.auth.signOut();
+        throw new Error('The Google and EAT60 account emails do not match.');
+      }
+      try {
+        await syncFirebaseProfile(firebaseSession, data.user);
+      } catch (syncError) {
+        await sb.auth.signOut();
+        throw new Error(`Firestore profile sync failed: ${syncError.message}`);
+      }
+    } catch (error) {
+      setMsg(error.message || 'Unable to connect Google, Firebase, and EAT60.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (adminOnly || !isFirebaseSyncConfigured || !googleButtonRef.current) return;
+    const renderGoogleButton = () => {
+      if (!window.google?.accounts?.id || !googleButtonRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: firebaseConfig.googleClientId,
+        callback: response => {
+          if (response.credential) googleFlowRef.current?.(response.credential);
+          else setMsg('Google did not return a sign-in credential. Please try again.');
+        },
+        ux_mode: 'popup',
+        auto_select: false
+      });
+      googleButtonRef.current.replaceChildren();
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        type: 'standard',
+        theme: 'filled_black',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'rectangular',
+        width: Math.min(googleButtonRef.current.clientWidth || 360, 400),
+        logo_alignment: 'left'
+      });
+      setGoogleReady(true);
+    };
+    let script = document.getElementById('google-identity-services');
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+      return;
+    }
+    if (!script) {
+      script = document.createElement('script');
+      script.id = 'google-identity-services';
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+    script.addEventListener('load', renderGoogleButton);
+    script.addEventListener('error', () => setMsg('Google sign-in could not load. Check your connection and try again.'));
+    return () => script.removeEventListener('load', renderGoogleButton);
+  }, [adminOnly]);
   const submit = async signup => {
     setMessageType('error');
     if (!email.trim()) return setMsg('Enter your email address to continue.');
@@ -143,10 +217,15 @@ function Login({
             <p className="auth-subtitle">{adminOnly ? 'Sign in with an authorized administrator account.' : signup ? 'Sign up to order your local favourites.' : 'Sign in to pick up where your cravings left off.'}</p>
           </div>
 
-          {!adminOnly && <button className="google-button" type="button" disabled={busy} onClick={google}>
+          {!adminOnly && isFirebaseSyncConfigured && <div className="google-button-wrap">
+            <div className={`google-button-host${busy ? ' is-busy' : ''}`} ref={googleButtonRef} aria-label="Continue with Google" />
+            {!googleReady && <span className="google-button-loading">Loading Google sign in…</span>}
+            {busy && <span className="google-button-busy">Connecting…</span>}
+          </div>}
+          {!adminOnly && !isFirebaseSyncConfigured && <><button className="google-button" type="button" disabled={busy} onClick={google}>
             <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11a9.4 9.4 0 0 1-4.1 6.2v5h6.6c3.9-3.6 6.1-8.8 6.1-14.9Z" /><path fill="#FF3D00" d="M24 44c5.5 0 10.1-1.8 13.5-4.9l-6.6-5c-1.8 1.2-4 2-6.9 2-5.3 0-9.8-3.6-11.4-8.4H5.8v5.2A20 20 0 0 0 24 44Z" /><path fill="#4CAF50" d="M12.6 27.7a12 12 0 0 1 0-7.4v-5.2H5.8a20 20 0 0 0 0 17.8l6.8-5.2Z" /><path fill="#1976D2" d="M24 12c3 0 5.7 1 7.8 3.1l5.8-5.8A19.4 19.4 0 0 0 24 4 20 20 0 0 0 5.8 15.1l6.8 5.2C14.2 15.6 18.7 12 24 12Z" /></svg>
             <span>Continue with Google</span>
-          </button>}
+          </button><p className="google-sync-setup">Add Firebase web settings to enable Google and Firestore account sync.</p></>}
 
           {!adminOnly && <div className="auth-divider"><span>or continue with email</span></div>}
 

@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{firebaseUid} {
+      // A Google account can read only its own identity mirror.
+      allow get: if request.auth != null
+        && request.auth.uid == firebaseUid
+        && request.auth.token.email_verified == true
+        && resource.data.email == request.auth.token.email;
+
+      // Mirror fields are restricted to profile identity and a matching EAT60 UUID.
+      allow create, update: if request.auth != null
+        && request.auth.uid == firebaseUid
+        && request.auth.token.email_verified == true
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly([
+          'email',
+          'supabaseUserId',
+          'displayName',
+          'photoURL',
+          'updatedAt'
+        ])
+        && request.resource.data.supabaseUserId is string
+        && request.resource.data.displayName is string
+        && request.resource.data.photoURL is string
+        && request.resource.data.updatedAt is timestamp;
+
+      allow list, delete: if false;
+    }
+  }
+}

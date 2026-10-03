@@ -21,7 +21,6 @@ const offerExpiry = cfg => {
   const [year, month, day] = cfg.offer_date.split('-').map(Number);
   return Date.UTC(year, month - 1, day + 1) - 330 * 60 * 1000;
 };
-const CATS = ['Pizza', 'Burger', 'Sandwich', 'Maggie', 'Chinese', 'Wraps'];
 const LABEL = {
   placed: 'Placed',
   pending: 'Awaiting kitchen',
@@ -751,12 +750,15 @@ function Home({
   const [selectedExtras, setSelectedExtras] = useState([]);
   const [clock, setClock] = useState(Date.now());
   const offerRef = useRef(null);
+  const menuRef = useRef(null);
   useEffect(() => {
     if (!data.cfg.offer_variant_id || data.cfg.offer_date !== today()) return undefined;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [data.cfg.offer_date, data.cfg.offer_variant_id]);
   const brand = id => data.brands.find(x => x.id === id);
+  const categories = [...new Set(data.items.map(item => String(item.category || '').trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
   const items = data.items.filter(i => (!b || i.brand_id === b) && (!c || i.category === c) && (i.name + (i.description || '')).toLowerCase().includes(q.toLowerCase()));
   const scheduledOffer = data.cfg.offer_date === today() && data.items.find(i => i.item_variants.some(v => Number(v.id) === Number(data.cfg.offer_variant_id)));
   const offerEndsAt = offerExpiry(data.cfg);
@@ -779,6 +781,12 @@ function Home({
       behavior: 'smooth',
       block: 'center'
     });
+  };
+  const scrollToMenu = () => {
+    window.requestAnimationFrame(() => menuRef.current?.scrollIntoView({
+      behavior: reduceMotion ? 'auto' : 'smooth',
+      block: 'start'
+    }));
   };
   const addFromCard = item => {
     if (!item.is_available || !brand(item.brand_id)?.is_open) return say('This outlet is closed right now');
@@ -819,12 +827,18 @@ function Home({
           setB('');
         }}>Clear filters</button>}</div>
         <div className="category-scroller">
-          {CATS.map(x => <button key={x} className={`category-button${c === x ? ' selected' : ''}`} onClick={() => setC(c === x ? '' : x)}>
-              <i>{CATEGORY_ICONS[x]}</i><span>{x}</span>
+          {categories.map(x => <button key={x} className={`category-button${c === x ? ' selected' : ''}`} onClick={() => {
+            setC(c === x ? '' : x);
+            scrollToMenu();
+          }}>
+              <i>{CATEGORY_ICONS[x] || '🍽️'}</i><span>{x}</span>
             </button>)}
         </div>
         <div className="brand-scroller" aria-label="Filter by restaurant">
-          {data.brands.map(x => <button key={x.id} className={`brand-chip${b === x.id ? ' selected' : ''}`} onClick={() => setB(b === x.id ? '' : x.id)}>{x.emoji} {x.name}</button>)}
+          {data.brands.map(x => <button key={x.id} className={`brand-chip${b === x.id ? ' selected' : ''}`} onClick={() => {
+            setB(b === x.id ? '' : x.id);
+            scrollToMenu();
+          }}>{x.emoji} {x.name}</button>)}
         </div>
       </section>
 
@@ -834,8 +848,8 @@ function Home({
         {q && <button onClick={() => setQ('')} aria-label="Clear search">×</button>}
       </label>
 
-      <section className="menu-section">
-        <div className="section-heading"><h2>{c || b ? 'MENU' : 'POPULAR RIGHT NOW'}</h2></div>
+      <section className="menu-section" ref={menuRef}>
+        <div className="section-heading"><h2>{c || b ? 'MENU' : 'OUR MENU'}</h2></div>
         {data.ratingError && <div className="menu-rating-error" role="alert">
           <b>Customer ratings could not be loaded.</b>
           <p>{data.ratingError}</p>
@@ -844,14 +858,15 @@ function Home({
         </div>}
         {items.length === 0 && <div className="empty">No items match. Clear a filter or try another search.</div>}
         <div className="menu-grid">
+          <AnimatePresence initial={false} mode="popLayout">
           {items.map(i => {
           const ok = i.is_available && brand(i.brand_id)?.is_open;
           const variants = sorted(i);
-          return <article key={i.id} className={`menu-card${ok ? '' : ' unavailable'}`}>
+          return <motion.article key={i.id} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: reduceMotion ? 0 : 0.2, ease: 'easeOut' }} className={`menu-card${ok ? '' : ' unavailable'}`}>
                 <button className="menu-card-main" onClick={() => ok && setOpen(i)} disabled={!ok} aria-label={`View ${i.name}`}>
                   {i.image_url ? <img className="menu-image" src={i.image_url} alt={i.name} loading="lazy" /> : <span className="menu-image menu-image-fallback">{CATEGORY_ICONS[i.category] || brand(i.brand_id)?.emoji || '🍽️'}</span>}
                   <span className="menu-card-copy">
-                    <small>{brand(i.brand_id)?.name || 'EAT60 KITCHEN'}</small>
+                    <small>{brand(i.brand_id)?.name || 'OUTLET DATA UNAVAILABLE'}</small>
                     <b>{i.name}</b>
                     <span className="menu-item-rating" aria-label={data.ratings[i.id] ? `${data.ratings[i.id].average_rating} out of 5 based on ${data.ratings[i.id].review_count} order ratings` : 'No customer ratings yet'}>
                       <span aria-hidden="true">{data.ratings[i.id] ? '★' : '☆'}</span>
@@ -864,8 +879,9 @@ function Home({
                 <button className="menu-add" disabled={!ok || !variants.length} onClick={() => addFromCard(i)} aria-label={`Add ${i.name} to cart`}>
                   ADD <span>+</span>
                 </button>
-              </article>;
+              </motion.article>;
         })}
+          </AnimatePresence>
         </div>
       </section>
 
@@ -924,6 +940,7 @@ function Cart({
   voucherCode,
   onBack
 }) {
+  const reduceMotion = useReducedMotion();
   const [draft] = useState(() => readOfflineCache(`checkout:${me.id}`) || {});
   const [useCoins, setUseCoins] = useState(draft.useCoins ?? false);
   const [customerName, setCustomerName] = useState(draft.customerName ?? me.name ?? '');
@@ -1074,7 +1091,8 @@ function Cart({
   return <>
       <FloatingBack onClick={onBack} label="Back from checkout" />
       <h1 className="cart-page-title">YOUR CART</h1>
-      {cart.map((x, k) => <div key={`${x.vid}-${(x.extras || []).map(e => e.id).sort().join('-')}`} className="card row between">
+      <AnimatePresence initial={false} mode="popLayout">
+      {cart.map((x, k) => <motion.div layout key={`${x.vid}-${(x.extras || []).map(e => e.id).sort().join('-')}`} className="card row between customer-checkout-item" initial={reduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={reduceMotion ? undefined : { opacity: 0, x: -18, scale: 0.97 }} transition={{ duration: 0.22 }}>
           <div className="fx"><b>{x.name}</b>{(x.extras || []).length > 0 && <small>{x.extras.map(e => e.name).join(', ')}</small>}</div>
           <div className="row">
             <button className="pill g" onClick={() => qty(k, -1)}>-</button><b>{x.qty}</b>
@@ -1084,8 +1102,9 @@ function Cart({
         width: 60,
         textAlign: 'right'
       }}>₹{x.price * x.qty}</b>
-        </div>)}
-      <div className="card">
+        </motion.div>)}
+      </AnimatePresence>
+      <motion.div className="card customer-checkout-details" initial={reduceMotion ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.06 }}>
         <div className="cart-customer-fields">
           <label>Full name<input autoComplete="name" maxLength={80} value={customerName} onChange={event => setCustomerName(event.target.value)} placeholder="Full name" required /></label>
           <label>Delivery address<input autoComplete="street-address" maxLength={240} value={addr} onChange={event => setAddr(event.target.value)} placeholder="House, street, landmark" required /></label>
@@ -1104,6 +1123,26 @@ function Cart({
           setCouponResult(null);
         }} /><button type="button" className="pill" onClick={() => validateCoupon()}>Apply</button></div>
         {couponResult && <small className="coupon-applied">{couponResult.code} applied · save ₹{couponDisc}</small>}
+        <section className="checkout-payment" aria-labelledby="checkout-payment-heading">
+          <div className="checkout-payment-heading"><h3 id="checkout-payment-heading">Payment method</h3><small>Choose how you’ll pay</small></div>
+          <div className="checkout-payment-options" role="group" aria-label="Payment methods">
+            <div className="checkout-payment-option selected" aria-current="true">
+              <span className="checkout-payment-icon" aria-hidden="true">₹</span>
+              <span className="checkout-payment-copy"><b>Cash on delivery</b><small>Pay when your order arrives</small></span>
+              <span className="checkout-payment-check" aria-label="Selected">✓</span>
+            </div>
+            <div className="checkout-payment-option unavailable" aria-disabled="true">
+              <span className="checkout-payment-icon" aria-hidden="true">↗</span>
+              <span className="checkout-payment-copy"><b>UPI</b><small>Pay online from your UPI app</small></span>
+              <span className="checkout-coming-soon">Coming soon</span>
+            </div>
+            <div className="checkout-payment-option unavailable" aria-disabled="true">
+              <span className="checkout-payment-icon" aria-hidden="true">◷</span>
+              <span className="checkout-payment-copy"><b>Pay later</b><small>Pay after your order</small></span>
+              <span className="checkout-coming-soon">Coming soon</span>
+            </div>
+          </div>
+        </section>
         <div className="cart-price-breakdown">
           {!minimumOrderMet && <p className="cart-minimum-note">Add ₹{minimumOrder - sub} more to meet the ₹{minimumOrder} minimum order.</p>}
           <div className="row between"><span>Items (GST included)</span><span>₹{sub}</span></div>
@@ -1116,8 +1155,8 @@ function Cart({
           <div className="row between"><h3>Total</h3><h3>₹{total}</h3></div>
         </div>
         {!cfg.store_online && <p className="offline-banner">{cfg.offline_message || 'Ordering is offline right now. Please try later.'}</p>}
-        <button className="pill wide" disabled={busy || !customerName.trim() || !ph.trim() || !addr.trim() || !minimumOrderMet || deliveryDistance === null || beyondDeliveryRadius || cfg.store_online === false} onClick={place}>{busy ? 'Placing order…' : cfg.store_online === false ? 'Ordering unavailable' : beyondDeliveryRadius ? 'Outside delivery area' : !minimumOrderMet ? `Minimum order ₹${minimumOrder}` : deliveryDistance === null ? 'Confirm delivery location' : 'Place order, pay on delivery'}</button>
-      </div>
+        <motion.button className="pill wide checkout-place-order" whileTap={reduceMotion ? undefined : { scale: 0.98 }} disabled={busy || !customerName.trim() || !ph.trim() || !addr.trim() || !minimumOrderMet || deliveryDistance === null || beyondDeliveryRadius || cfg.store_online === false} onClick={place}>{busy ? <><span className="checkout-spinner" aria-hidden="true" /> Placing your COD order…</> : cfg.store_online === false ? 'Ordering unavailable' : beyondDeliveryRadius ? 'Outside delivery area' : !minimumOrderMet ? `Minimum order ₹${minimumOrder}` : deliveryDistance === null ? 'Confirm delivery location' : 'Place COD order'}</motion.button>
+      </motion.div>
     </>;
 }
 function CustomerOrderJourney({
