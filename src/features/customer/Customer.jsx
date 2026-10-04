@@ -6,6 +6,7 @@ import LoadingIndicator from '../../components/LoadingIndicator';
 import { CUSTOMER_TAB_PATHS, pathForMorePage, resolveCustomerRoute } from '../../lib/customerRoutes';
 import { isNetworkError, readOfflineCache, writeOfflineCache } from '../../lib/offlineCache';
 import { updateRouteMetadata } from '../../lib/routeMetadata';
+import { playAppSound } from '../../lib/sounds';
 import './catalog.css';
 import HungrySnakes from './games/HungrySnakes';
 import FlyingBurger from './games/FlyingBurger';
@@ -262,6 +263,8 @@ export default function Customer({
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
   const [rank, setRank] = useState(null);
   const [fullscreenNotice, setFullscreenNotice] = useState(null);
+  const fullscreenQueue = useRef([]);
+  const fullscreenNoticeRef = useRef(null);
   const [data, setData] = useState(() => readOfflineCache('catalog') || {
     brands: [],
     items: [],
@@ -297,26 +300,47 @@ export default function Customer({
     });
     toastTimer.current = window.setTimeout(() => setToast(null), duration);
   }, []);
-  const announce = useCallback(notice => setFullscreenNotice(notice), []);
+  const enqueueNotice = useCallback(notice => {
+    if (!fullscreenNoticeRef.current) {
+      fullscreenNoticeRef.current = notice;
+      setFullscreenNotice(notice);
+    } else {
+      fullscreenQueue.current.push(notice);
+    }
+  }, []);
+  const dismissNotice = useCallback(() => {
+    const nextNotice = fullscreenQueue.current.shift() || null;
+    fullscreenNoticeRef.current = nextNotice;
+    setFullscreenNotice(nextNotice);
+  }, []);
+  const announce = useCallback(notice => enqueueNotice(notice), [enqueueNotice]);
+  useEffect(() => {
+    if (!fullscreenNotice) return;
+    if (fullscreenNotice.type === 'order-delivered') playAppSound('orderArrived');
+    else if (fullscreenNotice.type === 'order-placed') playAppSound('notification');
+    else if (fullscreenNotice.type === 'announcement') playAppSound('announced');
+    else if (fullscreenNotice.type === 'game-score') playAppSound('announced', 0.65);
+    else if (fullscreenNotice.type === 'reward') playAppSound('notification', 0.7);
+  }, [fullscreenNotice]);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
   const handleDelivered = useCallback(orderId => {
     const key = `eat60:delivered:${orderId}`;
     if (sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, 'shown');
-    setFullscreenNotice({
+    enqueueNotice({
       type: 'order-delivered',
       id: orderId
     });
-  }, []);
+  }, [enqueueNotice]);
   useEffect(() => {
     if (!sessionStorage.getItem('eat60:account-created-pending')) return;
     sessionStorage.removeItem('eat60:account-created-pending');
-    setFullscreenNotice({
+    enqueueNotice({
       type: 'reward',
       title: 'Welcome to EAT60!',
       message: 'Your account is ready. Check More → Refer for any invitation coins waiting to be claimed.'
     });
-  }, []);
+  }, [enqueueNotice]);
   const reloadRatings = useCallback(async () => {
     const {
       data: ratings,
@@ -454,7 +478,7 @@ export default function Customer({
       const key = `eat60:announcement:${post.id}`;
       if (sessionStorage.getItem(key)) return;
       sessionStorage.setItem(key, 'shown');
-      setFullscreenNotice({
+      enqueueNotice({
         type: 'announcement',
         id: post.id,
         message: post.body
@@ -463,7 +487,7 @@ export default function Customer({
     return () => {
       sb.removeChannel(channel);
     };
-  }, [me.id]);
+  }, [enqueueNotice, me.id]);
   useEffect(() => {
     const channel = sb.channel(`customer-order-milestones-${me.id}`).on('postgres_changes', {
       event: 'UPDATE',
@@ -712,7 +736,7 @@ export default function Customer({
           <Cart cart={cart} setCart={setCart} cfg={data.cfg} catalogItems={data.items} catalogBrands={data.brands} me={me} say={say} voucherCode={selectedVoucher} onBack={() => cart.length ? leaveCart() : go('home')} done={orderId => {
           setSelectedVoucher('');
           reload();
-          setFullscreenNotice({
+          enqueueNotice({
             type: 'order-placed',
             id: orderId
           });
@@ -753,13 +777,13 @@ export default function Customer({
       }}>{toast.action.label}</button>}<span className="toast-progress" aria-hidden="true" /></div>}
       {fullscreenNotice && <FullscreenNotice notice={fullscreenNotice} onClose={() => {
       const goHome = fullscreenNotice.type === 'order-placed';
-      setFullscreenNotice(null);
+      dismissNotice();
       if (goHome) go('home');
     }} onTrackOrder={() => {
-      setFullscreenNotice(null);
+      dismissNotice();
       go('hist');
     }} onViewFeed={() => {
-      setFullscreenNotice(null);
+      dismissNotice();
       go('feed');
     }} />}
     </div>;

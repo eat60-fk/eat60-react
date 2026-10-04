@@ -12,6 +12,7 @@
  * The parent element must have a height.
  */
 import { useEffect, useRef, useState } from "react";
+import { playAppSound } from "../../../lib/sounds";
 
 const CSS = `
 .hs-root{position:relative;width:100%;height:100%;overflow:hidden;box-sizing:border-box;background:#0b1020;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
@@ -121,6 +122,7 @@ function eat(){
   spawn();
 }
 function die(){
+  playAppSound('snake');
   state='dead';deadT=0;flash=1;burst(hx,hy,26,['#ff4d4d','#ff9a3c','#fff']);
   try{navigator.vibrate&&navigator.vibrate([60,40,90])}catch(e){}
   if(score>best){best=score;setBest(best);try{localStorage.setItem(KEYB,best)}catch(e){}}

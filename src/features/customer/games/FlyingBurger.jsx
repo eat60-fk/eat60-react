@@ -12,6 +12,7 @@
  * The parent element must have a height.
  */
 import { useEffect, useRef, useState } from "react";
+import { playAppSound } from "../../../lib/sounds";
 
 const CSS = `
 .fb-root{position:relative;width:100%;height:100%;overflow:hidden;box-sizing:border-box;background:#0b1020;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
@@ -91,6 +92,7 @@ function loseLayer(src){
   if(lives<=0)die();
 }
 function die(){
+  playAppSound('burgerCrash');
   state='dead';deadT=0;vy=-300;burst(BX,by,26,['#ff9a3c','#e8a24a','#fff','#ff4d4d']);
   try{navigator.vibrate&&navigator.vibrate([60,40,90])}catch(e){}
   if(score>best){best=score;setBest(best);try{localStorage.setItem(KEYB,best)}catch(e){}}
