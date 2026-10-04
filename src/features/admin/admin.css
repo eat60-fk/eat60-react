@@ -993,3 +993,108 @@
     flex: 1;
   }
 }
+
+/* Incoming order dock and sheet also stay usable on wider admin screens. */
+.admin-app .admin-new-order-dock { position: fixed; right: 24px; bottom: 24px; z-index: 42; display: flex; align-items: center; gap: 18px; padding: 14px 18px; border: 1px solid #4e5048; border-radius: 18px; color: #d8d8d3; background: #292a27; box-shadow: 0 12px 36px #0008; }
+.admin-app .admin-new-order-dock button { min-height: 42px; padding: 0 18px; border: 0; border-radius: 12px; color: #b2ff58; background: #444; font-weight: 900; }
+.admin-app .admin-incoming-order-sheet { align-items: stretch; text-align: left; }
+.admin-app .admin-swipe-accept { position: relative; display: grid; min-height: 66px; place-items: center; overflow: hidden; border-radius: 18px; color: #222; background: #f4edf7; font-size: 13px; font-weight: 900; }
+.admin-app .admin-swipe-accept::before { position: absolute; inset: 0 auto 0 0; width: var(--swipe-progress, 0%); background: #c8d1d8; content: ''; }
+.admin-app .admin-swipe-accept > i { position: absolute; top: 50%; left: min(calc(100% - 60px), var(--swipe-progress, 0%)); z-index: 1; display: grid; width: 52px; height: 52px; place-items: center; transform: translateY(-50%); border-radius: 16px; color: #242424; background: #c8d1d8; font: normal 800 28px Arial, sans-serif; pointer-events: none; }
+.admin-app .admin-swipe-accept input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: .001; cursor: ew-resize; }
+.admin-app .admin-swipe-accept span { z-index: 1; padding-left: 58px; pointer-events: none; }
+
+/* Mobile order screen from the current administrator mockups. */
+@media (max-width: 850px) {
+  .admin-app { background: #171717; padding: 0 14px calc(120px + env(safe-area-inset-bottom, 0px)); }
+  .admin-app .admin-header { min-height: 74px; margin: 0 -14px 16px; padding: 16px 24px 8px; border: 0; background: #171717; }
+  .admin-app .admin-brand { width: 100%; justify-content: space-between; }
+  .admin-app .admin-mark { font-size: 29px; letter-spacing: -.04em; }
+  .admin-app .admin-brand > div { margin-left: auto; }
+  .admin-app .admin-brand > div p { font-size: 0; color: #ffe500; }
+  .admin-app .admin-brand > div p::after { content: '• ADMIN'; font-size: 11px; letter-spacing: .06em; }
+  .admin-app .admin-brand h1 { display: none; }
+  .admin-app .admin-orders-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 4px 23px; }
+  .admin-app .admin-orders-heading > div > p,.admin-app .admin-orders-heading > div > span { display: none; }
+  .admin-app .admin-orders-heading h2 { margin: 0; color: #686868; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 29px; line-height: 1; }
+  .admin-app .admin-service-toggle { display: flex; align-items: center; gap: 14px; color: #f4edf7; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 15px; }
+  .admin-app .admin-service-toggle button { width: 94px; height: 46px; padding: 4px; border: 0; border-radius: 999px; background: #00b96b; text-align: right; }
+  .admin-app .admin-service-toggle button[aria-checked="false"] { background: #555; text-align: left; }
+  .admin-app .admin-service-toggle i { display: inline-grid; width: 36px; height: 36px; place-items: center; border-radius: 50%; color: #171717; background: #eaff00; font: 800 14px Arial, sans-serif; font-style: normal; }
+  .admin-app .admin-order-tools { position: static; display: block; margin: 0 -3px 32px; padding: 8px; border: 0; border-radius: 27px; background: #4b4b4b; box-shadow: none; }
+  .admin-app .admin-filter-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; overflow: visible; padding: 0; }
+  .admin-app .admin-filter-tabs button { min-width: 0; min-height: 39px; padding: 0 5px; border: 0; border-radius: 999px; color: #f3edf5; background: #414141; font-family: Impact, 'Arial Narrow', sans-serif; font-size: clamp(10px, 3.4vw, 15px); font-weight: 500; white-space: nowrap; }
+  .admin-app .admin-filter-tabs button.active { color: #b4ff57; background: #373737; }
+  .admin-app .admin-filter-tabs button b { display: none; }
+  .admin-app .admin-order-extra-filters { margin: -20px 2px 22px; color: #bcbcbc; font-size: 12px; }
+  .admin-app .admin-order-extra-filters summary { width: fit-content; padding: 6px 0; cursor: pointer; }
+  .admin-app .admin-order-extra-filters > .admin-search { margin: 6px 0; }
+  .admin-app .admin-order-filter-row { gap: 10px; padding: 8px 0; }
+  .admin-app .admin-order-list { display: grid; grid-template-columns: 1fr; gap: 28px; padding-bottom: 24px; }
+  .admin-app .admin-order-card-redesign { overflow: hidden; padding: 0; border: 0; border-radius: 24px; color: #f5eef7; background: #414141; box-shadow: none; }
+  .admin-app .admin-order-redesign-head { padding: 19px 20px 12px; border-bottom: 1px solid #696969; }
+  .admin-app .admin-order-id-time,.admin-app .admin-order-customer-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .admin-app .admin-order-id-time { margin-bottom: 10px; color: #d4d1d5; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 13px; }
+  .admin-app .admin-order-id-time time { color: #c7c7c7; font-size: 13px; white-space: nowrap; }
+  .admin-app .admin-order-customer-line > b { max-width: 48%; overflow: hidden; color: #c8c8c8; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+  .admin-app .admin-order-customer-line > span { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .admin-app .admin-order-customer-line strong { max-width: 34vw; overflow: hidden; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 17px; text-overflow: ellipsis; }
+  .admin-app .admin-order-customer-line small { color: #c4c4c4; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
+  .admin-app .admin-order-customer-line a { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; color: #1b1b1b; background: #b2ff58; font-size: 17px; text-decoration: none; }
+  .admin-app .admin-order-card-redesign .admin-order-items { gap: 11px; padding: 22px 22px 20px; border-top: 0; border-bottom-color: #696969; }
+  .admin-app .admin-order-card-redesign .admin-order-items > div { align-items: flex-start; gap: 8px; color: #f2edf5; font-size: 16px; line-height: 1.35; }
+  .admin-app .admin-order-card-redesign .admin-order-items > div > span { min-width: 0; color: inherit; font-weight: 400; }
+  .admin-app .admin-order-card-redesign .admin-order-items > div > b { flex: none; color: #f2edf5; font-size: 16px; font-weight: 400; }
+  .admin-app .admin-order-redesign-payment { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 20px 0; }
+  .admin-app .admin-order-redesign-payment > div { display: flex; align-items: center; gap: 7px; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
+  .admin-app .admin-order-redesign-payment > div b { color: #ffe500; }
+  .admin-app .admin-order-redesign-payment > strong { font-size: 17px; font-weight: 400; }
+  .admin-app .admin-order-card-redesign .admin-order-address { display: flex; align-items: center; gap: 9px; padding: 3px 20px 15px; }
+  .admin-app .admin-order-card-redesign .admin-order-address > span { color: #e9e4eb; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 11px; font-weight: 400; letter-spacing: 0; }
+  .admin-app .admin-order-card-redesign .admin-order-address p { margin: 0; overflow: hidden; color: #e9e4eb; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .admin-app .admin-order-card-redesign .admin-order-address > a { display: grid; width: 29px; height: 29px; flex: none; place-items: center; border-radius: 50%; color: #171717; background: #b2ff58; font-size: 14px; text-decoration: none; }
+  .admin-app .admin-order-card-redesign .admin-order-address > small { display: none; }
+  .admin-app .admin-order-card-redesign .admin-pending-clock,.admin-app .admin-order-card-redesign .admin-order-journey { margin-right: 20px; margin-left: 20px; }
+  .admin-app .admin-order-card-redesign .admin-order-actions { display: grid; grid-template-columns: 1fr; gap: 9px; padding: 10px 24px 28px; }
+  .admin-app .admin-order-card-redesign .admin-order-actions .admin-primary,.admin-app .admin-order-card-redesign .admin-ready-countdown { min-height: 58px; justify-content: center; border: 0; border-radius: 26px; color: #161616; background: #f3edf7; font-family: Arial, sans-serif; font-size: 15px; font-weight: 600; }
+  .admin-app .admin-order-card-redesign .admin-ready-countdown > b,.admin-app .admin-order-card-redesign .admin-ready-countdown > i { display: none; }
+  .admin-app .admin-new-order-dock { position: fixed; right: 7%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); left: 7%; z-index: 42; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 86px; padding: 17px 22px; border-radius: 28px 28px 0 0; color: #c7c7c7; background: #292929; box-shadow: 0 -12px 36px #0006; font-family: Impact, 'Arial Narrow', sans-serif; font-size: clamp(20px, 5vw, 28px); }
+  .admin-app .admin-new-order-dock button { min-width: 145px; min-height: 52px; border: 0; border-radius: 17px; color: #b2ff58; background: #4a4a4a; font: inherit; font-size: 22px; }
+  .admin-app .admin-incoming-backdrop { z-index: 44; display: flex; align-items: flex-end; justify-content: center; padding: 0 7% calc(72px + env(safe-area-inset-bottom, 0px)); background: #0003; backdrop-filter: none; }
+  .admin-app .admin-incoming-order-sheet { width: min(100%, 630px); max-height: min(76vh, 820px); overflow-y: auto; align-items: stretch; gap: 15px; padding: 14px 23px 24px; border: 0; border-radius: 34px; color: #f4edf7; background: #292929; box-shadow: 0 10px 40px #0007; text-align: left; }
+  .admin-app .admin-sheet-handle { width: 126px; height: 9px; align-self: center; border-radius: 99px; background: #f4edf7; }
+  .admin-app .admin-incoming-order-sheet > header { display: flex; align-items: center; justify-content: space-between; }
+  .admin-app .admin-incoming-order-sheet > header h2 { font-family: Impact, 'Arial Narrow', sans-serif; font-size: 28px; }
+  .admin-app .admin-incoming-order-sheet > header button { width: 36px; height: 36px; border: 0; border-radius: 50%; color: white; background: #414141; font-size: 25px; }
+  .admin-app .admin-incoming-order-sheet .admin-incoming-kicker { color: #b2ff58; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 22px; letter-spacing: 0; }
+  .admin-app .admin-incoming-customer-row { display: flex; align-items: center; gap: 8px; overflow: hidden; color: #f1ebf4; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 14px; white-space: nowrap; }
+  .admin-app .admin-incoming-customer-row > span:nth-of-type(2) { overflow: hidden; text-overflow: ellipsis; }
+  .admin-app .admin-incoming-customer-row a { color: #b2ff58; text-decoration: none; }
+  .admin-app .admin-incoming-call { display: flex; align-items: center; gap: 9px; align-self: flex-end; color: #c7c7c7; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 13px; text-decoration: none; }
+  .admin-app .admin-incoming-call span { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 50%; color: #191919; background: #b2ff58; font-size: 16px; }
+  .admin-app .admin-incoming-items { display: grid; gap: 10px; padding: 3px 0 16px; border-bottom: 1px solid #676767; }
+  .admin-app .admin-incoming-items > div,.admin-app .admin-incoming-total-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 16px; }
+  .admin-app .admin-incoming-items b,.admin-app .admin-incoming-total-row b { font-weight: 400; }
+  .admin-app .admin-incoming-total-row { margin-top: -7px; padding-bottom: 10px; }
+  .admin-app .admin-incoming-total-row span { font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
+  .admin-app .admin-incoming-sound { align-self: flex-start; border-color: #616161; background: #414141; }
+  .admin-app .admin-swipe-accept { min-height: 76px; border-radius: 25px; }
+  .admin-app .admin-swipe-accept > i { width: 56px; height: 58px; border-radius: 21px; font-size: 30px; }
+  .admin-app .admin-swipe-accept span { padding-left: 62px; }
+  .admin-app .admin-incoming-dismiss { align-self: center; border: 0; color: #c4c4c4; background: transparent; font-size: 12px; }
+  .admin-app .admin-mobile-tabs { background: #4b4b4b; border: 0; border-radius: 22px; }
+  .admin-app .admin-mobile-tabs button { min-height: 66px; gap: 4px; border-radius: 16px; color: #d0d0d0; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
+  .admin-app .admin-mobile-tabs button > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; color: #383838; background: #bdbdbd; font-size: 19px; }
+  .admin-app .admin-mobile-tabs button.active { color: #b2ff58; background: transparent; }
+  .admin-app .admin-mobile-tabs button.active > span { color: #202020; background: #b2ff58; }
+}
+
+@media (max-width: 420px) {
+  .admin-app .admin-order-redesign-head { padding-right: 14px; padding-left: 14px; }
+  .admin-app .admin-order-id-time { font-size: 11px; }
+  .admin-app .admin-order-id-time time { font-size: 10px; }
+  .admin-app .admin-order-customer-line strong { max-width: 31vw; font-size: 15px; }
+  .admin-app .admin-order-redesign-payment,.admin-app .admin-order-card-redesign .admin-order-address { padding-right: 14px; padding-left: 14px; }
+  .admin-app .admin-new-order-dock { right: 4%; left: 4%; padding: 15px; }
+  .admin-app .admin-new-order-dock button { min-width: 112px; font-size: 19px; }
+}

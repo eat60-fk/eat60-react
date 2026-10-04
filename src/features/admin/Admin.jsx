@@ -57,11 +57,10 @@ const SETTINGS_SECTIONS = [
   }
 ];
 const ORDER_FILTERS = [
-  ['active', 'Active'],
+  ['active', 'Active orders'],
   ['ready', 'Ready'],
   ['delivery', 'On way'],
-  ['completed', 'Done'],
-  ['all', 'All']
+  ['completed', 'Completed']
 ];
 const ORDER_FILTER_STAGES = {
   active: ['pending', 'accepted', 'preparing'],
@@ -588,6 +587,9 @@ export default function Admin() {
   const [permission, setPermission] = useState(() => 'Notification' in window ? Notification.permission : 'unsupported');
   const [alertEnabled, setAlertEnabled] = useState(() => 'Notification' in window && Notification.permission === 'granted');
   const [incomingOrders, setIncomingOrders] = useState([]);
+  const [incomingOrderOpen, setIncomingOrderOpen] = useState(false);
+  const [incomingSwipe, setIncomingSwipe] = useState(0);
+  const [acceptingIncoming, setAcceptingIncoming] = useState(false);
   const [unacceptedOrderCount, setUnacceptedOrderCount] = useState(0);
   const unacceptedOrderIds = useRef(new Set());
   const [storeOnline, setStoreOnline] = useState(true);
@@ -640,6 +642,8 @@ export default function Admin() {
   }, []);
   const acknowledgeIncomingOrder = useCallback((openOrders = false) => {
     setIncomingOrders(current => current.slice(1));
+    setIncomingOrderOpen(false);
+    setIncomingSwipe(0);
     if (openOrders) visitTab('orders');
   }, [visitTab]);
   const loadOrders = useCallback(async () => {
@@ -668,6 +672,33 @@ export default function Admin() {
       return latest && (latest.order_stage || (latest.status === 'placed' ? 'pending' : latest.status)) === 'pending';
     }));
   }, []);
+  const acceptIncomingOrder = async order => {
+    if (!order || acceptingIncoming) return;
+    setAcceptingIncoming(true);
+    try {
+      const { error } = await sb.rpc('admin_update_order', {
+        p_id: order.id,
+        p_stage: 'accepted',
+        p_reason: null,
+        p_payment_type: null,
+        p_prep_time_minutes: 15
+      });
+      if (error) throw error;
+      acknowledgeIncomingOrder(false);
+      await loadOrders();
+    } catch (error) {
+      setAlert(`Order #${order.id} could not be accepted: ${error.message || 'Please try again.'}`);
+      setIncomingSwipe(0);
+    } finally {
+      setAcceptingIncoming(false);
+    }
+  };
+  const toggleStore = async value => {
+    if (!window.confirm(`Are you sure you want to turn the store ${value ? 'online' : 'offline'}?`)) return;
+    const { error } = await sb.from('settings').update({ store_online: value }).eq('id', 1);
+    if (!error) setStoreOnline(value);
+    else setAlert(error.message);
+  };
   const loadStore = useCallback(async () => {
     const {
       data
@@ -824,34 +855,25 @@ export default function Admin() {
       {connection !== 'connected' && <div className="admin-connection-banner" role="status"><span aria-hidden="true">●</span>{connection === 'connecting' ? 'Connecting to live orders…' : 'Connection lost · New orders may be delayed. Reconnecting…'}</div>}
       {ordersError && <div className="admin-error" role="alert"><b>Orders could not be loaded</b><span>{ordersError}</span><button onClick={loadOrders}>Retry</button></div>}
       {alert && <div className="admin-alert" role="status"><span>🔔</span><p>{alert}</p><button aria-label="Dismiss notification" onClick={() => setAlert('')}>×</button></div>}
-      {incomingOrders[0] && <div className="admin-incoming-backdrop">
-        <section className="admin-incoming-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-incoming-title">
-          <span className="admin-incoming-pulse" aria-hidden="true">🔔</span>
-          <p className="admin-incoming-kicker">ACTION REQUIRED · NEW ORDER</p>
-          <h2 id="admin-incoming-title">Order #{incomingOrders[0].id}</h2>
-          <p className="admin-incoming-customer">{incomingOrders[0].customer_name || incomingOrders[0].profiles?.name || 'New customer order'}</p>
-          <strong className="admin-incoming-total">₹{Number(incomingOrders[0].total || 0).toLocaleString('en-IN')}</strong>
-          {incomingOrders.length > 1 && <small>{incomingOrders.length - 1} more new {incomingOrders.length === 2 ? 'order' : 'orders'} waiting</small>}
+      {incomingOrders[0] && <aside className="admin-new-order-dock" aria-live="polite"><span>{incomingOrders.length} NEW {incomingOrders.length === 1 ? 'ORDER' : 'ORDERS'}</span><button type="button" onClick={() => { setIncomingSwipe(0); setIncomingOrderOpen(true); const current = incomingOrders[0]; sb.from('orders').select('*, order_items(*), profiles(name,phone)').eq('id', current.id).maybeSingle().then(({ data }) => { if (data) setIncomingOrders(items => items.map(item => String(item.id) === String(data.id) ? { ...item, ...data } : item)); }); }}>SEE HERE</button></aside>}
+      {incomingOrderOpen && incomingOrders[0] && <div className="admin-incoming-backdrop" onMouseDown={event => event.target === event.currentTarget && setIncomingOrderOpen(false)}>
+        <section className="admin-incoming-dialog admin-incoming-order-sheet" role="dialog" aria-modal="true" aria-labelledby="admin-incoming-title">
+          <div className="admin-sheet-handle" aria-hidden="true" />
+          <header><div><p className="admin-incoming-kicker">NEW ORDER</p><h2 id="admin-incoming-title">#{incomingOrders[0].id}</h2></div><button type="button" aria-label="Close order details" onClick={() => setIncomingOrderOpen(false)}>×</button></header>
+          <div className="admin-incoming-customer-row"><b>{incomingOrders[0].customer_name || incomingOrders[0].profiles?.name || 'New customer'}</b><span>•</span><span>{incomingOrders[0].address || 'Delivery address unavailable'}</span>{incomingOrders[0].delivery_latitude != null && incomingOrders[0].delivery_longitude != null && <a href={`https://www.google.com/maps?q=${encodeURIComponent(`${incomingOrders[0].delivery_latitude},${incomingOrders[0].delivery_longitude}`)}`} target="_blank" rel="noreferrer" aria-label="Open customer location in Maps">⌖</a>}</div>
+          {(incomingOrders[0].phone || incomingOrders[0].profiles?.phone) && <a className="admin-incoming-call" href={`tel:${String(incomingOrders[0].phone || incomingOrders[0].profiles?.phone).replace(/[^+\d]/g, '')}`}>CALL <span>☎</span></a>}
+          <div className="admin-incoming-items">{(incomingOrders[0].order_items || []).map(item => <div key={item.id}><span>{item.qty} x {item.item_name}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
+          <div className="admin-incoming-total-row"><span>{incomingOrders[0].payment_type ? `PAYMENT · ${incomingOrders[0].payment_type.toUpperCase()}` : 'PAYMENT MODE · COD'}</span><b>₹{Number(incomingOrders[0].total || 0).toLocaleString('en-IN')}</b></div>
           {!soundEnabled && <button className="admin-incoming-sound" onClick={toggleSound}>Enable repeating alarm</button>}
-          <div className="admin-incoming-actions">
-            <button className="admin-secondary" onClick={() => acknowledgeIncomingOrder(false)}>Acknowledge</button>
-            <button className="admin-primary" onClick={() => acknowledgeIncomingOrder(true)}>VIEW ORDER <span>→</span></button>
-          </div>
+          <label className={`admin-swipe-accept${incomingSwipe >= 95 ? ' ready' : ''}`} style={{ '--swipe-progress': `${incomingSwipe}%` }}><i aria-hidden="true">➜</i><span>{acceptingIncoming ? 'ACCEPTING…' : incomingSwipe >= 95 ? 'RELEASE TO ACCEPT' : 'SWIPE TO ACCEPT ORDER'}</span><input type="range" min="0" max="100" value={incomingSwipe} aria-label="Swipe to accept order" disabled={acceptingIncoming} onChange={event => { const value = Number(event.target.value); setIncomingSwipe(value); if (value >= 100) acceptIncomingOrder(incomingOrders[0]); }} onPointerUp={() => { if (incomingSwipe < 95) setIncomingSwipe(0); }} onKeyUp={event => { if (event.key === 'Enter' && incomingSwipe >= 95) acceptIncomingOrder(incomingOrders[0]); }} /></label>
+          <button className="admin-incoming-dismiss" type="button" onClick={() => setIncomingOrderOpen(false)}>Close order details</button>
         </section>
       </div>}
-      {visitedTabs.has('overview') && <div hidden={tab !== 'overview'}><Overview orders={orders} onViewOrders={() => visitTab('orders')} online={storeOnline} setOnline={async value => {
-        if (!window.confirm(`Are you sure you want to turn the store ${value ? 'online' : 'offline'}?`)) return;
-        const {
-          error
-        } = await sb.from('settings').update({
-          store_online: value
-        }).eq('id', 1);
-        if (!error) setStoreOnline(value);else setAlert(error.message);
-      }} /></div>}
+      {visitedTabs.has('overview') && <div hidden={tab !== 'overview'}><Overview orders={orders} onViewOrders={() => visitTab('orders')} online={storeOnline} setOnline={toggleStore} /></div>}
       {visitedTabs.has('growth') && <div hidden={tab !== 'growth'}><Growth orders={orders} /></div>}
       {visitedTabs.has('explore') && <div hidden={tab !== 'explore'}><Explore onNavigate={visitTab} /></div>}
       {visitedTabs.has('settings') && <div hidden={tab !== 'settings'}><SettingsWorkspace section={settingsSection} onSelect={visitSettingsSection} appVersion={appVersion} setAppVersion={setAppVersion} connection={connection} soundEnabled={soundEnabled} toggleSound={toggleSound} alertEnabled={alertEnabled} permission={permission} enableAlerts={enableAlerts} /></div>}
-      {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} connection={connection} /></div>}
+      {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} connection={connection} online={storeOnline} onToggleStore={toggleStore} /></div>}
       {visitedTabs.has('history') && <div hidden={tab !== 'history'}><OrderHistory rows={orders} /></div>}
       {visitedTabs.has('menu') && <div hidden={tab !== 'menu'}><Menu /></div>}
       {visitedTabs.has('outlets') && <div hidden={tab !== 'outlets'}><Outlets /></div>}
@@ -1283,7 +1305,7 @@ function OrderReadyCountdown({ order, actionLabel, onClick, disabled }) {
   if (!Number.isFinite(deadline) || !Number.isFinite(prepMinutes) || prepMinutes <= 0) return null;
   const text = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   return <button type="button" className={`admin-ready-countdown${remainingMs === 0 ? ' expired' : ''}`} onClick={onClick} disabled={disabled} aria-label={`${actionLabel}, estimated time ${text}`}>
-    <span>{actionLabel}</span><b>{text}</b><i aria-hidden="true">→</i>
+    <span>{actionLabel} ({text})</span><b>{text}</b><i aria-hidden="true">→</i>
   </button>;
 }
 function PendingDecisionClock({
@@ -1320,7 +1342,9 @@ function OrderAge({ createdAt, now }) {
 function Orders({
   rows,
   refresh,
-  connection
+  connection,
+  online,
+  onToggleStore
 }) {
   const [filter, setFilter] = useState('active');
   const [outlet, setOutlet] = useState('all');
@@ -1385,20 +1409,15 @@ function Orders({
     return !updateError;
   };
   return <section className="admin-content">
-    <div className="admin-page-heading"><div><p>FULFILMENT</p><h2>Order management</h2><span>Live order updates · {connection === 'connected' ? 'connected' : 'reconnecting'}</span></div></div>
-    <div className="admin-order-tools"><label className="admin-choice-label">Order status<select className="admin-choice-select" value={filter} onChange={event => setFilter(event.target.value)}>{ORDER_FILTERS.map(([key, label]) => <option key={key} value={key}>{label} ({countFor(key)})</option>)}</select></label><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order, name, or phone" /></label></div>
-    <div className="admin-order-filter-row"><label className="admin-choice-label">Date range<select className="admin-choice-select" value={period} onChange={event => setPeriod(event.target.value)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">7 days</option><option value="custom">Custom</option></select></label><label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{period === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}<b className="admin-order-totals">{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b></div>
+    <div className="admin-page-heading admin-orders-heading"><div><p>FULFILMENT</p><h2>ORDERS</h2><span>Live order updates · {connection === 'connected' ? 'connected' : 'reconnecting'}</span></div><label className="admin-service-toggle"><span>SERVICE IS</span><button type="button" role="switch" aria-checked={online} onClick={() => onToggleStore(!online)}><i>{online ? 'ON' : 'OFF'}</i></button></label></div>
+    <div className="admin-order-tools"><div className="admin-filter-tabs" aria-label="Filter orders">{ORDER_FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}<b>{countFor(key)}</b></button>)}</div></div>
+    <details className="admin-order-extra-filters"><summary>Search & filters · {filtered.length} orders</summary><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order, name, or phone" /></label><div className="admin-order-filter-row"><label className="admin-choice-label">Date range<select className="admin-choice-select" value={period} onChange={event => setPeriod(event.target.value)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">7 days</option><option value="custom">Custom</option></select></label><label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{period === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}<b className="admin-order-totals">{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b><button className="admin-secondary" onClick={clearFilters}>Clear filters</button></div></details>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
-    {filtered.length ? <div className="admin-order-list">{filtered.map(order => <article className="admin-order-card" key={order.id}>
-      <div className="admin-order-card-top"><div><span className="admin-order-number">ORDER #{order.id}</span><strong>₹{Number(order.total).toLocaleString('en-IN')}</strong></div><span className={`admin-status status-${stageOf(order)}`}>{LABEL[stageOf(order)] || stageOf(order)}</span></div>
-      <div className="admin-order-brand-row">{[...new Set((order.order_items || []).map(item => item.brand_id).filter(Boolean))].map(brandId => <span className="admin-order-brand" key={brandId}>{outlets.find(item => item.id === brandId)?.name || brandId}</span>)}<OrderAge createdAt={order.created_at} now={currentTime} /></div>
-      <div className="admin-order-customer"><div className="admin-customer-avatar">{(order.customer_name || order.profiles?.name || 'G').slice(0, 1).toUpperCase()}</div><div><b>{order.customer_name || order.profiles?.name || 'Customer'}</b><small>{order.phone || order.profiles?.phone || 'No phone provided'}</small></div>{(order.phone || order.profiles?.phone) && <span className="admin-customer-contact"><a href={`tel:${String(order.phone || order.profiles?.phone).replace(/[^+\d]/g, '')}`} aria-label="Call customer">☎</a><a target="_blank" rel="noreferrer" href={`https://wa.me/${String(order.phone || order.profiles?.phone).replace(/\D/g, '')}`} aria-label="Message customer on WhatsApp">◉</a></span>}<time>{new Date(order.created_at).toLocaleString('en-IN', {
-              dateStyle: 'medium',
-              timeStyle: 'short'
-            })}</time></div>
-      <div className="admin-order-items">{(order.order_items || []).map(item => <div key={item.id}><span>{item.qty}×</span><span>{item.item_name}{item.extra_details?.length > 0 && <small className="admin-order-extras"> · {item.extra_details.map(extra => extra.name).join(', ')}</small>}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
-      <div className="admin-order-payment"><span>{order.payment_type === 'upi' || order.payment_type === 'online' ? (order.payment_received_at ? 'UPI PAID' : 'UPI PENDING') : order.payment_type ? order.payment_received_at ? `${order.payment_type.toUpperCase()} PAID` : order.payment_type.toUpperCase() : 'PAYMENT PENDING'}</span>{Number(order.coin_discount) > 0 && <span>Coins −₹{Number(order.coin_discount)} ({Number(order.coins_used)} coins)</span>}{Number(order.coupon_discount) > 0 && <span>{order.coupon_code || 'Coupon'} −₹{Number(order.coupon_discount)}</span>}</div>
-      <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_latitude != null && order.delivery_longitude != null && <a href={`https://www.google.com/maps?q=${encodeURIComponent(`${order.delivery_latitude},${order.delivery_longitude}`)}`} target="_blank" rel="noreferrer">Open customer location ↗</a>}{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
+    {filtered.length ? <div className="admin-order-list">{filtered.map(order => <article className="admin-order-card admin-order-card-redesign" key={order.id}>
+      <header className="admin-order-redesign-head"><div className="admin-order-id-time"><span>ORDER # {order.id}</span><time>{new Date(order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}　{new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</time></div><div className="admin-order-customer-line"><b>{[...new Set((order.order_items || []).map(item => item.brand_id).filter(Boolean))].map(brandId => outlets.find(item => item.id === brandId)?.name || brandId).join(', ') || 'EAT60 KITCHEN'}</b><span><strong>{order.customer_name || order.profiles?.name || 'Customer'}</strong>{(order.phone || order.profiles?.phone) && <><small>CALL</small><a href={`tel:${String(order.phone || order.profiles?.phone).replace(/[^+\d]/g, '')}`} aria-label="Call customer">☎</a></>}</span></div></header>
+      <div className="admin-order-items">{(order.order_items || []).map(item => <div key={item.id}><span>{item.qty} x {item.item_name}{item.extra_details?.length > 0 && <small className="admin-order-extras"> · {item.extra_details.map(extra => extra.name).join(', ')}</small>}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
+      <div className="admin-order-redesign-payment"><div><span>PAYMENT MODE</span><b>{order.payment_type ? order.payment_type.toUpperCase() : 'COD'}</b></div><strong>₹{Number(order.total || 0).toLocaleString('en-IN')}</strong></div>
+      <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_latitude != null && order.delivery_longitude != null && <a href={`https://www.google.com/maps?q=${encodeURIComponent(`${order.delivery_latitude},${order.delivery_longitude}`)}`} target="_blank" rel="noreferrer" aria-label="Open customer location in Maps">⌖</a>}{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
       {order.order_stage_events?.length > 0 && <OrderJourney order={order} />}
       {stageOf(order) === 'pending' && <PendingDecisionClock createdAt={order.created_at} />}
       {['accepted', 'preparing'].includes(stageOf(order)) && order.prep_time_minutes && <p className="admin-prep-estimate">Kitchen preparation estimate <b>{order.prep_time_minutes} min</b></p>}
