@@ -17,6 +17,7 @@ export default defineConfig({
       registerType: 'prompt',
       includeAssets: ['avatars/*.png'],
       workbox: {
+        importScripts: ['/sw-notifications.js'],
         navigateFallbackDenylist: [/^\/download-adminapp\/?$/, /^\/admin\/install\/?$/],
         runtimeCaching: [
           {

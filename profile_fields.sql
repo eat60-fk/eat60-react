@@ -82,7 +82,13 @@ begin
   return new;
 end $$;
 
-revoke update (name, phone) on public.profiles from authenticated;
+-- Remove any legacy table-wide or column-level UPDATE grants before restoring
+-- the customer-editable fields. This prevents old grants from leaving role,
+-- wallet, streak, or experience fields writable through the Data API.
+revoke update on public.profiles from anon, authenticated;
+revoke update (id, name, username, gender, avatar_id, phone, address, area, city,
+  role, coins, xp, streak, longest_streak, last_order_date, created_at)
+  on public.profiles from anon, authenticated;
 grant update (name, username, phone, address, area, city, gender, avatar_id) on public.profiles to authenticated;
 
 notify pgrst, 'reload schema';

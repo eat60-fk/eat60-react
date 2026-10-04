@@ -20,7 +20,8 @@ function getAudioContext() {
   if (audioContext) return audioContext;
   const Context = window.AudioContext || window.webkitAudioContext;
   if (!Context) return null;
-  audioContext = new Context();
+  try { audioContext = new Context(); }
+  catch { return null; }
   return audioContext;
 }
 
@@ -86,4 +87,22 @@ export function playAppSound(name, volume = 0.8) {
   const buffer = decodedSounds.get(name);
   if (buffer) playBuffer(buffer);
   else void loadSound(name).then(playBuffer);
+}
+
+// Mobile browsers suspend audio until a direct user gesture. Unlock the shared
+// context early so sounds played later from realtime events and React effects
+// can work after the customer or admin has interacted with the app.
+if (typeof window !== 'undefined') {
+  let unlocked = false;
+  const unlockFromGesture = () => {
+    if (unlocked) return;
+    unlocked = true;
+    unlockAppSounds(['notification', 'orderAlert', 'orderArrived', 'announced']);
+    window.removeEventListener('pointerdown', unlockFromGesture, true);
+    window.removeEventListener('touchend', unlockFromGesture, true);
+    window.removeEventListener('keydown', unlockFromGesture, true);
+  };
+  window.addEventListener('pointerdown', unlockFromGesture, true);
+  window.addEventListener('touchend', unlockFromGesture, true);
+  window.addEventListener('keydown', unlockFromGesture, true);
 }

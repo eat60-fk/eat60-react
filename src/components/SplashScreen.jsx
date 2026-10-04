@@ -1,24 +1,16 @@
 import { useEffect, useState } from 'react';
 import './splash.css';
 
-function splashWasShown() {
-  try {
-    return sessionStorage.getItem('eat60:splash-shown') === '1';
-  } catch {
-    return false;
-  }
-}
-
 export default function SplashScreen({ children }) {
-  const [phase, setPhase] = useState(() => splashWasShown() ? 'done' : 'intro');
+  const [phase, setPhase] = useState('intro');
   const [count, setCount] = useState(0);
 
   useEffect(() => {
     if (phase === 'done') return undefined;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      try { sessionStorage.setItem('eat60:splash-shown', '1'); } catch { /* Storage may be unavailable. */ }
-      setPhase('done');
-      return undefined;
+      setCount(60);
+      const reducedMotionTimer = window.setTimeout(() => setPhase('done'), 900);
+      return () => window.clearTimeout(reducedMotionTimer);
     }
 
     const delay = 400;
@@ -33,10 +25,7 @@ export default function SplashScreen({ children }) {
     frame = requestAnimationFrame(animateCount);
 
     const zoomTimer = window.setTimeout(() => setPhase('zoom'), 2500);
-    const finishTimer = window.setTimeout(() => {
-      try { sessionStorage.setItem('eat60:splash-shown', '1'); } catch { /* Storage may be unavailable. */ }
-      setPhase('done');
-    }, 3300);
+    const finishTimer = window.setTimeout(() => setPhase('done'), 3300);
     return () => {
       cancelAnimationFrame(frame);
       window.clearTimeout(zoomTimer);

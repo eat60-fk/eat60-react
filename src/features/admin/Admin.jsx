@@ -72,6 +72,10 @@ function readDeliveryCheckpoints() {
   try { return JSON.parse(localStorage.getItem('eat60-admin-delivery-checks') || '{}') || {}; }
   catch { return {}; }
 }
+function readAdminSoundPreference() {
+  try { return localStorage.getItem('eat60-admin-order-sound') === 'on'; }
+  catch { return false; }
+}
 function paymentTypeForOrder(order) {
   const paymentType = String(order?.payment_type || 'cash').toLowerCase();
   return ['cash', 'upi', 'card', 'online', 'other'].includes(paymentType) ? paymentType : 'cash';
@@ -97,11 +101,8 @@ function showAdminOrderNotification(title, body, orderId, onClick) {
     } catch { /* Fall back to the service worker notification. */ }
   }
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistration().then(registration => {
-      if (registration && Notification.permission === 'granted') {
-        return registration.showNotification(title, options);
-      }
-      if (Notification.permission === 'granted') new Notification(title, options);
+    navigator.serviceWorker.ready.then(registration => {
+      if (Notification.permission === 'granted') return registration.showNotification(title, options);
     }).catch(() => {
       if (Notification.permission === 'granted') {
         try { new Notification(title, options); } catch { /* Keep the in-app alert available. */ }
@@ -624,7 +625,7 @@ export default function Admin() {
   const [storeOnline, setStoreOnline] = useState(true);
   const [appVersion, setAppVersion] = useState('1.0.0');
   const [storeMessage, setStoreMessage] = useState('');
-  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('eat60-admin-order-sound') === 'on');
+  const [soundEnabled, setSoundEnabled] = useState(readAdminSoundPreference);
   const soundRef = useRef(null);
   const alertEnabledRef = useRef('Notification' in window && Notification.permission === 'granted');
   const seenOrderIds = useRef(new Set());
@@ -825,7 +826,8 @@ export default function Admin() {
     }
   }, []);
   useEffect(() => {
-    localStorage.setItem('eat60-admin-order-sound', soundEnabled ? 'on' : 'off');
+    try { localStorage.setItem('eat60-admin-order-sound', soundEnabled ? 'on' : 'off'); }
+    catch { /* Sound remains available for this session if storage is blocked. */ }
   }, [soundEnabled]);
   useEffect(() => {
     if (!unacceptedOrderCount || !soundEnabled) {
@@ -853,7 +855,10 @@ export default function Admin() {
   const enableAlerts = async () => {
     if (!('Notification' in window)) return setPermission('unsupported');
     let result = Notification.permission;
-    if (result === 'default') result = await Notification.requestPermission();
+    if (result === 'default') {
+      try { result = await Notification.requestPermission(); }
+      catch { result = Notification.permission; }
+    }
     setPermission(result);
     alertEnabledRef.current = result === 'granted';
     setAlertEnabled(result === 'granted');
@@ -872,7 +877,6 @@ export default function Admin() {
         await audio.play();
         audio.pause();
         audio.currentTime = 0;
-        soundRef.current = audio;
         soundRef.current = audio;
         setSoundEnabled(true);
         setAlert('New order alarm is on.');

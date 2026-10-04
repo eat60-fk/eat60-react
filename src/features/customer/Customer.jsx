@@ -94,13 +94,19 @@ function distanceInKm(from, to) {
 function showCustomerNotification(title, body, url = '/order-history') {
   if (!('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;
   const options = { body, icon: '/pwa-192.svg', badge: '/pwa-192.svg', data: { url } };
+  const openDestination = notification => {
+    notification.onclick = () => {
+      window.focus();
+      window.location.assign(url);
+      notification.close();
+    };
+  };
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistration().then(registration => {
-      if (registration) return registration.showNotification(title, options);
-      new Notification(title, options);
-    }).catch(() => {});
+    navigator.serviceWorker.ready.then(registration => registration.showNotification(title, options)).catch(() => {
+      try { openDestination(new Notification(title, options)); } catch { /* Notification permission can expire or be revoked by the browser. */ }
+    });
   } else {
-    try { new Notification(title, options); } catch {}
+    try { openDestination(new Notification(title, options)); } catch {}
   }
 }
 function ProfileAvatar({
@@ -583,7 +589,7 @@ export default function Customer({
       sb.removeChannel(channel);
     };
   }, [handleDelivered, me.id]);
-  const price = v => Number(v.id) === Number(data.cfg.offer_variant_id) && data.cfg.offer_date && data.cfg.offer_date <= today() && (!data.cfg.offer_ends_at || new Date(data.cfg.offer_ends_at).getTime() > Date.now()) ? data.cfg.offer_price : v.price;
+  const price = v => Number(v.id) === Number(data.cfg.offer_variant_id) && data.cfg.offer_date === today() && (!data.cfg.offer_ends_at || new Date(data.cfg.offer_ends_at).getTime() > Date.now()) ? data.cfg.offer_price : v.price;
   const add = (item, v, extras = []) => {
     const b = data.brands.find(x => x.id === item.brand_id);
     if (!item.is_available || !b?.is_open) return say('This outlet is closed right now');
@@ -1021,7 +1027,7 @@ function Home({
     return () => window.clearTimeout(storyTimer.current);
   }, [storyIndex, storyDuration, advanceStory]);
   useEffect(() => {
-    const offerIsScheduled = data.cfg.offer_variant_id && data.cfg.offer_date && data.cfg.offer_date <= today() && offerExpiry(data.cfg) > Date.now();
+    const offerIsScheduled = data.cfg.offer_variant_id && data.cfg.offer_date === today() && offerExpiry(data.cfg) > Date.now();
     const currentTime = Date.now();
     const adStarts = data.cfg.home_ad_starts_at ? new Date(data.cfg.home_ad_starts_at).getTime() : null;
     const adEnds = data.cfg.home_ad_ends_at ? new Date(data.cfg.home_ad_ends_at).getTime() : null;
@@ -1039,7 +1045,7 @@ function Home({
   const stockItems = matchingItems.filter(item => stockFilter === 'out-of-stock' ? item.is_available === false : item.is_available !== false);
   const shuffleRank = new Map(shuffleIds.map((id, index) => [String(id), index]));
   const items = shuffleIds.length ? [...stockItems].sort((left, right) => (shuffleRank.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) - (shuffleRank.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER)) : stockItems;
-  const scheduledOffer = data.cfg.offer_date && data.cfg.offer_date <= today() && data.items.find(i => i.item_variants.some(v => Number(v.id) === Number(data.cfg.offer_variant_id)));
+  const scheduledOffer = data.cfg.offer_date === today() && data.items.find(i => i.item_variants.some(v => Number(v.id) === Number(data.cfg.offer_variant_id)));
   const offerEndsAt = offerExpiry(data.cfg);
   const offerItem = scheduledOffer && clock < offerEndsAt ? scheduledOffer : null;
   const offerRemaining = Math.max(0, offerEndsAt - clock);
@@ -1290,7 +1296,7 @@ function Cart({
     const base = Number(item.regularPrice ?? variant?.price ?? item.price);
     return base + (item.regularPrice == null && variant ? (item.extras || []).reduce((sum, extra) => sum + Number(extra.price || 0), 0) : 0);
   };
-  const offerIsActive = cfg.offer_variant_id && cfg.offer_date && cfg.offer_date <= today() && (!cfg.offer_ends_at || new Date(cfg.offer_ends_at).getTime() > Date.now());
+  const offerIsActive = cfg.offer_variant_id && cfg.offer_date === today() && (!cfg.offer_ends_at || new Date(cfg.offer_ends_at).getTime() > Date.now());
   const giftVariant = catalogItems.flatMap(item => (item.item_variants || []).map(variant => ({ ...variant, item }))).find(variant => String(variant.id) === String(cfg.gift_offer_variant_id));
   const hasGift = cart.some(item => item.isGift);
   const giftMinimum = Number(cfg.gift_offer_minimum) || 0;

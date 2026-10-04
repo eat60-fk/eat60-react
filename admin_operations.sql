@@ -336,7 +336,7 @@ begin
     select vr.id as variant_id,vr.item_id,
       case when coalesce(p_use_offer,true) and not coalesce(p_use_coins,false)
         and nullif(upper(trim(coalesce(p_coupon_code,''))),'') is null
-        and vr.id=s.offer_variant_id and s.offer_date<=today_ist()
+        and vr.id=s.offer_variant_id and s.offer_date=today_ist()
         and (s.offer_ends_at is null or s.offer_ends_at>now()) then s.offer_price else vr.price end as price,
       vr.price as regular_price,vr.label,i.name,i.brand_id,i.is_available,b.is_open
     into v from item_variants vr join menu_items i on i.id=vr.item_id join brands b on b.id=i.brand_id
@@ -518,6 +518,9 @@ end $$;
 revoke all on function public.validate_coupon(text,int) from public,anon;
 revoke all on function public.customer_available_coupons() from public,anon;
 revoke all on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric,boolean) from public,anon;
+-- Customers must place orders through place_order_with_gift, which derives
+-- distance from the submitted delivery coordinates on the server.
+revoke all on function public.place_order_with_coupon(jsonb,boolean,text,text,text,text,numeric,boolean) from authenticated;
 revoke all on function public.admin_update_order(bigint,text,text,text,int) from public,anon;
 revoke all on function public.auto_reject_expired_orders() from public,anon,authenticated;
 revoke all on function public.admin_delete_outlet(text) from public,anon;

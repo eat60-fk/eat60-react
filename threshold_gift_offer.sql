@@ -34,7 +34,9 @@ declare
   v_item menu_items%rowtype;
   v_order_id bigint;
   v_subtotal integer;
+  v_distance_km numeric(6,2);
 begin
+  if auth.uid() is null then raise exception 'Please log in first'; end if;
   if p_delivery_latitude is null or p_delivery_longitude is null then
     raise exception 'Share your current delivery location before placing the order';
   end if;
@@ -42,10 +44,19 @@ begin
     raise exception 'The delivery location is invalid. Please confirm it again.';
   end if;
 
+  -- Keep the authoritative distance calculation on the server. The browser's
+  -- p_distance_km value is retained for API compatibility but is never trusted.
+  -- This is the same EAT60 delivery point used by the customer-side estimate.
+  v_distance_km := round((6371 * 2 * asin(sqrt(least(1,
+    sin(radians(p_delivery_latitude - 25.764105) / 2) ^ 2
+      + cos(radians(25.764105)) * cos(radians(p_delivery_latitude))
+        * sin(radians(p_delivery_longitude - 84.151860) / 2) ^ 2
+  ))))::numeric, 2);
+
   if p_gift_variant_id is null then
     v_order_id := public.place_order_with_coupon(
       p_items, p_use_coins, p_address, p_phone, p_coupon_code,
-      p_customer_name, p_distance_km, p_use_offer
+      p_customer_name, v_distance_km, p_use_offer
     );
     update public.orders
       set delivery_latitude = p_delivery_latitude,
@@ -95,7 +106,7 @@ begin
   -- and creates the order. The gift is excluded from all paid totals and savings.
   v_order_id := public.place_order_with_coupon(
     v_paid_items, false, p_address, p_phone, null,
-    p_customer_name, p_distance_km, false
+    p_customer_name, v_distance_km, false
   );
   update public.orders
     set delivery_latitude = p_delivery_latitude,

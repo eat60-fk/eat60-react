@@ -132,13 +132,14 @@ select is((select count(*)::integer from public.customer_available_coupons()), 1
   'customer can browse an active unused voucher');
 
 update eat60_test_fixture as fixture
-set order_id = public.place_order_with_coupon(
+set order_id = public.place_order_with_gift(
   jsonb_build_array(jsonb_build_object(
     'variant_id', fixture.variant_id,
     'qty', 2,
     'extras', jsonb_build_array(jsonb_build_object('id', fixture.extra_id))
   )),
-  true, 'Test delivery address', '9000000000', fixture.coupon_code, 'Test Shopper', 3.5
+  true, 'Test delivery address', '9000000000', fixture.coupon_code, 'Test Shopper',
+  0, true, null, 25.795580, 84.151860
 );
 
 select ok((select order_id is not null from eat60_test_fixture),
@@ -297,12 +298,12 @@ select is((select count(*)::integer from public.weekly_game_rewards
   'settlement records one idempotency row per winner and week');
 
 select throws_ok(
-  $$select public.place_order_with_coupon(
+  $$select public.place_order_with_gift(
     (select jsonb_build_array(jsonb_build_object('variant_id',variant_id,'qty',1)) from eat60_test_fixture),
-    false,'Test delivery address','9000000000',null,'Test Shopper',5.1
+    false,'Test delivery address','9000000000',null,'Test Shopper',0,true,null,25.809970,84.151860
   )$$,
   'P0001', null,
-  'server rejects an estimated distance beyond the delivery radius'
+  'server derives the service radius from coordinates instead of the supplied distance'
 );
 select throws_ok(
   $$select public.admin_update_order(1, 'accepted')$$,
