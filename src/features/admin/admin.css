@@ -1082,7 +1082,7 @@
   .admin-app .admin-service-toggle button[aria-checked="false"] { background: #555; text-align: left; }
   .admin-app .admin-service-toggle i { display: inline-grid; width: 36px; height: 36px; place-items: center; border-radius: 50%; color: #171717; background: var(--admin-accent-soft, #c5ff71); font: 800 14px Arial, sans-serif; font-style: normal; }
   .admin-app .admin-order-tools { position: static; display: block; margin: 0 -3px 32px; padding: 8px; border: 0; border-radius: 27px; background: #4b4b4b; box-shadow: none; }
-  .admin-app .admin-filter-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; overflow: visible; padding: 0; }
+  .admin-app .admin-filter-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; overflow: visible; padding: 0; }
   .admin-app .admin-filter-tabs button { min-width: 0; min-height: 39px; padding: 0 5px; border: 0; border-radius: 999px; color: #f3edf5; background: #414141; font-family: Impact, 'Arial Narrow', sans-serif; font-size: clamp(10px, 3.4vw, 15px); font-weight: 500; white-space: nowrap; }
   .admin-app .admin-filter-tabs button.active { color: var(--admin-accent, #b8f04a); background: #373737; }
   .admin-app .admin-filter-tabs button b { display: none; }
@@ -1159,6 +1159,70 @@
   .admin-app .admin-mobile-tabs button > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; color: #383838; background: #bdbdbd; font-size: 19px; }
   .admin-app .admin-mobile-tabs button.active { color: var(--admin-accent, #b8f04a); background: transparent; }
   .admin-app .admin-mobile-tabs button.active > span { color: #202020; background: var(--admin-accent, #b8f04a); }
+}
+
+/* Clear prep-time controls and a consistent high-contrast order palette. */
+.admin-app .admin-prep-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 48px;
+  color: #e5eadf;
+}
+.admin-app .admin-prep-stepper > span { margin-right: auto; }
+.admin-app .admin-prep-stepper > b { min-width: 62px; color: var(--admin-accent, #b8f04a); text-align: center; }
+.admin-app .admin-prep-stepper > button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #59644e;
+  border-radius: 12px;
+  color: #d8ff9b;
+  background: #252b22;
+  font: 800 23px/1 Arial, sans-serif;
+}
+.admin-app .admin-prep-stepper > button:disabled { cursor: not-allowed; opacity: .4; }
+.admin-app .admin-incoming-accept {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  border: 0;
+  border-radius: 20px;
+  color: #15200d;
+  background: #b8f04a;
+  box-shadow: 0 5px 0 #6a9c2f;
+  font-size: 16px;
+  font-weight: 850;
+}
+.admin-app .admin-incoming-accept:disabled { cursor: wait; opacity: .65; }
+.admin-app .admin-incoming-accept span { font-size: 20px; }
+.admin-app .admin-order-card-redesign .admin-order-actions .admin-primary {
+  color: #15200d;
+  background: #b8f04a;
+}
+.admin-app .admin-order-card-redesign .admin-order-actions .admin-cancel-order {
+  border: 1px solid #754643;
+  color: #ffb8b1;
+  background: #392422;
+}
+
+@media (max-width: 850px) {
+  .admin-app .admin-order-tools { border: 1px solid #394333; background: #222820; }
+  .admin-app .admin-filter-tabs button { color: #e7eddf; background: #30382c; }
+  .admin-app .admin-filter-tabs button.active { color: #17210d; background: #b8f04a; }
+  .admin-app .admin-order-card-redesign { border: 1px solid #3d4935; color: #f5f8ef; background: #272d25; box-shadow: 0 12px 28px #0004; }
+  .admin-app .admin-order-redesign-head { border-bottom-color: #485344; }
+  .admin-app .admin-order-card-redesign .admin-order-items { border-bottom-color: #485344; }
+  .admin-app .admin-order-redesign-payment { border-bottom-color: #485344; }
+  .admin-app .admin-order-card-redesign .admin-order-actions .admin-primary { color: #17210d; background: #b8f04a; box-shadow: 0 5px 0 #6a9c2f; }
+  .admin-app .admin-incoming-order-sheet { border: 1px solid #46523e; color: #f4f8ee; background: #20261f; }
+  .admin-app .admin-incoming-prep-control { border-top-color: #46523e; color: #e3eadd; }
+  .admin-app .admin-incoming-prep-control button { border-color: #61734e; color: #d8ff9b; background: #2c3528; }
+  .admin-app .admin-incoming-accept { min-height: 62px; border-radius: 18px; }
 }
 
 @media (max-width: 420px) {
@@ -1303,4 +1367,21 @@
   }
   .admin-app .admin-empty > span { color: #b8f04a; background: #303a27; }
   .admin-app .admin-empty > span svg { color: #b8f04a; stroke: currentColor; }
+}
+
+/* Final mobile overrides: three balanced filters and brighter decision states. */
+@media (max-width: 850px) {
+  .admin-app .admin-order-tools { border: 1px solid #394333; background: #222820; }
+  .admin-app .admin-order-tools .admin-filter-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .admin-app .admin-order-tools .admin-filter-tabs button { color: #e7eddf; background: #30382c; }
+  .admin-app .admin-order-tools .admin-filter-tabs button.active { border-color: #b8f04a; color: #17210d; background: #b8f04a; }
+  .admin-app .admin-order-card-redesign { border: 1px solid #3d4935; color: #f5f8ef; background: #272d25; box-shadow: 0 12px 28px #0004; }
+  .admin-app .admin-order-redesign-head,.admin-app .admin-order-redesign-payment { border-color: #485344; }
+  .admin-app .admin-order-card-redesign .admin-order-items { border-bottom-color: #485344; }
+  .admin-app .admin-order-card-redesign .admin-order-actions .admin-primary { color: #17210d; background: #b8f04a; box-shadow: 0 5px 0 #6a9c2f; }
+  .admin-app .admin-order-card-redesign .admin-order-actions .admin-cancel-order { border: 1px solid #754643; color: #ffb8b1; background: #392422; }
+  .admin-app .admin-incoming-order-sheet { border: 1px solid #46523e; color: #f4f8ee; background: #20261f; }
+  .admin-app .admin-incoming-prep-control { border-top-color: #46523e; color: #e3eadd; }
+  .admin-app .admin-incoming-prep-control button { border-color: #61734e; color: #d8ff9b; background: #2c3528; }
+  .admin-app .admin-incoming-accept { min-height: 62px; border-radius: 18px; }
 }

@@ -58,14 +58,12 @@ const SETTINGS_SECTIONS = [
 ];
 const ORDER_FILTERS = [
   ['active', 'Active orders'],
-  ['ready', 'Ready'],
   ['delivery', 'On way'],
   ['completed', 'Completed']
 ];
 const ORDER_FILTER_STAGES = {
   active: ['pending', 'accepted', 'preparing'],
-  ready: ['ready'],
-  delivery: ['out_for_delivery', 'payment_received'],
+  delivery: ['ready', 'out_for_delivery', 'payment_received'],
   completed: ['delivered', 'rejected', 'cancelled']
 };
 function readDeliveryCheckpoints() {
@@ -617,7 +615,6 @@ export default function Admin() {
   const [alertEnabled, setAlertEnabled] = useState(() => 'Notification' in window && Notification.permission === 'granted');
   const [incomingOrders, setIncomingOrders] = useState([]);
   const [incomingOrderOpen, setIncomingOrderOpen] = useState(false);
-  const [incomingSwipe, setIncomingSwipe] = useState(0);
   const [incomingPrepMinutes, setIncomingPrepMinutes] = useState(15);
   const [acceptingIncoming, setAcceptingIncoming] = useState(false);
   const [unacceptedOrderCount, setUnacceptedOrderCount] = useState(0);
@@ -908,7 +905,7 @@ export default function Admin() {
       {connection !== 'connected' && <div className="admin-connection-banner" role="status"><span aria-hidden="true">●</span>{connection === 'connecting' ? 'Connecting to live orders…' : 'Connection lost · New orders may be delayed. Reconnecting…'}</div>}
       {ordersError && <div className="admin-error" role="alert"><b>Orders could not be loaded</b><span>{ordersError}</span><button onClick={loadOrders}>Retry</button></div>}
       {alert && <div className="admin-alert" role="status"><span>🔔</span><p>{alert}</p><button aria-label="Dismiss notification" onClick={() => setAlert('')}>×</button></div>}
-      {incomingOrders[0] && <aside className="admin-new-order-dock" aria-live="polite"><span>{incomingOrders.length} NEW {incomingOrders.length === 1 ? 'ORDER' : 'ORDERS'}</span><button type="button" onClick={() => { setIncomingSwipe(0); setIncomingPrepMinutes(15); setIncomingOrderOpen(true); const current = incomingOrders[0]; sb.from('orders').select('*, order_items(*), profiles(name,phone)').eq('id', current.id).maybeSingle().then(({ data }) => { if (data) setIncomingOrders(items => items.map(item => String(item.id) === String(data.id) ? { ...item, ...data } : item)); }); }}>SEE HERE</button></aside>}
+      {incomingOrders[0] && <aside className="admin-new-order-dock" aria-live="polite"><span>{incomingOrders.length} NEW {incomingOrders.length === 1 ? 'ORDER' : 'ORDERS'}</span><button type="button" onClick={() => { setIncomingPrepMinutes(15); setIncomingOrderOpen(true); const current = incomingOrders[0]; sb.from('orders').select('*, order_items(*), profiles(name,phone)').eq('id', current.id).maybeSingle().then(({ data }) => { if (data) setIncomingOrders(items => items.map(item => String(item.id) === String(data.id) ? { ...item, ...data } : item)); }); }}>SEE HERE</button></aside>}
       {incomingOrderOpen && incomingOrders[0] && <div className="admin-incoming-backdrop" onMouseDown={event => event.target === event.currentTarget && setIncomingOrderOpen(false)}>
         <section className="admin-incoming-dialog admin-incoming-order-sheet" role="dialog" aria-modal="true" aria-labelledby="admin-incoming-title">
           <div className="admin-sheet-handle" aria-hidden="true" />
@@ -919,7 +916,7 @@ export default function Admin() {
           <div className="admin-incoming-total-row"><span>{incomingOrders[0].payment_type ? `PAYMENT · ${incomingOrders[0].payment_type.toUpperCase()}` : 'PAYMENT MODE · COD'}{orderSavings(incomingOrders[0]) > 0 && <small>Saved ₹{orderSavings(incomingOrders[0]).toLocaleString('en-IN')}</small>}</span><b>₹{Number(incomingOrders[0].total || 0).toLocaleString('en-IN')}</b></div>
           <div className="admin-incoming-prep-control"><span>PREPARATION TIME <b>{incomingPrepMinutes} min</b></span><div><button type="button" aria-label="Decrease preparation time" disabled={acceptingIncoming || incomingPrepMinutes <= 15} onClick={() => setIncomingPrepMinutes(value => Math.max(15, value - 5))}>−</button><button type="button" aria-label="Increase preparation time" disabled={acceptingIncoming || incomingPrepMinutes >= 180} onClick={() => setIncomingPrepMinutes(value => Math.min(180, value + 5))}>+</button></div></div>
           {!soundEnabled && <button className="admin-incoming-sound" onClick={toggleSound}>Enable repeating alarm</button>}
-          <label className={`admin-swipe-accept${incomingSwipe >= 95 ? ' ready' : ''}`} style={{ '--swipe-progress': `${incomingSwipe}%` }}><i aria-hidden="true">➜</i><span>{acceptingIncoming ? 'ACCEPTING…' : incomingSwipe >= 95 ? 'RELEASE TO ACCEPT' : 'SWIPE TO ACCEPT ORDER'}</span><input type="range" min="0" max="100" value={incomingSwipe} aria-label="Swipe to accept order" disabled={acceptingIncoming} onChange={event => { const value = Number(event.target.value); setIncomingSwipe(value); if (value >= 100) acceptIncomingOrder(incomingOrders[0], incomingPrepMinutes); }} onPointerUp={() => { if (incomingSwipe < 95) setIncomingSwipe(0); }} onKeyUp={event => { if (event.key === 'Enter' && incomingSwipe >= 95) acceptIncomingOrder(incomingOrders[0], incomingPrepMinutes); }} /></label>
+          <button className="admin-incoming-accept" type="button" disabled={acceptingIncoming} onClick={() => acceptIncomingOrder(incomingOrders[0], incomingPrepMinutes)}>{acceptingIncoming ? 'ACCEPTING…' : `Accept order · ${incomingPrepMinutes} min`}<span aria-hidden="true">→</span></button>
           <button className="admin-incoming-dismiss" type="button" onClick={() => setIncomingOrderOpen(false)}>Close order details</button>
         </section>
       </div>}
@@ -1520,7 +1517,7 @@ function Orders({
             const detail = reason === 'Other' ? reasonDetails.trim() : reason;
             if (await move(order.id, reasonStage, detail)) { setReasonId(null); setReason(''); setReasonDetails(''); }
           }}>{reasonStage === 'rejected' ? 'Confirm reject' : 'Confirm cancellation'}</button><button className="admin-secondary" onClick={() => setReasonId(null)}>Cancel</button></div>}
-      {acceptId === order.id && <div className="admin-decision-form admin-prep-form"><label>Preparation time<select value={prepMinutes} onChange={event => setPrepMinutes(Number(event.target.value))}><option value={15}>15 minutes</option><option value={20}>20 minutes</option><option value={30}>30 minutes</option></select></label><button className="admin-primary" disabled={busyId === order.id} onClick={async () => {
+      {acceptId === order.id && <div className="admin-decision-form admin-prep-form"><div className="admin-prep-stepper"><span>Preparation time</span><button type="button" aria-label="Decrease preparation time" disabled={busyId === order.id || prepMinutes <= 15} onClick={() => setPrepMinutes(value => Math.max(15, value - 5))}>−</button><b>{prepMinutes} min</b><button type="button" aria-label="Increase preparation time" disabled={busyId === order.id || prepMinutes >= 180} onClick={() => setPrepMinutes(value => Math.min(180, value + 5))}>+</button></div><button className="admin-primary" disabled={busyId === order.id} onClick={async () => {
             if (await move(order.id, 'accepted', null, null, Number(prepMinutes))) setAcceptId(null);
           }}>{busyId === order.id ? 'Accepting…' : 'Confirm & accept'} <span>→</span></button><button className="admin-secondary" onClick={() => setAcceptId(null)}>Cancel</button></div>}
       {['pending', 'ready', 'accepted', 'preparing'].includes(stageOf(order)) && <div className="admin-order-actions">{stageOf(order) === 'pending' && <><button className="admin-primary" disabled={busyId === order.id} onClick={() => {
