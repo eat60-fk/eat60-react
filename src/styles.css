@@ -7190,17 +7190,54 @@ nav b {
   font-weight: 700
 }
 .delivery-location-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
   width: 100%;
-  min-height: 40px;
-  margin: 1px 0 5px;
-  padding: 9px 12px;
-  border: 1px solid #465535;
-  border-radius: 11px;
-  background: #262c20;
-  color: #c8ee95;
-  font-size: 11px;
-  font-weight: 750;
-  text-align: left
+  min-height: 46px;
+  margin: 7px 0 9px;
+  padding: 11px 14px;
+  border: 1px solid #87c943;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #b8f04a, #85d72e);
+  color: #17210d;
+  font-size: 13px;
+  font-weight: 850;
+  text-align: center;
+  box-shadow: 0 5px 18px #91d73b2b;
+  transition: filter .18s ease, transform .18s ease, background .18s ease;
+  cursor: pointer
+}
+.delivery-location-button:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px)
+}
+.delivery-location-button:active:not(:disabled) { transform: translateY(0) scale(.99) }
+.delivery-location-button:disabled { cursor: wait; opacity: .88 }
+.delivery-location-button.is-sent {
+  border-color: #477e2b;
+  background: #243c1d;
+  color: #c9f79c;
+  box-shadow: inset 0 0 0 1px #7fb84733
+}
+.delivery-location-icon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor
+}
+.delivery-location-spinner {
+  width: 17px;
+  height: 17px;
+  border: 2px solid #17210d55;
+  border-top-color: #17210d;
+  border-radius: 50%;
+  animation: delivery-location-spin .7s linear infinite
+}
+@keyframes delivery-location-spin { to { transform: rotate(360deg) } }
+@media (prefers-reduced-motion: reduce) {
+  .delivery-location-button { transition: none }
+  .delivery-location-spinner { animation-duration: 1.8s }
 }
 .delivery-location-message {
   display: block;

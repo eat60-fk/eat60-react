@@ -1280,6 +1280,7 @@ function Cart({
   const [couponResult, setCouponResult] = useState(null);
   const [deliveryDistance, setDeliveryDistance] = useState(null);
   const [deliveryLocation, setDeliveryLocation] = useState(null);
+  const [locationSending, setLocationSending] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
   useEffect(() => {
     writeOfflineCache(`checkout:${me.id}`, {
@@ -1443,10 +1444,14 @@ function Cart({
       setLocationMessage('Location is not supported. Enable location services to confirm delivery availability.');
       return;
     }
+    setLocationSending(true);
+    setDeliveryDistance(null);
+    setDeliveryLocation(null);
     setLocationMessage('Finding your location…');
     navigator.geolocation.getCurrentPosition(({
       coords
     }) => {
+      setLocationSending(false);
       setDeliveryLocation({ latitude: coords.latitude, longitude: coords.longitude });
       const distance = distanceInKm({
         latitude: coords.latitude,
@@ -1456,6 +1461,7 @@ function Cart({
       setDeliveryDistance(roundedDistance);
       if (roundedDistance > deliveryRadius) setLocationMessage(`You are ${roundedDistance.toFixed(1)} km away; delivery is available within ${deliveryRadius} km.`);else setLocationMessage(`Estimated distance: ${roundedDistance.toFixed(1)} km.`);
     }, error => {
+      setLocationSending(false);
       setDeliveryDistance(null);
       setDeliveryLocation(null);
       setLocationMessage(error.code === error.PERMISSION_DENIED ? 'Location permission was denied. Allow location access to confirm delivery availability.' : 'Could not detect your location. Try again to confirm delivery availability.');
@@ -1488,7 +1494,12 @@ function Cart({
           <label>Delivery address<input autoComplete="street-address" maxLength={240} value={addr} onChange={event => setAddr(event.target.value)} placeholder="House, street, landmark" required /></label>
           <label>Phone number<input autoComplete="tel" inputMode="tel" maxLength={20} value={ph} onChange={event => setPh(event.target.value)} placeholder="Phone number" required /></label>
         </div>
-        <button type="button" className="delivery-location-button" onClick={checkDeliveryDistance}>⌖ Use current location for delivery</button>
+        <button type="button" className={`delivery-location-button${deliveryLocation ? ' is-sent' : ''}${locationSending ? ' is-loading' : ''}`} onClick={checkDeliveryDistance} disabled={locationSending} aria-live="polite">
+          {locationSending ? <><span className="delivery-location-spinner" aria-hidden="true" /> Sending location…</> : <>
+            <svg className="delivery-location-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.7 2.3 14.4 21c-.3.8-1.4.8-1.8.1l-3.2-6.5-6.5-3.2c-.8-.4-.7-1.5.1-1.8l18.7-7.3Zm-11.1 11.1 2.6 5.2 5.5-14-14 5.5 5.2 2.6 5.6-5.6-4.9 6.3Z" /></svg>
+            {deliveryLocation ? 'Location Sent' : 'Send Current Location'}
+          </>}
+        </button>
         {locationMessage && <small className={`delivery-location-message${beyondDeliveryRadius ? ' unavailable' : ''}`} role="status">{locationMessage}</small>}
         <small className="delivery-location-privacy">Your current coordinates will be saved with this order and shared with the kitchen and delivery team to help them reach you.</small>
         <label className="row">
