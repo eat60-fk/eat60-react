@@ -173,6 +173,39 @@
   background: #191a17;
   box-shadow: 0 8px 26px rgb(0 0 0 / 14%);
 }
+.admin-app .admin-order-refresh { width: 40px; min-width: 40px; height: 40px; padding: 0; border-radius: 12px; font-size: 20px }
+.admin-app .admin-order-filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0 16px; }
+.admin-app .admin-period-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-app .admin-period-chips button { min-height: 36px; padding: 0 13px; border: 1px solid #34362f; border-radius: 999px; color: #aeb2a6; background: #1b1c18; font-size: 11px; font-weight: 800; }
+.admin-app .admin-period-chips button.active { border-color: #79964b; color: #d1f58f; background: #293320; }
+.admin-app .admin-outlet-filter { display: flex; align-items: center; gap: 7px; color: #aeb2a6; font-size: 11px; font-weight: 800; }
+.admin-app .admin-outlet-filter select,
+.admin-app .admin-date-range input { min-height: 36px; padding: 0 10px; border: 1px solid #34362f; border-radius: 10px; color: #e8eae2; background: #1b1c18; font: inherit; }
+.admin-app .admin-date-range { display: flex; align-items: center; gap: 6px; }
+.admin-app .admin-order-totals { margin-left: auto; color: #c4c8bd; font-size: 11px; }
+.admin-app .admin-order-brand-row { display: flex; align-items: center; gap: 8px; margin: -3px 0 12px; }
+.admin-app .admin-order-brand { padding: 4px 8px; border-radius: 999px; color: #d3ef9c; background: #293320; font-size: 10px; font-weight: 850; }
+.admin-app .admin-order-age { color: #aab0a4; font-size: 11px; font-weight: 800; }
+.admin-app .admin-order-age.waiting { color: #ffc35e; }
+.admin-app .admin-order-age.urgent { color: #ff7777; }
+.admin-app .admin-customer-contact { display: flex; gap: 6px; margin-left: auto; }
+.admin-app .admin-customer-contact a { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid #3b4035; border-radius: 50%; color: #d5f69b; text-decoration: none; }
+.admin-app .admin-order-payment { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.admin-app .admin-order-payment span { padding: 4px 8px; border: 1px solid #383a32; border-radius: 999px; color: #c2c6bb; background: #20211d; font-size: 10px; font-weight: 800; }
+.admin-app .admin-order-extras { color: #9da398; font-size: 11px; }
+.admin-app .admin-connection-banner { position: sticky; top: 76px; z-index: 35; display: flex; gap: 8px; align-items: center; margin: 0 0 12px 228px; padding: 10px 13px; border: 1px solid #70562d; border-radius: 11px; color: #f1c97b; background: #282117; font-size: 12px; font-weight: 750; }
+.admin-app .admin-connection-banner span { color: #ffbd55; font-size: 10px; }
+.admin-app .admin-empty { margin-bottom: 48px; }
+.admin-app .admin-footer { margin-top: 52px; }
+@media (max-width: 800px) {
+  .admin-app .admin-connection-banner { top: 64px; margin-left: 0; }
+  .admin-app .admin-filter-tabs { scroll-snap-type: x mandatory; }
+  .admin-app .admin-filter-tabs button { scroll-snap-align: start; }
+  .admin-app .admin-order-filter-row { align-items: flex-start; }
+  .admin-app .admin-order-totals { width: 100%; margin-left: 0; }
+  .admin-app .admin-empty { margin-bottom: 56px; }
+  .admin-app .admin-footer { margin-top: 58px; }
+}
 
 .admin-app .admin-setting-picker {
   position: static;

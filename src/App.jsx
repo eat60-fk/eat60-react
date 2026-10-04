@@ -494,7 +494,7 @@ export default function App() {
             </> : <p>{profileError}</p>}
           <div className="row">
             <button className="pill" onClick={loadMe}>Try again</button>
-            <button className="pill g" onClick={() => sb.auth.signOut()}>Log out</button>
+            <button className="pill g" onClick={() => { if (window.confirm('Are you sure you want to log out?')) sb.auth.signOut(); }}>Log out</button>
           </div>
         </section>
         <PoweredFooter />
@@ -503,11 +503,11 @@ export default function App() {
   if (!me) return <main className="app setup-page"><LoadingIndicator label="Loading your profile…" /><PoweredFooter /></main>;
   if (adminRoute) {
     if (adminAccess.status === 'checking') return <main className="app setup-page"><LoadingIndicator label="Verifying administrator access…" /><PoweredFooter /></main>;
-    if (adminAccess.status === 'error') return <main className="app account-error"><section className="card"><p className="auth-eyebrow">ADMIN ACCESS CHECK</p><h1>Could not verify administrator access</h1><p>{adminAccess.message}</p><div className="row"><button className="pill" onClick={() => setAdminCheck(current => current + 1)}>Try again</button><button className="pill g" onClick={() => sb.auth.signOut()}>Sign out</button></div></section><PoweredFooter /></main>;
+    if (adminAccess.status === 'error') return <main className="app account-error"><section className="card"><p className="auth-eyebrow">ADMIN ACCESS CHECK</p><h1>Could not verify administrator access</h1><p>{adminAccess.message}</p><div className="row"><button className="pill" onClick={() => setAdminCheck(current => current + 1)}>Try again</button><button className="pill g" onClick={() => { if (window.confirm('Are you sure you want to log out?')) sb.auth.signOut(); }}>Sign out</button></div></section><PoweredFooter /></main>;
     if (adminAccess.status === 'denied') return <main className="app admin-denied"><section className="card"><p className="auth-eyebrow">RESTRICTED AREA</p><h1>Admin access required</h1><p>Your account does not have permission to open this page.</p><div className="row"><button className="pill" onClick={() => {
             window.history.replaceState({}, '', '/');
             setAdminRoute(false);
-          }}>Back to EAT60</button><button className="pill g" onClick={() => sb.auth.signOut()}>Sign out</button></div></section><PoweredFooter /></main>;
+          }}>Back to EAT60</button><button className="pill g" onClick={() => { if (window.confirm('Are you sure you want to log out?')) sb.auth.signOut(); }}>Sign out</button></div></section><PoweredFooter /></main>;
     return <Suspense fallback={<main className="app setup-page"><p className="empty">Loading admin dashboard…</p><PoweredFooter /></main>}><Admin onBack={() => {
         window.history.replaceState({}, '', '/');
         setAdminRoute(false);

@@ -110,7 +110,7 @@ begin
   elsif new.order_stage is distinct from old.order_stage then
     insert into order_stage_events(order_id,user_id,stage,note,changed_by,occurred_at)
     values(new.id,new.user_id,new.order_stage,
-      case when new.order_stage='rejected' then coalesce(new.rejection_reason,'Order rejected')
+      case when new.order_stage in ('rejected','cancelled') then coalesce(new.rejection_reason,case when new.order_stage='rejected' then 'Order rejected' else 'Order cancelled' end)
            when new.order_stage='payment_received' then 'Payment received · '||coalesce(new.payment_type,'')
            else null end,
       auth.uid(),now());
@@ -435,6 +435,7 @@ begin
     if o.order_stage<>'payment_received' then raise exception 'Record payment before marking delivered'; end if;
   elsif p_stage='cancelled' then
     if o.order_stage not in ('pending','accepted','preparing','ready') then raise exception 'This order can no longer be cancelled'; end if;
+    if coalesce(trim(p_reason),'')='' then raise exception 'Enter a reason for cancelling this order'; end if;
   else raise exception 'Unsupported order action';
   end if;
 

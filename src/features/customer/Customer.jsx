@@ -1406,10 +1406,10 @@ function CustomerOrderJourney({
 }) {
   const events = [...(order.order_stage_events || [])].sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
   if (!events.length) return null;
-  return <details className="customer-order-journey"><summary><b>ORDER JOURNEY</b><span>{events.length} updates <i aria-hidden="true">⌄</i></span></summary>{events.map((event, index) => <div className="customer-order-event" key={event.id}><i /><span><strong>{LABEL[event.stage] || event.stage.replaceAll('_', ' ')}</strong><small>{new Date(event.occurred_at).toLocaleTimeString('en-IN', {
+  return <details className="customer-order-journey"><summary><b>ORDER JOURNEY</b><span>{events.length} updates <i aria-hidden="true">⌄</i></span></summary>{events.map((event, index) => <div className="customer-order-event" key={event.id}><i /><span><strong>{LABEL[event.stage] || event.stage.replaceAll('_', ' ')}</strong><small>{event.changed_by ? 'Admin' : 'System'} · {new Date(event.occurred_at).toLocaleTimeString('en-IN', {
             hour: '2-digit',
             minute: '2-digit'
-          })}{index < events.length - 1 ? ` · ${Math.max(0, Math.round((new Date(events[index + 1].occurred_at) - new Date(event.occurred_at)) / 60000))} min` : ''}</small>{event.stage === 'rejected' && event.note && <small>{event.note}</small>}</span></div>)}</details>;
+          })}{index < events.length - 1 ? ` · ${Math.max(0, Math.round((new Date(events[index + 1].occurred_at) - new Date(event.occurred_at)) / 60000))} min` : ''}</small>{['rejected', 'cancelled'].includes(event.stage) && event.note && <small>{event.note}</small>}</span></div>)}</details>;
 }
 // Order tracking and customer community components.
 function History({
@@ -2648,7 +2648,7 @@ function More({
           <div className="more-profile-name"><b>{me.username || me.name || 'User Name'}</b><button onClick={openProfile} aria-label="Edit profile"><MoreIcon name="edit" /></button></div>
         </section>
         {Object.entries(tiles).map(([group, items]) => <section className="more-tile-section" key={group}><h2>{group.toUpperCase()}</h2><div className={`more-tiles more-tiles-${items.length}`}>{items.map(([id, label]) => id === 'download' ? <a className="more-tile" href="/download" key={id}><span className={`more-tile-icon icon-${id}`}><MoreIcon name={id} /></span><b>{label.toUpperCase()}</b></a> : <button className="more-tile" key={id} onClick={() => action(id)}><span className={`more-tile-icon icon-${id}`}><MoreIcon name={id} /></span><b>{label.toUpperCase()}</b></button>)}</div>{group === 'Setting & Supports' && installMessage && <p className="more-install-message" role="status">{installMessage}</p>}</section>)}
-        <section className="more-account-actions"><div><b>{me.xp} XP</b><span>{me.coins} coins · {email}</span></div><div><button className="pill g" onClick={() => sb.auth.signOut()}>LOG OUT</button></div></section>
+        <section className="more-account-actions"><div><b>{me.xp} XP</b><span>{me.coins} coins · {email}</span></div><div><button className="pill g" onClick={() => { if (window.confirm('Are you sure you want to log out?')) sb.auth.signOut(); }}>LOG OUT</button></div></section>
       </section>
       {celebrationPopup}
       {claimPromptPopup}

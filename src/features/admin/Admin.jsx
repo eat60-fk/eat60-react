@@ -59,9 +59,9 @@ const SETTINGS_SECTIONS = [
 const ORDER_FILTERS = [
   ['active', 'Active'],
   ['ready', 'Ready'],
-  ['delivery', 'On the way'],
-  ['completed', 'Completed'],
-  ['all', 'All orders']
+  ['delivery', 'On way'],
+  ['completed', 'Done'],
+  ['all', 'All']
 ];
 const ORDER_FILTER_STAGES = {
   active: ['pending', 'accepted', 'preparing'],
@@ -168,14 +168,14 @@ function SettingsEditCard({
   return <article className={`admin-settings-card${editing ? ' editing' : ''}`}>
     <header className="admin-settings-card-heading">
       <div><h3>{title}</h3><p>{description}</p></div>
-      {!editing && <button type="button" className="admin-settings-edit" onClick={onEdit} disabled={busy || disabled}>Edit <span aria-hidden="true">↗</span></button>}
+      {!editing && <button type="button" className="admin-settings-edit" onClick={() => { if (window.confirm(`Are you sure you want to edit ${title.toLowerCase()}?`)) onEdit(); }} disabled={busy || disabled}>Edit <span aria-hidden="true">↗</span></button>}
     </header>
     {editing ? <div className="admin-settings-card-form">
       {children}
       {feedback && <p className="admin-feedback" role="status">{feedback}</p>}
       <div className="admin-settings-card-actions">
         <button type="button" className="admin-secondary" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button type="button" className="admin-primary" disabled={busy} onClick={onSave}>{busy ? 'Saving…' : 'Save changes'} <span aria-hidden="true">→</span></button>
+        <button type="button" className="admin-primary" disabled={busy} onClick={() => { if (window.confirm(`Are you sure you want to update ${title.toLowerCase()}?`)) onSave(); }}>{busy ? 'Saving…' : 'Save changes'} <span aria-hidden="true">→</span></button>
       </div>
     </div> : <>
       <p className="admin-settings-card-summary">{summary}</p>
@@ -551,6 +551,8 @@ export default function Admin({
   const [permission, setPermission] = useState(() => 'Notification' in window ? Notification.permission : 'unsupported');
   const [alertEnabled, setAlertEnabled] = useState(false);
   const [incomingOrders, setIncomingOrders] = useState([]);
+  const [unacceptedOrderCount, setUnacceptedOrderCount] = useState(0);
+  const unacceptedOrderIds = useRef(new Set());
   const [storeOnline, setStoreOnline] = useState(true);
   const [appVersion, setAppVersion] = useState('1.0.0');
   const [storeMessage, setStoreMessage] = useState('');
@@ -615,9 +617,19 @@ export default function Admin({
       return;
     }
     setOrdersError('');
-    setOrders(data || []);
+    const nextOrders = data || [];
+    setOrders(nextOrders);
     setConnection('connected');
-    data?.forEach(order => seenOrderIds.current.add(String(order.id)));
+    nextOrders.forEach(order => {
+      seenOrderIds.current.add(String(order.id));
+      const stage = order.order_stage || (order.status === 'placed' ? 'pending' : order.status);
+      if (stage !== 'pending') unacceptedOrderIds.current.delete(String(order.id));
+    });
+    setUnacceptedOrderCount(unacceptedOrderIds.current.size);
+    setIncomingOrders(current => current.filter(order => {
+      const latest = nextOrders.find(item => String(item.id) === String(order.id));
+      return latest && (latest.order_stage || (latest.status === 'placed' ? 'pending' : latest.status)) === 'pending';
+    }));
   }, []);
   const loadStore = useCallback(async () => {
     const {
@@ -635,14 +647,16 @@ export default function Admin({
     initialOrderIds.current = new Set();
     earlyIncomingOrders.current = [];
     const initializeOrders = async () => {
+      initialOrderIds.current = new Set(seenOrderIds.current);
       await loadOrders();
       if (!mounted) return;
-      initialOrderIds.current = new Set(seenOrderIds.current);
       ordersInitialized.current = true;
       const earlyOrders = earlyIncomingOrders.current.splice(0);
       const newOrders = earlyOrders.filter(order => !initialOrderIds.current.has(String(order.id)));
       if (newOrders.length) {
         newOrders.forEach(order => seenOrderIds.current.add(String(order.id)));
+        newOrders.forEach(order => unacceptedOrderIds.current.add(String(order.id)));
+        setUnacceptedOrderCount(unacceptedOrderIds.current.size);
         setIncomingOrders(current => [...newOrders.reverse(), ...current]);
       }
     };
@@ -661,11 +675,14 @@ export default function Admin({
           earlyIncomingOrders.current.push(order);
         } else if (!seenOrderIds.current.has(id)) {
           seenOrderIds.current.add(id);
+          unacceptedOrderIds.current.add(id);
+          setUnacceptedOrderCount(unacceptedOrderIds.current.size);
           const title = `New order #${order.id}`;
           const body = `₹${Number(order.total || 0).toLocaleString('en-IN')} · ${order.status || 'placed'}`;
           setAlert(`${title} received · ${body}`);
           window.clearTimeout(alertTimer.current);
           setIncomingOrders(current => [order, ...current]);
+          if ('vibrate' in navigator) navigator.vibrate([240, 120, 240]);
           alertTimer.current = window.setTimeout(() => setAlert(''), 6500);
           if (alertEnabledRef.current && 'Notification' in window && Notification.permission === 'granted') {
             try {
@@ -681,6 +698,15 @@ export default function Admin({
               };
             } catch {/* Keep the in-app alert available if the browser blocks system notifications. */}
           }
+        }
+      } else if (payload.eventType === 'UPDATE') {
+        const order = payload.new;
+        const stage = order.order_stage || (order.status === 'placed' ? 'pending' : order.status);
+        if (stage !== 'pending') {
+          unacceptedOrderIds.current.delete(String(order.id));
+          setUnacceptedOrderCount(unacceptedOrderIds.current.size);
+          setIncomingOrders(current => current.filter(item => String(item.id) !== String(order.id)));
+          if (['accepted', 'rejected', 'cancelled'].includes(stage) && 'vibrate' in navigator) navigator.vibrate(0);
         }
       }
       loadOrders();
@@ -702,16 +728,20 @@ export default function Admin({
     }
   }, []);
   useEffect(() => {
-    if (!incomingOrders.length || !soundEnabled || !soundRef.current) return undefined;
+    if (!unacceptedOrderCount) return undefined;
     const ring = () => {
+      if (!soundEnabled || !soundRef.current) return;
       const context = soundRef.current;
       if (!context) return;
       if (context.state === 'suspended') context.resume().then(() => playOrderTone(context)).catch(() => {});else playOrderTone(context);
     };
     ring();
-    const interval = window.setInterval(ring, 2800);
+    const interval = window.setInterval(() => {
+      ring();
+      if ('vibrate' in navigator) navigator.vibrate([240, 120, 240]);
+    }, 2800);
     return () => window.clearInterval(interval);
-  }, [incomingOrders.length, soundEnabled]);
+  }, [unacceptedOrderCount, soundEnabled]);
   const enableAlerts = async () => {
     if (!('Notification' in window)) return setPermission('unsupported');
     let result = Notification.permission;
@@ -761,6 +791,7 @@ export default function Admin({
         {MOBILE_TABS.map(([key, label]) => <button key={key} className={(key === 'explore' ? !['orders', 'overview', 'growth', 'menu'].includes(tab) : tab === key) ? 'active' : ''} onClick={() => visitTab(key)}><span aria-hidden="true">{TAB_ICONS[key]}</span>{label}{key === 'orders' && orders.some(order => (order.order_stage || 'pending') === 'pending') && <b>{orders.filter(order => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
       </nav>
 
+      {connection !== 'connected' && <div className="admin-connection-banner" role="status"><span aria-hidden="true">●</span>{connection === 'connecting' ? 'Connecting to live orders…' : 'Connection lost · New orders may be delayed. Reconnecting…'}</div>}
       {ordersError && <div className="admin-error" role="alert"><b>Orders could not be loaded</b><span>{ordersError}</span><button onClick={loadOrders}>Retry</button></div>}
       {alert && <div className="admin-alert" role="status"><span>🔔</span><p>{alert}</p><button aria-label="Dismiss notification" onClick={() => setAlert('')}>×</button></div>}
       {incomingOrders[0] && <div className="admin-incoming-backdrop">
@@ -779,6 +810,7 @@ export default function Admin({
         </section>
       </div>}
       {visitedTabs.has('overview') && <div hidden={tab !== 'overview'}><Overview orders={orders} onViewOrders={() => visitTab('orders')} online={storeOnline} setOnline={async value => {
+        if (!window.confirm(`Are you sure you want to turn the store ${value ? 'online' : 'offline'}?`)) return;
         const {
           error
         } = await sb.from('settings').update({
@@ -789,7 +821,7 @@ export default function Admin({
       {visitedTabs.has('growth') && <div hidden={tab !== 'growth'}><Growth orders={orders} /></div>}
       {visitedTabs.has('explore') && <div hidden={tab !== 'explore'}><Explore onNavigate={visitTab} /></div>}
       {visitedTabs.has('settings') && <div hidden={tab !== 'settings'}><SettingsWorkspace section={settingsSection} onSelect={visitSettingsSection} appVersion={appVersion} setAppVersion={setAppVersion} connection={connection} soundEnabled={soundEnabled} toggleSound={toggleSound} alertEnabled={alertEnabled} permission={permission} enableAlerts={enableAlerts} /></div>}
-      {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} /></div>}
+      {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} connection={connection} /></div>}
       {visitedTabs.has('menu') && <div hidden={tab !== 'menu'}><Menu /></div>}
       {visitedTabs.has('outlets') && <div hidden={tab !== 'outlets'}><Outlets /></div>}
       {visitedTabs.has('feed') && <div hidden={tab !== 'feed'}><AdminFeed /></div>}
@@ -859,7 +891,7 @@ function AdminPreferences({ appVersion, setAppVersion, connection, soundEnabled,
       <label>Version<input value={version} onChange={event => setVersion(event.target.value)} placeholder="1.0.0" inputMode="decimal" /></label>
     </SettingsEditCard>
     <article className="admin-settings-card"><header className="admin-settings-card-heading"><div><h3>Connection & alerts</h3><p>Choose when this device can notify you about new orders.</p></div><span className="admin-footer-connection">{connection === 'connected' ? 'ONLINE' : 'OFFLINE'}</span></header>
-      <div className="admin-settings-card-actions"><button className="admin-secondary" type="button" onClick={enableAlerts} disabled={permission === 'unsupported'}>{alertEnabled ? 'Alerts enabled' : permission === 'denied' ? 'Allow in browser settings' : 'Enable order alerts'}</button><button className="admin-secondary" type="button" onClick={toggleSound}>{soundEnabled ? 'Turn sound off' : 'Turn sound on'}</button><button className="admin-cancel-order" type="button" onClick={() => sb.auth.signOut()}>Log out</button></div>
+      <div className="admin-settings-card-actions"><button className="admin-secondary" type="button" onClick={enableAlerts} disabled={permission === 'unsupported'}>{alertEnabled ? 'Alerts enabled' : permission === 'denied' ? 'Allow in browser settings' : 'Enable order alerts'}</button><button className="admin-secondary" type="button" onClick={toggleSound}>{soundEnabled ? 'Turn sound off' : 'Turn sound on'}</button><button className="admin-cancel-order" type="button" onClick={() => { if (window.confirm('Are you sure you want to log out?')) sb.auth.signOut(); }}>Log out</button></div>
     </article>
   </section>;
 }
@@ -1260,15 +1292,24 @@ function OrderJourney({
           return <div key={event.id} className="order-journey-step"><i /><div><b>{LABEL[event.stage] || event.stage.replaceAll('_', ' ')}</b><small>{new Date(event.occurred_at).toLocaleTimeString('en-IN', {
                   hour: '2-digit',
                   minute: '2-digit'
-                })}{mins !== null ? ` · ${mins} min in this stage` : ''}</small>{event.note && event.stage === 'rejected' && <small>{event.note}</small>}</div></div>;
+                })}{mins !== null ? ` · ${mins} min in this stage` : ''}</small><small>{event.changed_by ? 'Admin' : 'System'}</small>{event.note && ['rejected', 'cancelled'].includes(event.stage) && <small>{event.note}</small>}</div></div>;
         })}</div></div></details>;
+}
+function OrderAge({ createdAt, now }) {
+  const minutes = Math.max(0, Math.floor((now - new Date(createdAt).getTime()) / 60000));
+  const tone = minutes >= 20 ? 'urgent' : minutes >= 10 ? 'waiting' : '';
+  const age = minutes < 1 ? 'Just now' : minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return <span className={`admin-order-age ${tone}`}>{age} since placed</span>;
 }
 // Order operations and the menu catalog.
 function Orders({
   rows,
-  refresh
+  refresh,
+  connection
 }) {
-  const [filter, setFilter] = useState('new');
+  const [filter, setFilter] = useState('active');
+  const [outlet, setOutlet] = useState('all');
+  const [outlets, setOutlets] = useState([]);
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState('');
@@ -1277,18 +1318,41 @@ function Orders({
   const [to, setTo] = useState('');
   const [reasonId, setReasonId] = useState(null);
   const [reason, setReason] = useState('');
+  const [reasonDetails, setReasonDetails] = useState('');
+  const [reasonStage, setReasonStage] = useState('rejected');
   const [acceptId, setAcceptId] = useState(null);
   const [prepMinutes, setPrepMinutes] = useState(15);
   const [paymentId, setPaymentId] = useState(null);
   const [payment, setPayment] = useState('cash');
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    let active = true;
+    sb.from('brands').select('id,name').order('name').then(({ data }) => { if (active) setOutlets(data || []); });
+    return () => { active = false; };
+  }, []);
   const stageOf = o => o.order_stage || (o.status === 'placed' ? 'pending' : o.status);
   const now = new Date();
   const dateKey = d => new Date(d).toLocaleDateString('en-CA', {
     timeZone: 'Asia/Kolkata'
   });
-  const start = period === 'today' ? dateKey(now) : period === 'week' ? dateKey(new Date(now.getTime() - 6 * 86400000)) : period === 'month' ? dateKey(new Date(now.getFullYear(), now.getMonth(), 1)) : from;
-  const end = period === 'custom' ? to : dateKey(now);
-  const filtered = rows.filter(order => (filter === 'all' || ORDER_FILTER_STAGES[filter]?.includes(stageOf(order))) && (!start || dateKey(order.created_at) >= start) && (!end || dateKey(order.created_at) <= end) && `${order.id} ${order.customer_name || order.profiles?.name || ''} ${order.phone || ''}`.toLowerCase().includes(query.toLowerCase()));
+  const yesterday = new Date(now.getTime() - 86400000);
+  const start = period === 'today' ? dateKey(now) : period === 'yesterday' ? dateKey(yesterday) : period === 'week' ? dateKey(new Date(now.getTime() - 6 * 86400000)) : period === 'custom' ? from : '';
+  const end = period === 'today' ? dateKey(now) : period === 'yesterday' ? dateKey(yesterday) : period === 'custom' ? to : dateKey(now);
+  const searched = rows.filter(order => {
+    const orderBrands = [...new Set((order.order_items || []).map(item => String(item.brand_id || '')).filter(Boolean))];
+    const matchesOutlet = outlet === 'all' || orderBrands.includes(String(outlet));
+    const matchesDate = (!start || dateKey(order.created_at) >= start) && (!end || dateKey(order.created_at) <= end);
+    const matchesQuery = `${order.id} ${order.customer_name || order.profiles?.name || ''} ${order.phone || order.profiles?.phone || ''}`.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesOutlet && matchesDate && matchesQuery;
+  });
+  const filtered = searched.filter(order => filter === 'all' || ORDER_FILTER_STAGES[filter]?.includes(stageOf(order)));
+  const countFor = key => searched.filter(order => key === 'all' || ORDER_FILTER_STAGES[key]?.includes(stageOf(order))).length;
+  const clearFilters = () => { setFilter('active'); setOutlet('all'); setQuery(''); setPeriod('today'); setFrom(''); setTo(''); };
+  const hasCustomFilters = outlet !== 'all' || Boolean(query) || period !== 'today' || Boolean(from) || Boolean(to);
   const move = async (id, stage, why = null, payType = null, prepTimeMinutes = null) => {
     setBusyId(id);
     setError('');
@@ -1306,42 +1370,45 @@ function Orders({
     return !updateError;
   };
   return <section className="admin-content">
-    <div className="admin-page-heading"><div><p>FULFILMENT</p><h2>Order management</h2><span>Review incoming orders and update their progress.</span></div><button className="admin-secondary" onClick={refresh}>↻ <span>Refresh</span></button></div>
-    <div className="admin-order-tools"><div className="admin-filter-tabs" aria-label="Filter orders">{ORDER_FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}{key === 'active' && rows.filter(order => ['pending', 'accepted', 'preparing'].includes(stageOf(order))).length > 0 && <b>{rows.filter(order => ['pending', 'accepted', 'preparing'].includes(stageOf(order))).length}</b>}</button>)}</div><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order or customer" /></label></div>
-    <div className="admin-report-tools"><select value={period} onChange={e => setPeriod(e.target.value)}><option value="today">Today</option><option value="week">Last 7 days</option><option value="month">This month</option><option value="custom">Choose dates</option></select>{period === 'custom' && <><input type="date" value={from} onChange={e => setFrom(e.target.value)} /><span>to</span><input type="date" value={to} onChange={e => setTo(e.target.value)} /></>}<b>{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b></div>
+    <div className="admin-page-heading"><div><p>FULFILMENT</p><h2>Order management</h2><span>Live order updates · {connection === 'connected' ? 'connected' : 'reconnecting'}</span></div><button className="admin-secondary admin-order-refresh" aria-label="Refresh orders" title="Refresh orders" onClick={refresh}>↻</button></div>
+    <div className="admin-order-tools"><div className="admin-filter-tabs" aria-label="Filter orders">{ORDER_FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}<b>{countFor(key)}</b></button>)}</div><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order, name, or phone" /></label></div>
+    <div className="admin-order-filter-row"><div className="admin-period-chips" role="group" aria-label="Order date range">{[['today','Today'],['yesterday','Yesterday'],['week','7 days'],['custom','Custom']].map(([key,label]) => <button key={key} type="button" className={period === key ? 'active' : ''} aria-pressed={period === key} onClick={() => setPeriod(key)}>{label}</button>)}</div><label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{period === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}<b className="admin-order-totals">{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
     {filtered.length ? <div className="admin-order-list">{filtered.map(order => <article className="admin-order-card" key={order.id}>
       <div className="admin-order-card-top"><div><span className="admin-order-number">ORDER #{order.id}</span><strong>₹{Number(order.total).toLocaleString('en-IN')}</strong></div><span className={`admin-status status-${stageOf(order)}`}>{LABEL[stageOf(order)] || stageOf(order)}</span></div>
-      <div className="admin-order-customer"><div className="admin-customer-avatar">{(order.customer_name || order.profiles?.name || 'G').slice(0, 1).toUpperCase()}</div><div><b>{order.customer_name || order.profiles?.name || 'Customer'}</b><small>{order.phone || order.profiles?.phone || 'No phone provided'}</small></div><time>{new Date(order.created_at).toLocaleString('en-IN', {
+      <div className="admin-order-brand-row">{[...new Set((order.order_items || []).map(item => item.brand_id).filter(Boolean))].map(brandId => <span className="admin-order-brand" key={brandId}>{outlets.find(item => item.id === brandId)?.name || brandId}</span>)}<OrderAge createdAt={order.created_at} now={currentTime} /></div>
+      <div className="admin-order-customer"><div className="admin-customer-avatar">{(order.customer_name || order.profiles?.name || 'G').slice(0, 1).toUpperCase()}</div><div><b>{order.customer_name || order.profiles?.name || 'Customer'}</b><small>{order.phone || order.profiles?.phone || 'No phone provided'}</small></div>{(order.phone || order.profiles?.phone) && <span className="admin-customer-contact"><a href={`tel:${String(order.phone || order.profiles?.phone).replace(/[^+\d]/g, '')}`} aria-label="Call customer">☎</a><a target="_blank" rel="noreferrer" href={`https://wa.me/${String(order.phone || order.profiles?.phone).replace(/\D/g, '')}`} aria-label="Message customer on WhatsApp">◉</a></span>}<time>{new Date(order.created_at).toLocaleString('en-IN', {
               dateStyle: 'medium',
               timeStyle: 'short'
             })}</time></div>
-      <div className="admin-order-items">{(order.order_items || []).map(item => <div key={item.id}><span>{item.qty}×</span>{item.item_name}<b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
+      <div className="admin-order-items">{(order.order_items || []).map(item => <div key={item.id}><span>{item.qty}×</span><span>{item.item_name}{item.extra_details?.length > 0 && <small className="admin-order-extras"> · {item.extra_details.map(extra => extra.name).join(', ')}</small>}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
+      <div className="admin-order-payment"><span>{order.payment_type === 'upi' || order.payment_type === 'online' ? (order.payment_received_at ? 'UPI PAID' : 'UPI PENDING') : order.payment_type ? order.payment_received_at ? `${order.payment_type.toUpperCase()} PAID` : order.payment_type.toUpperCase() : 'PAYMENT PENDING'}</span>{Number(order.coin_discount) > 0 && <span>Coins −₹{Number(order.coin_discount)} ({Number(order.coins_used)} coins)</span>}{Number(order.coupon_discount) > 0 && <span>{order.coupon_code || 'Coupon'} −₹{Number(order.coupon_discount)}</span>}</div>
       <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
       {order.order_stage_events?.length > 0 && <OrderJourney order={order} />}
       {stageOf(order) === 'pending' && <PendingDecisionClock createdAt={order.created_at} />}
       {['accepted', 'preparing'].includes(stageOf(order)) && order.prep_time_minutes && <p className="admin-prep-estimate">Kitchen preparation estimate <b>{order.prep_time_minutes} min</b></p>}
       {order.rejection_reason && <p className="admin-rejection-reason">Reason: {order.rejection_reason}</p>}
       {stageOf(order) === 'payment_received' && <p className="admin-pending-clock">Payment received · {order.payment_type || 'type not recorded'}</p>}
-      {reasonId === order.id && <div className="admin-decision-form"><input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason for rejecting" /><button className="admin-cancel-order" disabled={!reason.trim() || busyId === order.id} onClick={async () => {
-            await move(order.id, 'rejected', reason);
-            setReasonId(null);
-            setReason('');
-          }}>Confirm reject</button><button className="admin-secondary" onClick={() => setReasonId(null)}>Cancel</button></div>}
+      {reasonId === order.id && <div className="admin-decision-form"><select aria-label="Reason for order decision" value={reason} onChange={e => setReason(e.target.value)}><option value="">Choose a reason</option><option value="Item unavailable">Item unavailable</option><option value="Kitchen closed">Kitchen closed</option><option value="Delivery unavailable">Delivery unavailable</option><option value="Other">Other</option></select>{reason === 'Other' && <input value={reasonDetails} onChange={e => setReasonDetails(e.target.value)} placeholder="Add a short reason" />}{reason && reason !== 'Other' && <small>This reason will be shown to the customer.</small>}<button className="admin-cancel-order" disabled={!reason || reason === 'Other' && !reasonDetails.trim() || busyId === order.id} onClick={async () => {
+            const detail = reason === 'Other' ? reasonDetails.trim() : reason;
+            if (await move(order.id, reasonStage, detail)) { setReasonId(null); setReason(''); setReasonDetails(''); }
+          }}>{reasonStage === 'rejected' ? 'Confirm reject' : 'Confirm cancellation'}</button><button className="admin-secondary" onClick={() => setReasonId(null)}>Cancel</button></div>}
       {paymentId === order.id && <div className="admin-decision-form"><select value={payment} onChange={e => setPayment(e.target.value)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="online">Online</option><option value="other">Other</option></select><button className="admin-primary" onClick={async () => {
             await move(order.id, 'payment_received', null, payment);
             setPaymentId(null);
           }}>Confirm payment</button></div>}
-      {acceptId === order.id && <div className="admin-decision-form admin-prep-form"><label>Preparation time <span>15–180 minutes · adjust in 5-minute steps</span><div className="admin-prep-input"><input type="number" min="15" max="180" step="5" value={prepMinutes} onChange={event => setPrepMinutes(event.target.value)} /><span>minutes</span></div></label><button className="admin-primary" disabled={busyId === order.id || !Number.isInteger(Number(prepMinutes)) || Number(prepMinutes) < 15 || Number(prepMinutes) > 180 || Number(prepMinutes) % 5 !== 0} onClick={async () => {
+      {acceptId === order.id && <div className="admin-decision-form admin-prep-form"><label>Preparation time<select value={prepMinutes} onChange={event => setPrepMinutes(Number(event.target.value))}><option value={15}>15 minutes</option><option value={20}>20 minutes</option><option value={30}>30 minutes</option></select></label><button className="admin-primary" disabled={busyId === order.id} onClick={async () => {
             if (await move(order.id, 'accepted', null, null, Number(prepMinutes))) setAcceptId(null);
           }}>{busyId === order.id ? 'Accepting…' : 'Confirm & accept'} <span>→</span></button><button className="admin-secondary" onClick={() => setAcceptId(null)}>Cancel</button></div>}
       <div className="admin-order-actions">{stageOf(order) === 'pending' && <><button className="admin-primary" disabled={busyId === order.id} onClick={() => {
               setPrepMinutes(15);
               setAcceptId(order.id);
             }}>Accept order <span>→</span></button><button className="admin-cancel-order" disabled={busyId === order.id} onClick={() => {
+              setReasonStage('rejected');
               setReasonId(order.id);
               setReason('');
-            }}>Reject</button></>}{{
+              setReasonDetails('');
+            }}>Reject</button></>}{['accepted', 'preparing', 'ready'].includes(stageOf(order)) && <button className="admin-cancel-order" disabled={busyId === order.id} onClick={() => { setReasonStage('cancelled'); setReasonId(order.id); setReason(''); setReasonDetails(''); }}>Cancel order</button>}{{
             accepted: 'preparing',
             preparing: 'ready',
             ready: 'out_for_delivery',
@@ -1358,7 +1425,7 @@ function Orders({
               ready: 'out_for_delivery',
               payment_received: 'delivered'
             }[stageOf(order)]]}`} <span>→</span></button>}{['accepted', 'preparing'].includes(stageOf(order)) && <OrderReadyCountdown order={order} actionLabel={stageOf(order) === 'preparing' ? 'Order ready' : 'Start preparing'} disabled={busyId === order.id} onClick={() => move(order.id, stageOf(order) === 'preparing' ? 'ready' : 'preparing')} />}</div>
-    </article>)}</div> : <div className="admin-empty"><span>⌕</span><b>{filter === 'active' && !query ? 'No active orders' : 'No matching orders'}</b><small>{filter === 'active' && !query ? 'New orders and orders being prepared will appear here.' : 'Try another order group, date range, or search term.'}</small></div>}
+    </article>)}</div> : <div className="admin-empty"><span>⌕</span><b>{filter === 'active' && period === 'today' && !query && outlet === 'all' ? 'No active orders today' : 'No matching orders'}</b><small>{filter === 'active' && !query ? 'New orders and orders being prepared will appear here.' : 'Try a different outlet, date range, or search.'}</small><button className="admin-secondary" onClick={clearFilters}>Clear filters</button></div>}
   </section>;
 }
 function OrderRow({
@@ -1396,6 +1463,7 @@ function Menu() {
     load();
   }, [load]);
   const toggle = async item => {
+    if (!window.confirm(`Are you sure you want to mark ${item.name} ${item.is_available ? 'out of stock' : 'in stock'}?`)) return;
     setSaving(item.id);
     setError('');
     const {
@@ -1435,7 +1503,7 @@ function Menu() {
     <div className="admin-page-heading"><div><p>CATALOG</p><h2>Menu & availability</h2><span>Manage descriptions, food photos, sizes, prices and extras.</span></div><button className="admin-primary" onClick={() => setEditing({})}>Add menu item <span>＋</span></button></div>
     <div className="admin-catalog-tools"><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a dish" /></label><select aria-label="Filter by outlet" value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All outlets</option>{brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
-    <div className="admin-menu-grid">{visible.map(item => <article className="admin-menu-card" key={item.id}>{item.image_url ? <img className="admin-menu-art admin-menu-photo" src={item.image_url} alt="" /> : <div className="admin-menu-art">{brands.find(brand => brand.id === item.brand_id)?.emoji || '🍽️'}</div>}<div className="admin-menu-info"><span>{item.category} · {brands.find(brand => brand.id === item.brand_id)?.name || item.brand_id}</span><h3>{item.name}</h3><p>{item.description || 'No description added.'}</p><div className="admin-variant-prices">{item.item_variants?.map(variant => <span key={variant.id}>{variant.label} <b>₹{variant.price}</b></span>)}{(item.item_extras || []).map(x => <span key={x.id}>+ {x.name} <b>₹{x.price}</b></span>)}</div><div className="admin-card-actions"><button onClick={() => setEditing(item)}>Edit</button><button onClick={() => setDeleteTarget(item)}>Delete</button></div></div><button className={`admin-toggle ${item.is_available ? 'on' : ''}`} disabled={saving === item.id} onClick={() => toggle(item)}><i />{saving === item.id ? 'Saving' : item.is_available ? 'Available' : 'Hidden'}</button></article>)}</div>
+    <div className="admin-menu-grid">{visible.map(item => <article className="admin-menu-card" key={item.id}>{item.image_url ? <img className="admin-menu-art admin-menu-photo" src={item.image_url} alt="" /> : <div className="admin-menu-art">{brands.find(brand => brand.id === item.brand_id)?.emoji || '🍽️'}</div>}<div className="admin-menu-info"><span>{item.category} · {brands.find(brand => brand.id === item.brand_id)?.name || item.brand_id}</span><h3>{item.name}</h3><p>{item.description || 'No description added.'}</p><div className="admin-variant-prices">{item.item_variants?.map(variant => <span key={variant.id}>{variant.label} <b>₹{variant.price}</b></span>)}{(item.item_extras || []).map(x => <span key={x.id}>+ {x.name} <b>₹{x.price}</b></span>)}</div><div className="admin-card-actions"><button onClick={() => { if (window.confirm(`Are you sure you want to edit ${item.name}?`)) setEditing(item); }}>Edit</button><button onClick={() => setDeleteTarget(item)}>Delete</button></div></div><button className={`admin-toggle ${item.is_available ? 'on' : ''}`} disabled={saving === item.id} onClick={() => toggle(item)}><i />{saving === item.id ? 'Saving' : item.is_available ? 'Available' : 'Hidden'}</button></article>)}</div>
     {editing && <MenuEditor item={editing} brands={brands} close={() => setEditing(null)} saved={load} />}
     {deleteTarget && <ConfirmDialog title={`Delete ${deleteTarget.name}?`} message="This will permanently delete this menu item, including its sizes and extras." onCancel={() => setDeleteTarget(null)} onConfirm={remove} />}
   </section>;
@@ -1581,7 +1649,7 @@ function MenuEditor({
           } : q))} /><button onClick={() => setExtras(a => a.filter((_, n) => n !== i))}>×</button></div>)}<button onClick={() => setExtras(a => [...a, {
           name: '',
           price: ''
-        }])}>＋ Add extra</button></div>{error && <p className="admin-inline-error">{error}</p>}<div className="admin-modal-actions"><button className="admin-secondary" onClick={close}>Cancel</button><button className="admin-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save item'}</button></div></section></main>;
+        }])}>＋ Add extra</button></div>{error && <p className="admin-inline-error">{error}</p>}<div className="admin-modal-actions"><button className="admin-secondary" onClick={close}>Cancel</button><button className="admin-primary" disabled={busy} onClick={() => { if (!item.id || window.confirm(`Are you sure you want to update ${item.name}?`)) save(); }}>{busy ? 'Saving…' : item.id ? 'Update item' : 'Save item'}</button></div></section></main>;
 }
 // Outlet, feed, coupon, and reward management.
 function Outlets() {
@@ -1606,6 +1674,7 @@ function Outlets() {
     load();
   }, [load]);
   const toggle = async brand => {
+    if (!window.confirm(`Are you sure you want to ${brand.is_open ? 'pause' : 'reopen'} ${brand.name}?`)) return;
     setError('');
     const {
       error: updateError
@@ -1901,6 +1970,7 @@ function Promos() {
     load();
   }, [load]);
   const save = async () => {
+    if (edit && !window.confirm('Are you sure you want to update this promo?')) return;
     const val = {
       code: form.code.trim().toUpperCase(),
       description: form.description || '',
@@ -1938,6 +2008,7 @@ function Promos() {
     return null;
   };
   return <><section className="admin-content"><div className="admin-page-heading"><div><p>OFFERS & CAMPAIGNS</p><h2>Coupons and promos</h2><span>Set discount, minimum cart, campaign dates and redemption caps.</span></div></div><div className="admin-feed-editor"><div className="admin-form-grid"><label>Coupon code<input value={form.code} onChange={e => change('code', e.target.value.toUpperCase())} placeholder="EAT60WELCOME" /></label><label>Description<input value={form.description} onChange={e => change('description', e.target.value)} /></label><label>Discount type<select value={form.discount_type} onChange={e => change('discount_type', e.target.value)}><option value="percent">Percent</option><option value="fixed">Fixed amount ₹</option></select></label><label>Discount value<input type="number" min="1" value={form.discount_value} onChange={e => change('discount_value', e.target.value)} /></label><label>Minimum order ₹<input type="number" min="0" value={form.minimum_order} onChange={e => change('minimum_order', e.target.value)} /></label><label>Maximum discount ₹<input type="number" min="1" value={form.maximum_discount} onChange={e => change('maximum_discount', e.target.value)} placeholder="No cap" /></label><label>Total redemptions<input type="number" min="1" value={form.usage_limit} onChange={e => change('usage_limit', e.target.value)} placeholder="Unlimited" /></label><label>Uses per user<input type="number" min="1" value={form.per_user_limit} onChange={e => change('per_user_limit', e.target.value)} /></label><label>Starts<input type="datetime-local" value={form.starts_at} onChange={e => change('starts_at', e.target.value)} /></label><label>Expires<input type="datetime-local" value={form.expires_at} onChange={e => change('expires_at', e.target.value)} /></label></div><button className="admin-primary" onClick={save}>{edit ? 'Update promo' : 'Create promo'}</button>{msg && <p className="admin-feedback">{msg}</p>}</div><div className="admin-promo-list">{rows.map(c => <article key={c.id}><div><b>{c.code}</b><p>{c.description || `${c.discount_value}${c.discount_type === 'percent' ? '%' : '₹'} off`} · min ₹{c.minimum_order} · {c.used_count}/{c.usage_limit || '∞'} uses · {c.per_user_limit} per user</p><small>{c.starts_at ? new Date(c.starts_at).toLocaleString() : 'Anytime'} — {c.expires_at ? new Date(c.expires_at).toLocaleString() : 'No expiry'}</small></div><button className={`admin-toggle ${c.is_active ? 'on' : ''}`} onClick={async () => {
+            if (!window.confirm(`Are you sure you want to ${c.is_active ? 'pause' : 'activate'} coupon ${c.code}?`)) return;
             const {
               error
             } = await sb.from('coupons').update({
@@ -1948,6 +2019,7 @@ function Promos() {
               is_active: !x.is_active
             } : x));
           }}><i />{c.is_active ? 'Active' : 'Paused'}</button><button className="admin-secondary" onClick={() => {
+            if (!window.confirm(`Are you sure you want to edit coupon ${c.code}?`)) return;
             setEdit(c.id);
             setForm({
               ...empty,
@@ -1989,6 +2061,7 @@ function Rewards() {
     [key]: value
   }));
   const editReward = async reward => {
+    if (!window.confirm(`Are you sure you want to edit the ${reward.milestone}-day reward?`)) return;
     setForm({
       milestone: String(reward.milestone),
       gift: reward.gift,
@@ -2023,6 +2096,7 @@ function Rewards() {
     const discountValue = Number(form.discount_value),
       minimumOrder = Number(form.minimum_order || 0),
       maximumDiscount = form.maximum_discount === '' ? null : Number(form.maximum_discount);
+    if (rows.some(row => Number(row.milestone) === milestone) && !window.confirm(`Are you sure you want to update the ${milestone}-day reward?`)) return;
     if (!Number.isInteger(milestone) || milestone < 1) return setMsg('Enter a whole-number streak milestone greater than zero.');
     if (!form.gift.trim()) return setMsg('Enter a reward description.');
     if (!Number.isInteger(coinReward) || coinReward < 0) return setMsg('Coin rewards must be a non-negative whole number.');
@@ -2066,6 +2140,7 @@ function Rewards() {
    <label>Minimum order ₹<input type="number" min="0" step="1" value={form.minimum_order} onChange={e => change('minimum_order', e.target.value)} /></label>
    <label>Maximum discount ₹<input type="number" min="1" step="1" value={form.maximum_discount} onChange={e => change('maximum_discount', e.target.value)} placeholder="No cap" /></label></>}
  </div><button className="admin-primary" onClick={save}>Save streak reward <span>＋</span></button></div>{msg && <p className="admin-feedback" role="status">{msg}</p>}<div className="admin-promo-list">{rows.map(r => <article key={r.milestone}><div><b>{r.milestone} order streak</b><p>{r.gift}{Number(r.coin_reward) > 0 ? ` · ${r.coin_reward} coins` : ''}{r.coupon_code ? ` · Voucher ${r.coupon_code}` : ''}</p></div><button className={`admin-toggle ${r.is_active ? 'on' : ''}`} onClick={async () => {
+            if (!window.confirm(`Are you sure you want to ${r.is_active ? 'pause' : 'activate'} the ${r.milestone}-day reward?`)) return;
             const {
               error
             } = await sb.from('streak_rewards').update({
