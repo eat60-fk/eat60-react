@@ -1660,6 +1660,7 @@ function History({
       {o.rejection_reason && <p className="order-rejection">{o.rejection_reason}</p>}
       {o.payment_type && <small>Paid by {o.payment_type}</small>}
       {o.order_items.map(x => <div key={x.id}>{x.item_name} x{x.qty}</div>)}
+      {(Number(o.offer_discount || 0) + Number(o.coupon_discount || 0) + Number(o.coin_discount || 0)) > 0 && <small className="order-savings">You saved ₹{(Number(o.offer_discount || 0) + Number(o.coupon_discount || 0) + Number(o.coin_discount || 0)).toLocaleString('en-IN')}</small>}
       <b>₹{o.total}</b>
       {(o.order_stage || o.status) === 'delivered' && <div className="order-feedback">
         {reviews[o.id] ? <><strong>Thanks for your feedback</strong><div className="order-feedback-stars" aria-label={`${reviews[o.id].rating} out of 5 stars`}>{Array.from({

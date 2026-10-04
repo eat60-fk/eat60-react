@@ -76,6 +76,9 @@ function paymentTypeForOrder(order) {
   const paymentType = String(order?.payment_type || 'cash').toLowerCase();
   return ['cash', 'upi', 'card', 'online', 'other'].includes(paymentType) ? paymentType : 'cash';
 }
+function orderSavings(order) {
+  return Number(order?.offer_discount || 0) + Number(order?.coupon_discount || 0) + Number(order?.coin_discount || 0);
+}
 function showAdminOrderNotification(title, body, orderId, onClick) {
   const options = {
     body,
@@ -614,6 +617,7 @@ export default function Admin() {
   const [incomingOrders, setIncomingOrders] = useState([]);
   const [incomingOrderOpen, setIncomingOrderOpen] = useState(false);
   const [incomingSwipe, setIncomingSwipe] = useState(0);
+  const [incomingPrepMinutes, setIncomingPrepMinutes] = useState(15);
   const [acceptingIncoming, setAcceptingIncoming] = useState(false);
   const [unacceptedOrderCount, setUnacceptedOrderCount] = useState(0);
   const unacceptedOrderIds = useRef(new Set());
@@ -695,7 +699,7 @@ export default function Admin() {
       return latest && (latest.order_stage || (latest.status === 'placed' ? 'pending' : latest.status)) === 'pending';
     }));
   }, []);
-  const acceptIncomingOrder = async order => {
+  const acceptIncomingOrder = async (order, prepMinutes = incomingPrepMinutes) => {
     if (!order || acceptingIncoming) return;
     setAcceptingIncoming(true);
     try {
@@ -704,7 +708,7 @@ export default function Admin() {
         p_stage: 'accepted',
         p_reason: null,
         p_payment_type: null,
-        p_prep_time_minutes: 15
+        p_prep_time_minutes: prepMinutes
       });
       if (error) throw error;
       acknowledgeIncomingOrder(false);
@@ -900,7 +904,7 @@ export default function Admin() {
       {connection !== 'connected' && <div className="admin-connection-banner" role="status"><span aria-hidden="true">●</span>{connection === 'connecting' ? 'Connecting to live orders…' : 'Connection lost · New orders may be delayed. Reconnecting…'}</div>}
       {ordersError && <div className="admin-error" role="alert"><b>Orders could not be loaded</b><span>{ordersError}</span><button onClick={loadOrders}>Retry</button></div>}
       {alert && <div className="admin-alert" role="status"><span>🔔</span><p>{alert}</p><button aria-label="Dismiss notification" onClick={() => setAlert('')}>×</button></div>}
-      {incomingOrders[0] && <aside className="admin-new-order-dock" aria-live="polite"><span>{incomingOrders.length} NEW {incomingOrders.length === 1 ? 'ORDER' : 'ORDERS'}</span><button type="button" onClick={() => { setIncomingSwipe(0); setIncomingOrderOpen(true); const current = incomingOrders[0]; sb.from('orders').select('*, order_items(*), profiles(name,phone)').eq('id', current.id).maybeSingle().then(({ data }) => { if (data) setIncomingOrders(items => items.map(item => String(item.id) === String(data.id) ? { ...item, ...data } : item)); }); }}>SEE HERE</button></aside>}
+      {incomingOrders[0] && <aside className="admin-new-order-dock" aria-live="polite"><span>{incomingOrders.length} NEW {incomingOrders.length === 1 ? 'ORDER' : 'ORDERS'}</span><button type="button" onClick={() => { setIncomingSwipe(0); setIncomingPrepMinutes(15); setIncomingOrderOpen(true); const current = incomingOrders[0]; sb.from('orders').select('*, order_items(*), profiles(name,phone)').eq('id', current.id).maybeSingle().then(({ data }) => { if (data) setIncomingOrders(items => items.map(item => String(item.id) === String(data.id) ? { ...item, ...data } : item)); }); }}>SEE HERE</button></aside>}
       {incomingOrderOpen && incomingOrders[0] && <div className="admin-incoming-backdrop" onMouseDown={event => event.target === event.currentTarget && setIncomingOrderOpen(false)}>
         <section className="admin-incoming-dialog admin-incoming-order-sheet" role="dialog" aria-modal="true" aria-labelledby="admin-incoming-title">
           <div className="admin-sheet-handle" aria-hidden="true" />
@@ -908,9 +912,10 @@ export default function Admin() {
           <div className="admin-incoming-customer-row"><b>{incomingOrders[0].customer_name || incomingOrders[0].profiles?.name || 'New customer'}</b><span>•</span><span>{incomingOrders[0].address || 'Delivery address unavailable'}</span>{incomingOrders[0].delivery_latitude != null && incomingOrders[0].delivery_longitude != null && <a href={`https://www.google.com/maps?q=${encodeURIComponent(`${incomingOrders[0].delivery_latitude},${incomingOrders[0].delivery_longitude}`)}`} target="_blank" rel="noreferrer" aria-label="Open customer location in Maps"><AdminNavIcon name="pin" /></a>}</div>
           {(incomingOrders[0].phone || incomingOrders[0].profiles?.phone) && <a className="admin-incoming-call" href={`tel:${String(incomingOrders[0].phone || incomingOrders[0].profiles?.phone).replace(/[^+\d]/g, '')}`}>CALL <AdminNavIcon name="phone" /></a>}
           <div className="admin-incoming-items">{(incomingOrders[0].order_items || []).map(item => <div key={item.id}><span>{item.qty} x {item.item_name}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
-          <div className="admin-incoming-total-row"><span>{incomingOrders[0].payment_type ? `PAYMENT · ${incomingOrders[0].payment_type.toUpperCase()}` : 'PAYMENT MODE · COD'}</span><b>₹{Number(incomingOrders[0].total || 0).toLocaleString('en-IN')}</b></div>
+          <div className="admin-incoming-total-row"><span>{incomingOrders[0].payment_type ? `PAYMENT · ${incomingOrders[0].payment_type.toUpperCase()}` : 'PAYMENT MODE · COD'}{orderSavings(incomingOrders[0]) > 0 && <small>Saved ₹{orderSavings(incomingOrders[0]).toLocaleString('en-IN')}</small>}</span><b>₹{Number(incomingOrders[0].total || 0).toLocaleString('en-IN')}</b></div>
+          <div className="admin-incoming-prep-control"><span>PREPARATION TIME <b>{incomingPrepMinutes} min</b></span><div><button type="button" aria-label="Decrease preparation time" disabled={acceptingIncoming || incomingPrepMinutes <= 15} onClick={() => setIncomingPrepMinutes(value => Math.max(15, value - 5))}>−</button><button type="button" aria-label="Increase preparation time" disabled={acceptingIncoming || incomingPrepMinutes >= 180} onClick={() => setIncomingPrepMinutes(value => Math.min(180, value + 5))}>+</button></div></div>
           {!soundEnabled && <button className="admin-incoming-sound" onClick={toggleSound}>Enable repeating alarm</button>}
-          <label className={`admin-swipe-accept${incomingSwipe >= 95 ? ' ready' : ''}`} style={{ '--swipe-progress': `${incomingSwipe}%` }}><i aria-hidden="true">➜</i><span>{acceptingIncoming ? 'ACCEPTING…' : incomingSwipe >= 95 ? 'RELEASE TO ACCEPT' : 'SWIPE TO ACCEPT ORDER'}</span><input type="range" min="0" max="100" value={incomingSwipe} aria-label="Swipe to accept order" disabled={acceptingIncoming} onChange={event => { const value = Number(event.target.value); setIncomingSwipe(value); if (value >= 100) acceptIncomingOrder(incomingOrders[0]); }} onPointerUp={() => { if (incomingSwipe < 95) setIncomingSwipe(0); }} onKeyUp={event => { if (event.key === 'Enter' && incomingSwipe >= 95) acceptIncomingOrder(incomingOrders[0]); }} /></label>
+          <label className={`admin-swipe-accept${incomingSwipe >= 95 ? ' ready' : ''}`} style={{ '--swipe-progress': `${incomingSwipe}%` }}><i aria-hidden="true">➜</i><span>{acceptingIncoming ? 'ACCEPTING…' : incomingSwipe >= 95 ? 'RELEASE TO ACCEPT' : 'SWIPE TO ACCEPT ORDER'}</span><input type="range" min="0" max="100" value={incomingSwipe} aria-label="Swipe to accept order" disabled={acceptingIncoming} onChange={event => { const value = Number(event.target.value); setIncomingSwipe(value); if (value >= 100) acceptIncomingOrder(incomingOrders[0], incomingPrepMinutes); }} onPointerUp={() => { if (incomingSwipe < 95) setIncomingSwipe(0); }} onKeyUp={event => { if (event.key === 'Enter' && incomingSwipe >= 95) acceptIncomingOrder(incomingOrders[0], incomingPrepMinutes); }} /></label>
           <button className="admin-incoming-dismiss" type="button" onClick={() => setIncomingOrderOpen(false)}>Close order details</button>
         </section>
       </div>}
@@ -1497,14 +1502,14 @@ function Orders({
     <div className="admin-order-tools"><div className="admin-filter-tabs" aria-label="Filter orders">{ORDER_FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}<b>{countFor(key)}</b></button>)}</div></div>
     <details className="admin-order-extra-filters"><summary>Search & filters · {filtered.length} orders</summary><label className="admin-search"><span><AdminNavIcon name="search" /></span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order, name, or phone" /></label><div className="admin-order-filter-row"><label className="admin-choice-label">Date range<select className="admin-choice-select" value={period} onChange={event => setPeriod(event.target.value)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">7 days</option><option value="custom">Custom</option></select></label><label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{period === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}<b className="admin-order-totals">{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b><button className="admin-secondary" onClick={clearFilters}>Clear filters</button></div></details>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
-    {filtered.length ? filter === 'completed' ? <div className="admin-completed-list">{filtered.map(order => <CompletedOrderSummary key={order.id} order={order} />)}</div> : <div className="admin-order-list">{filtered.map(order => <article className="admin-order-card admin-order-card-redesign" key={order.id}>
+    {filtered.length ? filter === 'completed' ? <div className="admin-completed-list">{filtered.map(order => <CompletedOrderSummary key={order.id} order={order} />)}</div> : <div className={`admin-order-list${filtered.length === 1 ? ' single-order' : ''}`}>{filtered.map(order => <article className="admin-order-card admin-order-card-redesign" key={order.id}>
       <header className="admin-order-redesign-head"><div className="admin-order-id-time"><span>ORDER # {order.id}</span><time>{new Date(order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}　{new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</time></div><div className="admin-order-customer-line"><b>{[...new Set((order.order_items || []).map(item => item.brand_id).filter(Boolean))].map(brandId => outlets.find(item => item.id === brandId)?.name || brandId).join(', ') || 'EAT60 KITCHEN'}</b><span><strong>{order.customer_name || order.profiles?.name || 'Customer'}</strong>{(order.phone || order.profiles?.phone) && <><small>CALL</small><a href={`tel:${String(order.phone || order.profiles?.phone).replace(/[^+\d]/g, '')}`} aria-label="Call customer"><AdminNavIcon name="phone" /></a></>}</span></div></header>
       <div className="admin-order-items">{(order.order_items || []).map(item => <div key={item.id}><span>{item.qty} x {item.item_name}{item.extra_details?.length > 0 && <small className="admin-order-extras"> · {item.extra_details.map(extra => extra.name).join(', ')}</small>}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
-      <div className="admin-order-redesign-payment"><div><span>PAYMENT MODE</span><b>{order.payment_type ? order.payment_type.toUpperCase() : 'COD'}</b></div><strong>₹{Number(order.total || 0).toLocaleString('en-IN')}</strong></div>
+      <div className="admin-order-redesign-payment"><div><span>PAYMENT MODE</span><b>{order.payment_type ? order.payment_type.toUpperCase() : 'COD'}</b>{orderSavings(order) > 0 && <small>Saved ₹{orderSavings(order).toLocaleString('en-IN')}</small>}</div><strong>₹{Number(order.total || 0).toLocaleString('en-IN')}</strong></div>
       <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_latitude != null && order.delivery_longitude != null && <a href={`https://www.google.com/maps?q=${encodeURIComponent(`${order.delivery_latitude},${order.delivery_longitude}`)}`} target="_blank" rel="noreferrer" aria-label="Open customer location in Maps"><AdminNavIcon name="pin" /></a>}{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
       {order.order_stage_events?.length > 0 && <OrderJourney order={order} />}
       {stageOf(order) === 'pending' && <PendingDecisionClock createdAt={order.created_at} />}
-      {['accepted', 'preparing'].includes(stageOf(order)) && order.prep_time_minutes && <p className="admin-prep-estimate">Kitchen preparation estimate <b>{order.prep_time_minutes} min</b></p>}
+      {['accepted', 'preparing'].includes(stageOf(order)) && order.prep_time_minutes && <p className="admin-prep-estimate">In preparation · estimated <b>{order.prep_time_minutes} min</b></p>}
       {order.rejection_reason && <p className="admin-rejection-reason">Reason: {order.rejection_reason}</p>}
       {['out_for_delivery', 'payment_received'].includes(stageOf(order)) && <DeliveryCompletionControls order={order} checkpoint={deliveryChecks[order.id]} onCheckpoint={(key, value) => updateDeliveryCheckpoint(order.id, key, value)} onComplete={() => finishDelivery(order)} busy={busyId === order.id} />}
       {reasonId === order.id && <div className="admin-decision-form"><select aria-label="Reason for order decision" value={reason} onChange={e => setReason(e.target.value)}><option value="">Choose a reason</option><option value="Item unavailable">Item unavailable</option><option value="Kitchen closed">Kitchen closed</option><option value="Delivery unavailable">Delivery unavailable</option><option value="Other">Other</option></select>{reason === 'Other' && <input value={reasonDetails} onChange={e => setReasonDetails(e.target.value)} placeholder="Add a short reason" />}{reason && reason !== 'Other' && <small>This reason will be shown to the customer.</small>}<button className="admin-cancel-order" disabled={!reason || reason === 'Other' && !reasonDetails.trim() || busyId === order.id} onClick={async () => {
@@ -1524,7 +1529,7 @@ function Orders({
               setReasonDetails('');
             }}>Reject</button></>}{['accepted', 'preparing', 'ready'].includes(stageOf(order)) && <button className="admin-cancel-order" disabled={busyId === order.id} onClick={() => { setReasonStage('cancelled'); setReasonId(order.id); setReason(''); setReasonDetails(''); }}>Cancel order</button>}{{
           ready: 'out_for_delivery'
-          }[stageOf(order)] && <button className="admin-primary" disabled={busyId === order.id} onClick={() => move(order.id, 'out_for_delivery')}>Mark for delivery <span>→</span></button>}{['accepted', 'preparing'].includes(stageOf(order)) && <OrderReadyCountdown order={order} actionLabel={stageOf(order) === 'preparing' ? 'Order ready' : 'Start preparing'} disabled={busyId === order.id} onClick={() => move(order.id, stageOf(order) === 'preparing' ? 'ready' : 'preparing')} />}</div>}
+          }[stageOf(order)] && <button className="admin-primary" disabled={busyId === order.id} onClick={() => move(order.id, 'out_for_delivery')}>Mark for delivery <span>→</span></button>}{['accepted', 'preparing'].includes(stageOf(order)) && <OrderReadyCountdown order={order} actionLabel="Mark ready & send" disabled={busyId === order.id} onClick={() => move(order.id, 'ready')} />}</div>}
     </article>)}</div> : <div className="admin-empty"><span><AdminNavIcon name="search" /></span><b>{filter === 'active' && period === 'today' && !query && outlet === 'all' ? 'No active orders today' : 'No matching orders'}</b><small>{filter === 'active' && !query ? 'New orders and orders being prepared will appear here.' : 'Try a different outlet, date range, or search.'}</small><button className="admin-secondary" onClick={clearFilters}>Clear filters</button></div>}
   </section>;
 }

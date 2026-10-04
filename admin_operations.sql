@@ -58,7 +58,8 @@ alter table public.orders
   add column if not exists payment_type text,
   add column if not exists rejection_reason text,
   add column if not exists coupon_code text,
-  add column if not exists coupon_discount int not null default 0;
+  add column if not exists coupon_discount int not null default 0,
+  add column if not exists offer_discount int not null default 0 check (offer_discount >= 0);
 alter table public.orders add column if not exists prep_time_minutes int not null default 15 check (prep_time_minutes between 15 and 180);
 alter table public.orders add column if not exists dispatched_at timestamptz;
 
@@ -302,7 +303,8 @@ returns bigint language plpgsql security definer set search_path = public as $$
 declare
   s settings%rowtype; p profiles%rowtype; c coupons%rowtype;
   r record; e record; x record; v record; v_oid bigint;
-  v_sub int:=0; v_unit int; v_extra_price int; v_coin_discount int:=0;
+  v_sub int:=0; v_unit int; v_regular_unit int; v_extra_price int; v_qty int;
+  v_offer_discount int:=0; v_coin_discount int:=0;
   v_coins_used int:=0; v_coupon_discount int:=0; v_total int; v_extra_details jsonb;
   v_delivery_fee int; v_delivery_fee_before_discount int; v_gst_amount int;
   v_user_uses int; v_coupon_code text;
@@ -336,7 +338,7 @@ begin
         and nullif(upper(trim(coalesce(p_coupon_code,''))),'') is null
         and vr.id=s.offer_variant_id and s.offer_date<=today_ist()
         and (s.offer_ends_at is null or s.offer_ends_at>now()) then s.offer_price else vr.price end as price,
-      vr.label,i.name,i.brand_id,i.is_available,b.is_open
+      vr.price as regular_price,vr.label,i.name,i.brand_id,i.is_available,b.is_open
     into v from item_variants vr join menu_items i on i.id=vr.item_id join brands b on b.id=i.brand_id
     where vr.id=(r.value->>'variant_id')::bigint;
     if not found then raise exception 'A selected menu size no longer exists'; end if;
@@ -350,9 +352,12 @@ begin
       v_extra_details:=v_extra_details||jsonb_build_array(jsonb_build_object('id',x.id,'name',x.name,'price',x.price));
     end loop;
     v_unit:=v.price+v_extra_price;
+    v_regular_unit:=v.regular_price+v_extra_price;
+    v_qty:=greatest(1,least(20,coalesce((r.value->>'qty')::int,1)));
+    v_offer_discount:=v_offer_discount+greatest(0,v_regular_unit-v_unit)*v_qty;
     insert into order_items(order_id,menu_item_id,brand_id,item_name,qty,unit_price,extra_details)
-    values(v_oid,v.item_id,v.brand_id,v.name||' ('||v.label||')',greatest(1,least(20,coalesce((r.value->>'qty')::int,1))),v_unit,v_extra_details);
-    v_sub:=v_sub+v_unit*greatest(1,least(20,coalesce((r.value->>'qty')::int,1)));
+    values(v_oid,v.item_id,v.brand_id,v.name||' ('||v.label||')',v_qty,v_unit,v_extra_details);
+    v_sub:=v_sub+v_unit*v_qty;
   end loop;
   if v_sub<s.min_order then raise exception 'Minimum order is ₹%',s.min_order; end if;
 
@@ -393,6 +398,7 @@ begin
   end if;
   v_total:=greatest(0,v_sub+v_delivery_fee-v_coupon_discount-v_coin_discount);
   update orders set subtotal=v_sub,coupon_code=v_coupon_code,coupon_discount=v_coupon_discount,
+    offer_discount=v_offer_discount,
     coin_discount=v_coin_discount,coins_used=v_coins_used,total=v_total where id=v_oid;
   if v_coupon_code is not null then
     update coupons set used_count=used_count+1 where id=c.id;
@@ -425,7 +431,7 @@ begin
   elsif p_stage='preparing' then
     if o.order_stage<>'accepted' then raise exception 'Accept the order before preparing it'; end if;
   elsif p_stage='ready' then
-    if o.order_stage<>'preparing' then raise exception 'Only preparing orders can be marked ready'; end if;
+    if o.order_stage not in ('accepted','preparing') then raise exception 'Only preparing orders can be marked ready'; end if;
   elsif p_stage='out_for_delivery' then
     if o.order_stage<>'ready' then raise exception 'Mark the order ready before dispatch'; end if;
   elsif p_stage='payment_received' then
@@ -444,7 +450,7 @@ begin
     when p_stage in ('delivered') then 'delivered'
     when p_stage in ('rejected','cancelled') then 'cancelled'
     else 'placed' end;
-  update orders set order_stage=p_stage,status=v_legacy_status::order_status,
+  update orders set order_stage=case when p_stage='accepted' then 'preparing' else p_stage end,status=v_legacy_status::order_status,
     accepted_at=case when p_stage='accepted' then now() else accepted_at end,
     prep_time_minutes=case when p_stage='accepted' then p_prep_time_minutes else prep_time_minutes end,
     ready_at=case when p_stage='ready' then now() else ready_at end,
@@ -454,6 +460,11 @@ begin
     dispatched_at=case when p_stage='out_for_delivery' then now() else dispatched_at end,
     rejection_reason=case when p_stage='rejected' then trim(p_reason) when p_stage='cancelled' then nullif(trim(p_reason),'') else rejection_reason end
   where id=p_id;
+
+  if p_stage='ready' then
+    update orders set order_stage='out_for_delivery',status='out_for_delivery'::order_status,dispatched_at=now()
+    where id=p_id;
+  end if;
 
   if p_stage in ('rejected','cancelled') and o.coins_used>0 then
     update profiles set coins=coins+o.coins_used where id=o.user_id;

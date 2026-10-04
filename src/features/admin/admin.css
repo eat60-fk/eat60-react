@@ -727,6 +727,10 @@
 
 .admin-app .admin-search > span svg { display: block; width: 18px; height: 18px; }
 .admin-app .admin-tabs button > span svg { display: block; width: 17px; height: 17px; }
+.admin-app .admin-order-address > a svg,
+.admin-app .admin-order-customer-line a svg,
+.admin-app .admin-incoming-call svg,
+.admin-app .admin-incoming-customer-row a svg { display: block; width: 18px; height: 18px; }
 
 /* Keep admin controls in step with the customer app's lime theme and button feel. */
 .admin-app { --admin-accent: var(--ac, #b8f04a); --admin-accent-soft: #c5ff71; }
@@ -1102,8 +1106,9 @@
   .admin-app .admin-order-card-redesign .admin-order-items > div > span { min-width: 0; color: inherit; font-weight: 400; }
   .admin-app .admin-order-card-redesign .admin-order-items > div > b { flex: none; color: #f2edf5; font-size: 16px; font-weight: 400; }
   .admin-app .admin-order-redesign-payment { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 20px 0; }
-  .admin-app .admin-order-redesign-payment > div { display: flex; align-items: center; gap: 7px; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
+  .admin-app .admin-order-redesign-payment > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
   .admin-app .admin-order-redesign-payment > div b { color: #ffe500; }
+  .admin-app .admin-order-redesign-payment > div small { flex-basis: 100%; color: var(--admin-accent, #b8f04a); font: 700 11px Arial, sans-serif; }
   .admin-app .admin-order-redesign-payment > strong { font-size: 17px; font-weight: 400; }
   .admin-app .admin-order-card-redesign .admin-order-address { display: flex; align-items: center; gap: 9px; padding: 3px 20px 15px; }
   .admin-app .admin-order-card-redesign .admin-order-address > span { color: #e9e4eb; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 11px; font-weight: 400; letter-spacing: 0; }
@@ -1137,6 +1142,13 @@
   .admin-app .admin-incoming-items b,.admin-app .admin-incoming-total-row b { font-weight: 400; }
   .admin-app .admin-incoming-total-row { margin-top: -7px; padding-bottom: 10px; }
   .admin-app .admin-incoming-total-row span { font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
+  .admin-app .admin-incoming-total-row span small { display: block; margin-top: 5px; color: var(--admin-accent, #b8f04a); font: 700 11px Arial, sans-serif; }
+  .admin-app .admin-incoming-prep-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid #555; color: #d5d2d7; font: 700 12px Arial, sans-serif; }
+  .admin-app .admin-incoming-prep-control > span { display: flex; align-items: center; gap: 8px; }
+  .admin-app .admin-incoming-prep-control b { color: var(--admin-accent, #b8f04a); }
+  .admin-app .admin-incoming-prep-control > div { display: flex; gap: 8px; }
+  .admin-app .admin-incoming-prep-control button { width: 36px; height: 36px; border: 1px solid #636363; border-radius: 11px; color: var(--admin-accent, #b8f04a); background: #383838; font: 700 20px Arial, sans-serif; }
+  .admin-app .admin-incoming-prep-control button:disabled { opacity: .4; }
   .admin-app .admin-incoming-sound { align-self: flex-start; border-color: #616161; background: #414141; }
   .admin-app .admin-swipe-accept { min-height: 76px; border-radius: 25px; }
   .admin-app .admin-swipe-accept > i { width: 56px; height: 58px; border-radius: 21px; font-size: 30px; }
@@ -1200,6 +1212,7 @@
 .admin-app .admin-history-summary-card[open] > summary > i { margin-top: 4px; }
 .admin-app .admin-mark b { color: #ff9f43; }
 @media (min-width: 851px) {
+  .admin-app .admin-order-list.single-order { grid-template-columns: minmax(0, 1fr); }
   .admin-app .admin-orders-heading { align-items: center; gap: 28px; }
   .admin-app .admin-orders-controls { flex-direction: row; align-items: center; gap: 24px; }
   .admin-app .admin-order-alert-controls { gap: 8px; }
