@@ -12,7 +12,7 @@
  * The parent element must have a height.
  */
 import { useEffect, useRef, useState } from "react";
-import { playAppSound } from "../../../lib/sounds";
+import { playAppSound, unlockAppSounds } from "../../../lib/sounds";
 
 const CSS = `
 .hs-root{position:relative;width:100%;height:100%;overflow:hidden;box-sizing:border-box;background:#0b1020;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
@@ -114,6 +114,7 @@ function press(i){
   if(d>2.5)return;dir=i;setCur();
 }
 function eat(){
+  playAppSound('snakeEat',0.55);
   score++;L+=24;speed=Math.min(240,150+score*3);
   setScore(score);
   burst(food.x,food.y,16,['#ffd25a','#ff7a3c','#3dff9a','#fff']);
@@ -122,11 +123,12 @@ function eat(){
   spawn();
 }
 function die(){
-  playAppSound('snake');
+  playAppSound('gameHit',0.65);
   state='dead';deadT=0;flash=1;burst(hx,hy,26,['#ff4d4d','#ff9a3c','#fff']);
   try{navigator.vibrate&&navigator.vibrate([60,40,90])}catch(e){}
   if(score>best){best=score;setBest(best);try{localStorage.setItem(KEYB,best)}catch(e){}}
   const r=settle(score);setCoins(wallet.coins);
+  if(r.coins>0)playAppSound('coinCollect',0.65);
   if(endRef.current)try{endRef.current({score,xp:r.xp,coins:r.coins,note:r.note,totals:{xp:wallet.xp,coins:wallet.coins}})}catch(e){}
   const why=dieWhy==='chilli';dieWhy='';
   timers.push(setTimeout(()=>setUi({show:true,title:why?'Too spicy! 🥵':'Game Over',text:'Score '+score+'  ·  Best '+best,r,tot:{xp:wallet.xp,coins:wallet.coins},btn:'Play again'}),700));
@@ -260,7 +262,7 @@ const pd=e=>{sx0=e.clientX;sy0=e.clientY},pm=e=>{if(sx0==null)return;const dx=e.
 cv.addEventListener('pointerdown',pd);cv.addEventListener('pointermove',pm);window.addEventListener('pointerup',pu);window.addEventListener('keydown',kd);
 const ro=new ResizeObserver(()=>{resize();if(state==='ready')reset()});ro.observe(cv);
 pressRef.current=press;
-startRef.current=()=>{setUi(p=>({...p,show:false}));resize();reset();state='play'};
+startRef.current=()=>{unlockAppSounds(['announced','gameHit','snakeEat','coinCollect']);setUi(p=>({...p,show:false}));resize();reset();state='play'};
 resize();reset();raf=requestAnimationFrame(loop);
 return()=>{cancelAnimationFrame(raf);timers.forEach(clearTimeout);cv.removeEventListener('pointerdown',pd);cv.removeEventListener('pointermove',pm);window.removeEventListener('pointerup',pu);window.removeEventListener('keydown',kd);ro.disconnect()};
 

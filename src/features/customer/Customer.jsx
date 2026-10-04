@@ -91,6 +91,18 @@ function distanceInKm(from, to) {
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(from.latitude)) * Math.cos(radians(to.latitude)) * Math.sin(dLon / 2) ** 2;
   return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
+function showCustomerNotification(title, body, url = '/order-history') {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;
+  const options = { body, icon: '/pwa-192.svg', badge: '/pwa-192.svg', data: { url } };
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration().then(registration => {
+      if (registration) return registration.showNotification(title, options);
+      new Notification(title, options);
+    }).catch(() => {});
+  } else {
+    try { new Notification(title, options); } catch {}
+  }
+}
 function ProfileAvatar({
   avatarId = 1
 }) {
@@ -265,6 +277,12 @@ export default function Customer({
   const [fullscreenNotice, setFullscreenNotice] = useState(null);
   const fullscreenQueue = useRef([]);
   const fullscreenNoticeRef = useRef(null);
+  const [permissionPromptOpen, setPermissionPromptOpen] = useState(() => {
+    try { return localStorage.getItem(`eat60:permissions-dismissed:${me.id}`) !== 'yes'; } catch { return true; }
+  });
+  const [locationPermission, setLocationPermission] = useState('prompt');
+  const [notificationPermission, setNotificationPermission] = useState(() => 'Notification' in window ? Notification.permission : 'unsupported');
+  const [permissionMessage, setPermissionMessage] = useState('');
   const [data, setData] = useState(() => readOfflineCache('catalog') || {
     brands: [],
     items: [],
@@ -314,6 +332,58 @@ export default function Customer({
     setFullscreenNotice(nextNotice);
   }, []);
   const announce = useCallback(notice => enqueueNotice(notice), [enqueueNotice]);
+  const dismissPermissionPrompt = useCallback(() => {
+    setPermissionPromptOpen(false);
+    try { localStorage.setItem(`eat60:permissions-dismissed:${me.id}`, 'yes'); } catch {}
+  }, [me.id]);
+  const requestLocationPermission = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationPermission('unsupported');
+      setPermissionMessage('Location is not available in this browser.');
+      return;
+    }
+    setPermissionMessage('Requesting your location…');
+    navigator.geolocation.getCurrentPosition(() => {
+      setLocationPermission('granted');
+      setPermissionMessage('Location access is ready. Your precise location is only attached when you place an order.');
+    }, error => {
+      setLocationPermission(error.code === error.PERMISSION_DENIED ? 'denied' : 'prompt');
+      setPermissionMessage(error.code === error.PERMISSION_DENIED
+        ? 'Location is blocked. You can allow it in your browser or device settings.'
+        : 'We could not get a location fix. Please try again when location services are available.');
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  }, []);
+  const requestNotificationPermission = useCallback(async () => {
+    if (!('Notification' in window)) {
+      setNotificationPermission('unsupported');
+      setPermissionMessage('Notifications are not supported by this browser.');
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      setNotificationPermission('denied');
+      setPermissionMessage('Notifications are blocked. You can allow them in your browser or device settings.');
+      return;
+    }
+    let result;
+    try {
+      result = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+    } catch {
+      setPermissionMessage('Your browser could not open the notification permission prompt. Check this site’s notification settings.');
+      return;
+    }
+    setNotificationPermission(result);
+    setPermissionMessage(result === 'granted'
+      ? 'You are set to receive order and delivery updates when the app is running.'
+      : 'No problem. You can change notification access in your browser or device settings.');
+  }, []);
+  useEffect(() => {
+    if (navigator.permissions?.query) {
+      navigator.permissions.query({ name: 'geolocation' }).then(status => {
+        setLocationPermission(status.state);
+        status.onchange = () => setLocationPermission(status.state);
+      }).catch(() => {});
+    }
+  }, []);
   useEffect(() => {
     if (!fullscreenNotice) return;
     if (fullscreenNotice.type === 'order-delivered') playAppSound('orderArrived');
@@ -478,6 +548,7 @@ export default function Customer({
       const key = `eat60:announcement:${post.id}`;
       if (sessionStorage.getItem(key)) return;
       sessionStorage.setItem(key, 'shown');
+      showCustomerNotification('A note from EAT60', post.body, '/announcements');
       enqueueNotice({
         type: 'announcement',
         id: post.id,
@@ -497,7 +568,16 @@ export default function Customer({
     }, ({
       new: order
     }) => {
-      if (order.order_stage === 'delivered') handleDelivered(order.id);
+      const stage = order.order_stage || order.status;
+      const update = {
+        accepted: ['Order accepted', `The kitchen has accepted order #${order.id}.`],
+        preparing: ['Your order is being prepared', `The kitchen is preparing order #${order.id}.`],
+        ready: ['Your order is ready', `Order #${order.id} is ready for delivery.`],
+        out_for_delivery: ['Your order is on the way', `Order #${order.id} is out for delivery.`],
+        delivered: ['Order delivered!', `Order #${order.id} has arrived. Enjoy your meal!`]
+      }[stage];
+      if (update) showCustomerNotification(update[0], update[1]);
+      if (stage === 'delivered') handleDelivered(order.id);
     }).subscribe();
     return () => {
       sb.removeChannel(channel);
@@ -736,6 +816,7 @@ export default function Customer({
           <Cart cart={cart} setCart={setCart} cfg={data.cfg} catalogItems={data.items} catalogBrands={data.brands} me={me} say={say} voucherCode={selectedVoucher} onBack={() => cart.length ? leaveCart() : go('home')} done={orderId => {
           setSelectedVoucher('');
           reload();
+          showCustomerNotification('Order placed!', `Order #${orderId} is with the kitchen.`);
           enqueueNotice({
             type: 'order-placed',
             id: orderId
@@ -776,7 +857,7 @@ export default function Customer({
         toast.action.onClick();
       }}>{toast.action.label}</button>}<span className="toast-progress" aria-hidden="true" /></div>}
       {fullscreenNotice && <FullscreenNotice notice={fullscreenNotice} onClose={() => {
-      const goHome = fullscreenNotice.type === 'order-placed';
+          const goHome = fullscreenNotice.type === 'order-placed';
       dismissNotice();
       if (goHome) go('home');
     }} onTrackOrder={() => {
@@ -786,7 +867,38 @@ export default function Customer({
       dismissNotice();
       go('feed');
     }} />}
+      {!permissionPromptOpen && (locationPermission !== 'granted' || notificationPermission !== 'granted') && <button type="button" className="permission-setup-reopen" onClick={() => setPermissionPromptOpen(true)}>SET UP LOCATION &amp; ORDER UPDATES</button>}
+      {permissionPromptOpen && !fullscreenNotice && (locationPermission !== 'granted' || notificationPermission !== 'granted') && <PermissionSetup
+        locationPermission={locationPermission}
+        notificationPermission={notificationPermission}
+        message={permissionMessage}
+        onRequestLocation={requestLocationPermission}
+        onRequestNotifications={requestNotificationPermission}
+        onDismiss={dismissPermissionPrompt}
+      />}
     </div>;
+}
+function PermissionSetup({ locationPermission, notificationPermission, message, onRequestLocation, onRequestNotifications, onDismiss }) {
+  const allowed = state => state === 'granted';
+  return <div className="permission-setup-backdrop">
+    <section className="permission-setup" role="dialog" aria-modal="true" aria-labelledby="permission-setup-title">
+      <span className="permission-setup-mark" aria-hidden="true">⌖</span>
+      <p className="permission-setup-kicker">YOUR CHOICE, YOUR PRIVACY</p>
+      <h2 id="permission-setup-title">A better delivery experience</h2>
+      <p className="permission-setup-copy">We’ll ask only for what helps your order reach you and keeps you informed. You can skip either request.</p>
+      <div className="permission-setup-option">
+        <span aria-hidden="true">📍</span><div><b>Share your delivery location</b><small>We use your location to confirm delivery coverage. When you place an order, its current coordinates are saved with that order and shared with the kitchen and delivery team so they can find you. We don’t track you in the background.</small></div>
+        <button type="button" onClick={onRequestLocation} disabled={allowed(locationPermission)}>{allowed(locationPermission) ? 'ALLOWED' : locationPermission === 'denied' ? 'HOW TO ALLOW' : 'ALLOW LOCATION'}</button>
+      </div>
+      <div className="permission-setup-option">
+        <span aria-hidden="true">🔔</span><div><b>Get order updates</b><small>Allow notifications for order and delivery updates and important EAT60 news while the app is running. If you fully close the app, live updates appear when you open it again.</small></div>
+        <button type="button" onClick={onRequestNotifications} disabled={allowed(notificationPermission) || notificationPermission === 'unsupported'}>{allowed(notificationPermission) ? 'ALLOWED' : notificationPermission === 'denied' ? 'HOW TO ALLOW' : 'ALLOW NOTIFICATIONS'}</button>
+      </div>
+      {message && <p className="permission-setup-message" role="status">{message}</p>}
+      <p className="permission-setup-privacy">We respect your privacy. Location is recorded only when you submit an order, and permissions can be changed in your device settings.</p>
+      <button type="button" className="permission-setup-dismiss" onClick={onDismiss}>NOT NOW</button>
+    </section>
+  </div>;
 }
 function FullscreenNotice({
   notice,
@@ -1161,6 +1273,7 @@ function Cart({
   const [coupon, setCoupon] = useState(draft.coupon || '');
   const [couponResult, setCouponResult] = useState(null);
   const [deliveryDistance, setDeliveryDistance] = useState(null);
+  const [deliveryLocation, setDeliveryLocation] = useState(null);
   const [locationMessage, setLocationMessage] = useState('');
   useEffect(() => {
     writeOfflineCache(`checkout:${me.id}`, {
@@ -1262,7 +1375,9 @@ function Cart({
         p_customer_name: customerName,
         p_distance_km: deliveryDistance === null ? null : Number(deliveryDistance.toFixed(2)),
         p_use_offer: useDailyOffer,
-        p_gift_variant_id: cart.find(item => item.isGift)?.vid || null
+        p_gift_variant_id: cart.find(item => item.isGift)?.vid || null,
+        p_delivery_latitude: deliveryLocation?.latitude ?? null,
+        p_delivery_longitude: deliveryLocation?.longitude ?? null
       });
       if (error) return say(error.message);
       setCart([]);
@@ -1270,6 +1385,7 @@ function Cart({
       setCouponResult(null);
       setUseCoins(false);
       setDeliveryDistance(null);
+      setDeliveryLocation(null);
       setLocationMessage('');
       done(orderId);
     } catch (error) {
@@ -1325,6 +1441,7 @@ function Cart({
     navigator.geolocation.getCurrentPosition(({
       coords
     }) => {
+      setDeliveryLocation({ latitude: coords.latitude, longitude: coords.longitude });
       const distance = distanceInKm({
         latitude: coords.latitude,
         longitude: coords.longitude
@@ -1334,6 +1451,7 @@ function Cart({
       if (roundedDistance > deliveryRadius) setLocationMessage(`You are ${roundedDistance.toFixed(1)} km away; delivery is available within ${deliveryRadius} km.`);else setLocationMessage(`Estimated distance: ${roundedDistance.toFixed(1)} km.`);
     }, error => {
       setDeliveryDistance(null);
+      setDeliveryLocation(null);
       setLocationMessage(error.code === error.PERMISSION_DENIED ? 'Location permission was denied. Allow location access to confirm delivery availability.' : 'Could not detect your location. Try again to confirm delivery availability.');
     }, {
       enableHighAccuracy: true,
@@ -1364,8 +1482,9 @@ function Cart({
           <label>Delivery address<input autoComplete="street-address" maxLength={240} value={addr} onChange={event => setAddr(event.target.value)} placeholder="House, street, landmark" required /></label>
           <label>Phone number<input autoComplete="tel" inputMode="tel" maxLength={20} value={ph} onChange={event => setPh(event.target.value)} placeholder="Phone number" required /></label>
         </div>
-        <button type="button" className="delivery-location-button" onClick={checkDeliveryDistance}>⌖ Use current location for distance</button>
+        <button type="button" className="delivery-location-button" onClick={checkDeliveryDistance}>⌖ Use current location for delivery</button>
         {locationMessage && <small className={`delivery-location-message${beyondDeliveryRadius ? ' unavailable' : ''}`} role="status">{locationMessage}</small>}
+        <small className="delivery-location-privacy">Your current coordinates will be saved with this order and shared with the kitchen and delivery team to help them reach you.</small>
         <label className="row">
           <input type="checkbox" style={{
           width: 20

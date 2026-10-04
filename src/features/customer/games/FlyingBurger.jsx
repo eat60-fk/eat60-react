@@ -12,7 +12,7 @@
  * The parent element must have a height.
  */
 import { useEffect, useRef, useState } from "react";
-import { playAppSound } from "../../../lib/sounds";
+import { playAppSound, unlockAppSounds } from "../../../lib/sounds";
 
 const CSS = `
 .fb-root{position:relative;width:100%;height:100%;overflow:hidden;box-sizing:border-box;background:#0b1020;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
@@ -79,6 +79,7 @@ function burst(x,y,n,cols){for(let i=0;i<n;i++){const a=Math.random()*6.283,s=60
 function flap(){
   if(state==='wait')state='play';
   if(state!=='play')return;
+  playAppSound('burgerTap',0.5);
   vy=-440;flapT=1;
   for(let i=0;i<3;i++)parts.push({x:BX-18,y:by+8,vx:-60-Math.random()*50,vy:20+Math.random()*60,l:.7,c:'#fff',r:2+Math.random()*2});
 }
@@ -88,6 +89,7 @@ function loseLayer(src){
   const nm=lives===3?'lettuce':lives===2?'patty':'top';
   parts.push({x:BX,y:by,vx:-80-Math.random()*60,vy:-220,l:1.4,c:LAYER[nm][0],w:54,h:LAYER[nm][1],rot:0,vr:(Math.random()-.5)*14});
   lives--;inv=1.4;shake=.35;hitBy=src;
+  if(lives>0)playAppSound('gameHit',0.65);
   try{navigator.vibrate&&navigator.vibrate(40)}catch(e){}
   if(lives<=0)die();
 }
@@ -97,6 +99,7 @@ function die(){
   try{navigator.vibrate&&navigator.vibrate([60,40,90])}catch(e){}
   if(score>best){best=score;setBest(best);try{localStorage.setItem(KEYB,best)}catch(e){}}
   const r=settle(score);setCoins(wallet.coins);
+  if(r.coins>0)playAppSound('coinCollect',0.65);
   if(endRef.current)try{endRef.current({score,xp:r.xp,coins:r.coins,note:r.note,totals:{xp:wallet.xp,coins:wallet.coins}})}catch(e){}
   const why=hitBy==='chilli'?'Too spicy! 🥵':'Burger down! 🍔';
   timers.push(setTimeout(()=>setUi({show:true,title:why,text:'Score '+score+'  ·  Best '+best,r,tot:{xp:wallet.xp,coins:wallet.coins},btn:'Play again'}),900));
@@ -224,7 +227,7 @@ function loop(ts){
 const pd=e=>{e.preventDefault();flap()},kd=e=>{if(e.code==='Space'||e.key==='ArrowUp'){e.preventDefault();flap()}};
 cv.addEventListener('pointerdown',pd);window.addEventListener('keydown',kd);
 const ro=new ResizeObserver(resize);ro.observe(cv);
-startRef.current=()=>{setUi(p=>({...p,show:false}));resize();reset();state='wait'};
+startRef.current=()=>{unlockAppSounds(['announced','burgerCrash','burgerTap','coinCollect','gameHit']);setUi(p=>({...p,show:false}));resize();reset();state='wait'};
 resize();reset();raf=requestAnimationFrame(loop);
 return()=>{cancelAnimationFrame(raf);timers.forEach(clearTimeout);cv.removeEventListener('pointerdown',pd);window.removeEventListener('keydown',kd);ro.disconnect()};
 

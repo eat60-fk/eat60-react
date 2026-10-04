@@ -12,6 +12,7 @@
  * The parent element must have a height.
  */
 import { useEffect, useRef, useState } from "react";
+import { playAppSound, unlockAppSounds } from "../../../lib/sounds";
 
 const CSS = `
 .qm-root{position:relative;width:100%;height:100%;overflow:hidden;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:linear-gradient(180deg,#1b0f3a,#071a33);color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
@@ -105,6 +106,7 @@ export default function QuickMath({ config, onGameEnd, storageKey = "qm", classN
     M.phase = "over"; M.lock = true;
     if (M.score > M.best) { M.best = M.score; try { localStorage.setItem(KEYB, M.best); } catch (e) {} }
     const r = settle(M.wallet, M.score, CFG, KEYW), acc = M.score + M.wrong ? Math.round(M.score / (M.score + M.wrong) * 100) : 0;
+    if(r.coins>0)playAppSound('coinCollect',0.65);
     try { navigator.vibrate && navigator.vibrate([50, 40, 50]); } catch (e) {}
     const tot = { xp: M.wallet.xp, coins: M.wallet.coins };
     up({ phase: "over", coins: tot.coins });
@@ -113,6 +115,7 @@ export default function QuickMath({ config, onGameEnd, storageKey = "qm", classN
   };
   finishRef.current = finish;
   const start = () => {
+    unlockAppSounds(['announced','coinCollect']);
     const M = m.current; M.timers.forEach(clearTimeout); M.timers = [];
     Object.assign(M, { score: 0, wrong: 0, streak: 0, bestStreak: 0, typed: "", lock: false, phase: "count", sec: -1 });
     up({ phase: "count", score: 0, streak: 0, typed: "", q: null, tag: "Get ready", st: "", sec: CFG.DURATION, res: null });

@@ -6,6 +6,12 @@ alter table public.settings
   add column if not exists gift_offer_variant_id bigint references public.item_variants(id) on delete set null,
   add column if not exists gift_offer_minimum integer not null default 199 check (gift_offer_minimum >= 0);
 
+alter table public.orders
+  add column if not exists delivery_latitude numeric(9,6),
+  add column if not exists delivery_longitude numeric(9,6);
+
+drop function if exists public.place_order_with_gift(jsonb,boolean,text,text,text,text,numeric,boolean,bigint);
+
 create or replace function public.place_order_with_gift(
   p_items jsonb,
   p_use_coins boolean,
@@ -15,7 +21,9 @@ create or replace function public.place_order_with_gift(
   p_customer_name text default null,
   p_distance_km numeric default null,
   p_use_offer boolean default true,
-  p_gift_variant_id bigint default null
+  p_gift_variant_id bigint default null,
+  p_delivery_latitude numeric default null,
+  p_delivery_longitude numeric default null
 )
 returns bigint language plpgsql security definer set search_path = public as $$
 declare
@@ -27,11 +35,23 @@ declare
   v_order_id bigint;
   v_subtotal integer;
 begin
+  if p_delivery_latitude is null or p_delivery_longitude is null then
+    raise exception 'Share your current delivery location before placing the order';
+  end if;
+  if p_delivery_latitude not between -90 and 90 or p_delivery_longitude not between -180 and 180 then
+    raise exception 'The delivery location is invalid. Please confirm it again.';
+  end if;
+
   if p_gift_variant_id is null then
-    return public.place_order_with_coupon(
+    v_order_id := public.place_order_with_coupon(
       p_items, p_use_coins, p_address, p_phone, p_coupon_code,
       p_customer_name, p_distance_km, p_use_offer
     );
+    update public.orders
+      set delivery_latitude = p_delivery_latitude,
+          delivery_longitude = p_delivery_longitude
+      where id = v_order_id;
+    return v_order_id;
   end if;
 
   if auth.uid() is null then raise exception 'Please log in first'; end if;
@@ -77,6 +97,10 @@ begin
     v_paid_items, false, p_address, p_phone, null,
     p_customer_name, p_distance_km, false
   );
+  update public.orders
+    set delivery_latitude = p_delivery_latitude,
+        delivery_longitude = p_delivery_longitude
+    where id = v_order_id;
   select subtotal into v_subtotal from public.orders where id = v_order_id for update;
   if coalesce(v_subtotal, 0) < coalesce(v_settings.gift_offer_minimum, 199) then
     raise exception 'Add items worth ₹% to unlock the free gift', v_settings.gift_offer_minimum;
@@ -88,6 +112,6 @@ begin
 end;
 $$;
 
-revoke all on function public.place_order_with_gift(jsonb,boolean,text,text,text,text,numeric,boolean,bigint) from public, anon;
-grant execute on function public.place_order_with_gift(jsonb,boolean,text,text,text,text,numeric,boolean,bigint) to authenticated;
+revoke all on function public.place_order_with_gift(jsonb,boolean,text,text,text,text,numeric,boolean,bigint,numeric,numeric) from public, anon;
+grant execute on function public.place_order_with_gift(jsonb,boolean,text,text,text,text,numeric,boolean,bigint,numeric,numeric) to authenticated;
 notify pgrst, 'reload schema';

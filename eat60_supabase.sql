@@ -135,6 +135,8 @@ create table orders (
   delivery_fee int not null default 0,
   delivery_fee_before_discount int not null default 0,
   delivery_distance_km numeric(6,2),
+  delivery_latitude numeric(9,6),
+  delivery_longitude numeric(9,6),
   prep_time_minutes int not null default 15 check (prep_time_minutes between 15 and 180),
   gst_amount int not null default 0,
   coin_discount int not null default 0,
