@@ -69,6 +69,38 @@ const ORDER_FILTER_STAGES = {
   delivery: ['out_for_delivery', 'payment_received'],
   completed: ['delivered', 'rejected', 'cancelled']
 };
+function showAdminOrderNotification(title, body, orderId, onClick) {
+  const options = {
+    body,
+    tag: `eat60-order-${orderId}`,
+    renotify: true,
+    requireInteraction: true,
+    icon: '/pwa-admin-192.png',
+    badge: '/pwa-admin-192.png',
+    data: { url: '/admin/orders', orderId }
+  };
+  if (!document.hidden) {
+    try {
+      const notification = new Notification(title, options);
+      notification.onclick = () => { onClick?.(); notification.close(); };
+      return;
+    } catch { /* Fall back to the service worker notification. */ }
+  }
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration().then(registration => {
+      if (registration && Notification.permission === 'granted') {
+        return registration.showNotification(title, options);
+      }
+      if (Notification.permission === 'granted') new Notification(title, options);
+    }).catch(() => {
+      if (Notification.permission === 'granted') {
+        try { new Notification(title, options); } catch { /* Keep the in-app alert available. */ }
+      }
+    });
+  } else if (Notification.permission === 'granted') {
+    try { new Notification(title, options); } catch { /* Keep the in-app alert available. */ }
+  }
+}
 const TAB_ICONS = {
   overview: '⌂',
   orders: '▤',
@@ -690,21 +722,10 @@ export default function Admin() {
           if ('vibrate' in navigator) navigator.vibrate([240, 120, 240]);
           alertTimer.current = window.setTimeout(() => setAlert(''), 6500);
           if (alertEnabledRef.current && 'Notification' in window && Notification.permission === 'granted') {
-            try {
-              const notification = new Notification(title, {
-                body,
-                tag: `eat60-order-${id}`,
-                renotify: true,
-                requireInteraction: true,
-                icon: '/pwa-admin-192.png',
-                badge: '/pwa-admin-192.png'
-              });
-              notification.onclick = () => {
-                window.focus();
-                visitTab('orders');
-                notification.close();
-              };
-            } catch {/* Keep the in-app alert available if the browser blocks system notifications. */}
+            showAdminOrderNotification(title, body, id, () => {
+              window.focus();
+              visitTab('orders');
+            });
           }
         }
       } else if (payload.eventType === 'UPDATE') {
@@ -758,7 +779,7 @@ export default function Admin() {
     setPermission(result);
     alertEnabledRef.current = result === 'granted';
     setAlertEnabled(result === 'granted');
-    setAlert(result === 'granted' ? 'Live browser order alerts are enabled.' : 'Allow notifications in your browser settings to receive order alerts.');
+    setAlert(result === 'granted' ? 'Order notifications are enabled while this admin app is open and connected.' : 'Allow notifications in your browser settings to receive order alerts.');
     window.clearTimeout(alertTimer.current);
     alertTimer.current = window.setTimeout(() => setAlert(''), 5000);
   };
@@ -900,7 +921,7 @@ function AdminPreferences({ appVersion, setAppVersion, connection, soundEnabled,
     <SettingsEditCard title="App version" description="The small version label shown in customer and admin footers." summary={`Current version · v.${appVersion}`} editing busy={busy} feedback={message} onSave={saveVersion} onCancel={() => { setVersion(appVersion); setMessage(''); }} onEdit={() => setMessage('')}>
       <label>Version<input value={version} onChange={event => setVersion(event.target.value)} placeholder="1.0.0" inputMode="decimal" /></label>
     </SettingsEditCard>
-    <article className="admin-settings-card"><header className="admin-settings-card-heading"><div><h3>Connection & alerts</h3><p>Choose when this device can notify you about new orders.</p></div><span className="admin-footer-connection">{connection === 'connected' ? 'ONLINE' : 'OFFLINE'}</span></header>
+    <article className="admin-settings-card"><header className="admin-settings-card-heading"><div><h3>Connection & alerts</h3><p>Order alerts can appear while this admin app is open in the background and connected to the internet.</p></div><span className="admin-footer-connection">{connection === 'connected' ? 'ONLINE' : 'OFFLINE'}</span></header>
       <div className="admin-settings-card-actions"><button className="admin-secondary" type="button" onClick={enableAlerts} disabled={permission === 'unsupported'}>{alertEnabled ? 'Alerts enabled' : permission === 'denied' ? 'Allow in browser settings' : 'Enable order alerts'}</button><button className="admin-secondary" type="button" onClick={toggleSound}>{soundEnabled ? 'Turn sound off' : 'Turn sound on'}</button><button className="admin-cancel-order" type="button" onClick={() => { if (window.confirm('Are you sure you want to log out?')) sb.auth.signOut(); }}>Log out</button></div>
     </article>
   </section>;
@@ -1365,8 +1386,8 @@ function Orders({
   };
   return <section className="admin-content">
     <div className="admin-page-heading"><div><p>FULFILMENT</p><h2>Order management</h2><span>Live order updates · {connection === 'connected' ? 'connected' : 'reconnecting'}</span></div></div>
-    <div className="admin-order-tools"><div className="admin-filter-tabs" aria-label="Filter orders">{ORDER_FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}<b>{countFor(key)}</b></button>)}</div><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order, name, or phone" /></label></div>
-    <div className="admin-order-filter-row"><div className="admin-period-chips" role="group" aria-label="Order date range">{[['today','Today'],['yesterday','Yesterday'],['week','7 days'],['custom','Custom']].map(([key,label]) => <button key={key} type="button" className={period === key ? 'active' : ''} aria-pressed={period === key} onClick={() => setPeriod(key)}>{label}</button>)}</div><label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{period === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}<b className="admin-order-totals">{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b></div>
+    <div className="admin-order-tools"><label className="admin-choice-label">Order status<select className="admin-choice-select" value={filter} onChange={event => setFilter(event.target.value)}>{ORDER_FILTERS.map(([key, label]) => <option key={key} value={key}>{label} ({countFor(key)})</option>)}</select></label><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order, name, or phone" /></label></div>
+    <div className="admin-order-filter-row"><label className="admin-choice-label">Date range<select className="admin-choice-select" value={period} onChange={event => setPeriod(event.target.value)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">7 days</option><option value="custom">Custom</option></select></label><label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{period === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}<b className="admin-order-totals">{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
     {filtered.length ? <div className="admin-order-list">{filtered.map(order => <article className="admin-order-card" key={order.id}>
       <div className="admin-order-card-top"><div><span className="admin-order-number">ORDER #{order.id}</span><strong>₹{Number(order.total).toLocaleString('en-IN')}</strong></div><span className={`admin-status status-${stageOf(order)}`}>{LABEL[stageOf(order)] || stageOf(order)}</span></div>
@@ -1387,7 +1408,7 @@ function Orders({
             const detail = reason === 'Other' ? reasonDetails.trim() : reason;
             if (await move(order.id, reasonStage, detail)) { setReasonId(null); setReason(''); setReasonDetails(''); }
           }}>{reasonStage === 'rejected' ? 'Confirm reject' : 'Confirm cancellation'}</button><button className="admin-secondary" onClick={() => setReasonId(null)}>Cancel</button></div>}
-      {paymentId === order.id && <div className="admin-decision-form"><select value={payment} onChange={e => setPayment(e.target.value)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="online">Online</option><option value="other">Other</option></select><button className="admin-primary" onClick={async () => {
+      {paymentId === order.id && <div className="admin-decision-form"><label className="admin-choice-label">Payment method<select className="admin-choice-select" value={payment} onChange={e => setPayment(e.target.value)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="online">Online</option><option value="other">Other</option></select></label><button className="admin-primary" onClick={async () => {
             await move(order.id, 'payment_received', null, payment);
             setPaymentId(null);
           }}>Confirm payment</button></div>}
@@ -1451,7 +1472,7 @@ function OrderHistory({ rows }) {
     <div className="admin-history-tools">
       <label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order ID, customer, or phone" /></label>
       <label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <div className="admin-period-chips" role="group" aria-label="History date range">{[['2','Last 2 days'],['7','7 days'],['30','30 days'],['custom','Custom']].map(([value,label]) => <button key={value} type="button" className={range === value ? 'active' : ''} aria-pressed={range === value} onClick={() => setRange(value)}>{label}</button>)}</div>
+      <label className="admin-choice-label">Date range<select className="admin-choice-select" aria-label="History date range" value={range} onChange={event => setRange(event.target.value)}><option value="2">Last 2 days</option><option value="7">7 days</option><option value="30">30 days</option><option value="custom">Custom</option></select></label>
       {range === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}
     </div>
     {history.length ? <div className="admin-history-list">{history.map(order => {
@@ -1551,7 +1572,7 @@ function Menu() {
     <div className="admin-page-heading"><div><p>CATALOG</p><h2>Menu & availability</h2><span>Manage descriptions, food photos, sizes, prices and extras.</span></div><button className="admin-primary" onClick={() => setEditing({})}>Add menu item <span>＋</span></button></div>
     <div className="admin-inventory-summary"><span><b>{outletItems.filter(item => item.is_available).length}</b> in stock</span><span><b>{outletItems.filter(item => !item.is_available).length}</b> out of stock</span><span><b>{outletItems.length}</b> menu items</span></div>
     <div className="admin-catalog-tools"><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a dish" /></label><label className="admin-outlet-filter">Outlet<select aria-label="Filter by outlet" value={filter} onChange={event => { setFilter(event.target.value); setCategory('all'); }}><option value="all">All outlets</option>{brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label></div>
-    <div className="admin-menu-filter-groups"><div className="admin-menu-category-filters" role="group" aria-label="Filter menu category"><button className={category === 'all' ? 'active' : ''} onClick={() => setCategory('all')}>All categories <b>{outletItems.length}</b></button>{categories.map(name => <button key={name} className={category === name ? 'active' : ''} onClick={() => setCategory(name)}>{name} <b>{outletItems.filter(item => item.category === name).length}</b></button>)}</div><div className="admin-menu-stock-filters" role="group" aria-label="Filter stock status">{[['all','All'],['in','In stock'],['out','Out of stock']].map(([key,label]) => <button key={key} className={stockFilter === key ? 'active' : ''} onClick={() => setStockFilter(key)}>{label}{key === 'in' ? ` (${outletItems.filter(item => item.is_available).length})` : key === 'out' ? ` (${outletItems.filter(item => !item.is_available).length})` : ''}</button>)}</div></div>
+    <div className="admin-menu-filter-groups"><label className="admin-choice-label">Category<select className="admin-choice-select" aria-label="Filter menu category" value={category} onChange={event => setCategory(event.target.value)}><option value="all">All categories ({outletItems.length})</option>{categories.map(name => <option key={name} value={name}>{name} ({outletItems.filter(item => item.category === name).length})</option>)}</select></label><label className="admin-choice-label">Stock status<select className="admin-choice-select" aria-label="Filter stock status" value={stockFilter} onChange={event => setStockFilter(event.target.value)}><option value="all">All</option><option value="in">In stock ({outletItems.filter(item => item.is_available).length})</option><option value="out">Out of stock ({outletItems.filter(item => !item.is_available).length})</option></select></label></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
     <div className="admin-menu-grid">{visible.map(item => <article className="admin-menu-card" key={item.id}>{item.image_url ? <img className="admin-menu-art admin-menu-photo" src={item.image_url} alt="" /> : <div className="admin-menu-art">{brands.find(brand => brand.id === item.brand_id)?.emoji || '🍽️'}</div>}<div className="admin-menu-info"><span>{item.category} · {brands.find(brand => brand.id === item.brand_id)?.name || item.brand_id}</span><h3>{item.name}</h3><p>{item.description || 'No description added.'}</p><div className="admin-variant-prices">{item.item_variants?.map(variant => <span key={variant.id}>{variant.label} <b>₹{variant.price}</b></span>)}{(item.item_extras || []).map(x => <span key={x.id}>+ {x.name} <b>₹{x.price}</b></span>)}</div><div className="admin-card-actions"><button onClick={() => { if (window.confirm(`Are you sure you want to edit ${item.name}?`)) setEditing(item); }}>Edit</button><button onClick={() => setDeleteTarget(item)}>Delete</button></div></div><button type="button" role="switch" aria-checked={item.is_available} aria-label={`${item.name}: ${item.is_available ? 'available' : 'hidden'}`} className={`admin-stock-toggle ${item.is_available ? 'on' : ''}`} disabled={saving === item.id} onClick={() => setStockTarget(item)}><span>{saving === item.id ? 'Saving…' : item.is_available ? 'Available' : 'Hidden'}</span><i aria-hidden="true"><b /></i></button></article>)}</div>
     {editing && <MenuEditor item={editing} brands={brands} close={() => setEditing(null)} saved={load} />}
