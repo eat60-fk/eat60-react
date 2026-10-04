@@ -2,6 +2,7 @@ const ADMIN_ROOT = '/admin';
 
 const adminTabPaths = {
   orders: `${ADMIN_ROOT}/orders`,
+  history: `${ADMIN_ROOT}/order-history`,
   overview: `${ADMIN_ROOT}/dashboard`,
   growth: `${ADMIN_ROOT}/growth`,
   menu: `${ADMIN_ROOT}/menu`,

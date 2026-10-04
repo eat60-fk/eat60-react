@@ -6183,6 +6183,46 @@ nav b {
 .admin-toggle:disabled {
   opacity: .5
 }
+.admin-stock-toggle {
+  position:absolute;
+  top:12px;
+  right:12px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:0;
+  border:0;
+  color:#aeb2a6;
+  background:transparent;
+  font-size:9px;
+  font-weight:850;
+  cursor:pointer
+}
+.admin-stock-toggle.on { color:#c2ed86 }
+.admin-stock-toggle > i {
+  position:relative;
+  width:34px;
+  height:19px;
+  display:block;
+  border:1px solid #505149;
+  border-radius:999px;
+  background:#343530;
+  transition:background .16s ease,border-color .16s ease
+}
+.admin-stock-toggle > i > b {
+  position:absolute;
+  top:2px;
+  left:2px;
+  width:13px;
+  height:13px;
+  border-radius:50%;
+  background:#d7d9d1;
+  transition:transform .16s ease,background .16s ease
+}
+.admin-stock-toggle.on > i { border-color:#76a842; background:#56852e }
+.admin-stock-toggle.on > i > b { transform:translateX(15px); background:#fff }
+.admin-stock-toggle:focus-visible { outline:2px solid #b8f35d; outline-offset:4px }
+.admin-stock-toggle:disabled { opacity:.55; cursor:wait }
 .admin-outlet-grid {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
@@ -7118,6 +7158,22 @@ nav b {
 .admin-confirm-delete:hover {
   background: #ef5a50
 }
+.admin-confirm-dialog-stock .admin-confirm-icon {
+  border-color:#627a3f;
+  background:#2d3824;
+  color:#c8f17b
+}
+.admin-confirm-stock {
+  min-height:40px;
+  padding:0 16px;
+  border:1px solid #a9dc4d;
+  border-radius:11px;
+  background:#b8ef4b;
+  color:#171a12;
+  font-size:11px;
+  font-weight:900
+}
+.admin-confirm-stock:hover { background:#c6fa59 }
 .admin-confirm-actions button:disabled {
   opacity: .6;
   cursor: wait

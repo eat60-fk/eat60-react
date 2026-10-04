@@ -24,12 +24,12 @@ const LABEL = {
   cancelled: 'Cancelled'
 };
 const NAV_GROUPS = [
-  { title: 'OPERATIONS', items: [['orders', 'Orders'], ['overview', 'Dashboard']] },
+  { title: 'OPERATIONS', items: [['orders', 'Orders'], ['history', 'Order history'], ['overview', 'Dashboard']] },
   { title: 'STORE', items: [['menu', 'Menu'], ['outlets', 'Outlets']] },
   { title: 'GROWTH', items: [['growth', 'Growth'], ['promos', 'Promos'], ['rewards', 'Rewards']] },
   { title: 'CUSTOMERS', items: [['feed', 'Feed'], ['explore', 'More']] }
 ];
-const MOBILE_TABS = [['orders', 'Orders'], ['overview', 'Dashboard'], ['menu', 'Menu'], ['growth', 'Growth'], ['explore', 'More']];
+const MOBILE_TABS = [['orders', 'Orders'], ['history', 'History'], ['overview', 'Dashboard'], ['menu', 'Menu'], ['explore', 'More']];
 const SETTINGS_SECTIONS = [
   {
     id: 'delivery',
@@ -72,6 +72,7 @@ const ORDER_FILTER_STAGES = {
 const TAB_ICONS = {
   overview: '⌂',
   orders: '▤',
+  history: '◷',
   growth: '↗',
   menu: '☷',
   outlets: '⌖',
@@ -84,7 +85,13 @@ function ConfirmDialog({
   title,
   message,
   onCancel,
-  onConfirm
+  onConfirm,
+  confirmLabel = 'Delete',
+  busyLabel = 'Deleting…',
+  confirmClassName = 'admin-confirm-delete',
+  icon = '!',
+  kicker = 'PLEASE CONFIRM',
+  dialogClassName = ''
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -110,15 +117,15 @@ function ConfirmDialog({
     }
   };
   return <div className="admin-confirm-backdrop" onMouseDown={event => event.target === event.currentTarget && !busy && onCancel()}>
-    <section className="admin-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" aria-describedby="admin-confirm-message">
-      <div className="admin-confirm-icon" aria-hidden="true">!</div>
-      <p className="admin-confirm-kicker">PLEASE CONFIRM</p>
+    <section className={`admin-confirm-dialog ${dialogClassName}`} role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" aria-describedby="admin-confirm-message">
+      <div className="admin-confirm-icon" aria-hidden="true">{icon}</div>
+      <p className="admin-confirm-kicker">{kicker}</p>
       <h2 id="admin-confirm-title">{title}</h2>
       <p id="admin-confirm-message">{message}</p>
       {error && <p className="admin-confirm-error" role="alert">{error}</p>}
       <div className="admin-confirm-actions">
         <button ref={cancelRef} className="admin-secondary" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button className="admin-confirm-delete" disabled={busy} onClick={confirm}>{busy ? 'Deleting…' : 'Delete'}</button>
+        <button className={confirmClassName} disabled={busy} onClick={confirm}>{busy ? busyLabel : confirmLabel}</button>
       </div>
     </section>
   </div>;
@@ -538,9 +545,7 @@ function AdBannerSettings() {
   </section>;
 }
 // Admin navigation shell and data loading.
-export default function Admin({
-  onBack
-}) {
+export default function Admin() {
   const [tab, setTab] = useState(() => adminTabForPath(window.location.pathname));
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([adminTabForPath(window.location.pathname)]));
   const [settingsSection, setSettingsSection] = useState(() => adminSettingsSectionForPath(window.location.pathname));
@@ -549,7 +554,7 @@ export default function Admin({
   const [connection, setConnection] = useState('connecting');
   const [alert, setAlert] = useState('');
   const [permission, setPermission] = useState(() => 'Notification' in window ? Notification.permission : 'unsupported');
-  const [alertEnabled, setAlertEnabled] = useState(false);
+  const [alertEnabled, setAlertEnabled] = useState(() => 'Notification' in window && Notification.permission === 'granted');
   const [incomingOrders, setIncomingOrders] = useState([]);
   const [unacceptedOrderCount, setUnacceptedOrderCount] = useState(0);
   const unacceptedOrderIds = useRef(new Set());
@@ -559,7 +564,7 @@ export default function Admin({
   const [soundEnabled, setSoundEnabled] = useState(false);
   const soundRef = useRef(null);
   const soundEnabledRef = useRef(false);
-  const alertEnabledRef = useRef(false);
+  const alertEnabledRef = useRef('Notification' in window && Notification.permission === 'granted');
   const seenOrderIds = useRef(new Set());
   const initialOrderIds = useRef(new Set());
   const earlyIncomingOrders = useRef([]);
@@ -689,7 +694,10 @@ export default function Admin({
               const notification = new Notification(title, {
                 body,
                 tag: `eat60-order-${id}`,
-                renotify: false
+                renotify: true,
+                requireInteraction: true,
+                icon: '/pwa-admin-192.png',
+                badge: '/pwa-admin-192.png'
               });
               notification.onclick = () => {
                 window.focus();
@@ -723,24 +731,25 @@ export default function Admin({
   }, [loadOrders, loadStore, visitTab]);
   useEffect(() => () => {
     if (soundRef.current) {
-      soundRef.current.close();
+      soundRef.current.pause();
+      soundRef.current.currentTime = 0;
       soundRef.current = null;
     }
   }, []);
   useEffect(() => {
-    if (!unacceptedOrderCount) return undefined;
-    const ring = () => {
-      if (!soundEnabled || !soundRef.current) return;
-      const context = soundRef.current;
-      if (!context) return;
-      if (context.state === 'suspended') context.resume().then(() => playOrderTone(context)).catch(() => {});else playOrderTone(context);
-    };
-    ring();
-    const interval = window.setInterval(() => {
-      ring();
-      if ('vibrate' in navigator) navigator.vibrate([240, 120, 240]);
-    }, 2800);
-    return () => window.clearInterval(interval);
+    const audio = soundRef.current;
+    if (!audio) return undefined;
+    if (unacceptedOrderCount && soundEnabled) {
+      audio.loop = true;
+      audio.play().catch(() => setAlert('Tap Turn sound on to allow order alerts to play.'));
+      const vibration = window.setInterval(() => {
+        if ('vibrate' in navigator) navigator.vibrate([240, 120, 240]);
+      }, 2800);
+      return () => window.clearInterval(vibration);
+    }
+    audio.pause();
+    audio.currentTime = 0;
+    return undefined;
   }, [unacceptedOrderCount, soundEnabled]);
   const enableAlerts = async () => {
     if (!('Notification' in window)) return setPermission('unsupported');
@@ -756,11 +765,14 @@ export default function Admin({
   const toggleSound = async () => {
     if (!soundEnabled) {
       try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (!AudioCtx) return setAlert('This browser does not support sound alerts.');
-        const ctx = soundRef.current || new AudioCtx();
-        soundRef.current = ctx;
-        await ctx.resume();
+        const audio = soundRef.current || new Audio('/sounds/order-alert.mp3');
+        audio.loop = false;
+        audio.volume = 1;
+        audio.currentTime = 0;
+        await audio.play();
+        audio.pause();
+        audio.currentTime = 0;
+        soundRef.current = audio;
         setSoundEnabled(true);
         setAlert('New order alarm is on.');
       } catch {
@@ -776,9 +788,6 @@ export default function Admin({
   return <main className="app admin-app">
       <header className="admin-header">
         <div className="admin-brand"><span className="admin-mark">EAT<b>60</b></span><div><p>FOODVERSE KITCHEN · ADMIN</p><h1>{tab === 'overview' ? 'Dashboard' : tab === 'explore' ? 'More tools' : tab.charAt(0).toUpperCase() + tab.slice(1)}</h1></div></div>
-        <div className="admin-header-actions">
-          <button className="admin-exit" data-admin-action="shop" onClick={onBack} title="Back to shop"><span aria-hidden="true">⌂</span><b>Shop</b></button>
-        </div>
       </header>
 
       <nav className="admin-tabs" aria-label="Admin sections">
@@ -788,7 +797,7 @@ export default function Admin({
         </div>)}
       </nav>
       <nav className="admin-mobile-tabs" aria-label="Admin mobile sections">
-        {MOBILE_TABS.map(([key, label]) => <button key={key} className={(key === 'explore' ? !['orders', 'overview', 'growth', 'menu'].includes(tab) : tab === key) ? 'active' : ''} onClick={() => visitTab(key)}><span aria-hidden="true">{TAB_ICONS[key]}</span>{label}{key === 'orders' && orders.some(order => (order.order_stage || 'pending') === 'pending') && <b>{orders.filter(order => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
+        {MOBILE_TABS.map(([key, label]) => <button key={key} className={(key === 'explore' ? !['orders', 'history', 'overview', 'growth', 'menu'].includes(tab) : tab === key) ? 'active' : ''} onClick={() => visitTab(key)}><span aria-hidden="true">{TAB_ICONS[key]}</span>{label}{key === 'orders' && orders.some(order => (order.order_stage || 'pending') === 'pending') && <b>{orders.filter(order => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
       </nav>
 
       {connection !== 'connected' && <div className="admin-connection-banner" role="status"><span aria-hidden="true">●</span>{connection === 'connecting' ? 'Connecting to live orders…' : 'Connection lost · New orders may be delayed. Reconnecting…'}</div>}
@@ -822,6 +831,7 @@ export default function Admin({
       {visitedTabs.has('explore') && <div hidden={tab !== 'explore'}><Explore onNavigate={visitTab} /></div>}
       {visitedTabs.has('settings') && <div hidden={tab !== 'settings'}><SettingsWorkspace section={settingsSection} onSelect={visitSettingsSection} appVersion={appVersion} setAppVersion={setAppVersion} connection={connection} soundEnabled={soundEnabled} toggleSound={toggleSound} alertEnabled={alertEnabled} permission={permission} enableAlerts={enableAlerts} /></div>}
       {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} connection={connection} /></div>}
+      {visitedTabs.has('history') && <div hidden={tab !== 'history'}><OrderHistory rows={orders} /></div>}
       {visitedTabs.has('menu') && <div hidden={tab !== 'menu'}><Menu /></div>}
       {visitedTabs.has('outlets') && <div hidden={tab !== 'outlets'}><Outlets /></div>}
       {visitedTabs.has('feed') && <div hidden={tab !== 'feed'}><AdminFeed /></div>}
@@ -1237,22 +1247,6 @@ function Metric({
 }) {
   return <article className={`admin-metric ${tone}`}><div className="admin-metric-top"><span>{label}</span><i>{icon}</i></div><strong>{value}</strong><small>{detail}</small></article>;
 }
-function playOrderTone(context) {
-  const now = context.currentTime;
-  [0, .19, .38].forEach((offset, index) => {
-    const osc = context.createOscillator(),
-      gain = context.createGain();
-    osc.type = 'sine';
-    osc.frequency.value = [740, 880, 1046][index];
-    gain.gain.setValueAtTime(.0001, now + offset);
-    gain.gain.exponentialRampToValueAtTime(.24, now + offset + .025);
-    gain.gain.exponentialRampToValueAtTime(.0001, now + offset + .17);
-    osc.connect(gain);
-    gain.connect(context.destination);
-    osc.start(now + offset);
-    osc.stop(now + offset + .18);
-  });
-}
 function OrderReadyCountdown({ order, actionLabel, onClick, disabled }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -1370,7 +1364,7 @@ function Orders({
     return !updateError;
   };
   return <section className="admin-content">
-    <div className="admin-page-heading"><div><p>FULFILMENT</p><h2>Order management</h2><span>Live order updates · {connection === 'connected' ? 'connected' : 'reconnecting'}</span></div><button className="admin-secondary admin-order-refresh" aria-label="Refresh orders" title="Refresh orders" onClick={refresh}>↻</button></div>
+    <div className="admin-page-heading"><div><p>FULFILMENT</p><h2>Order management</h2><span>Live order updates · {connection === 'connected' ? 'connected' : 'reconnecting'}</span></div></div>
     <div className="admin-order-tools"><div className="admin-filter-tabs" aria-label="Filter orders">{ORDER_FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}<b>{countFor(key)}</b></button>)}</div><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order, name, or phone" /></label></div>
     <div className="admin-order-filter-row"><div className="admin-period-chips" role="group" aria-label="Order date range">{[['today','Today'],['yesterday','Yesterday'],['week','7 days'],['custom','Custom']].map(([key,label]) => <button key={key} type="button" className={period === key ? 'active' : ''} aria-pressed={period === key} onClick={() => setPeriod(key)}>{label}</button>)}</div><label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{period === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}<b className="admin-order-totals">{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
@@ -1428,6 +1422,50 @@ function Orders({
     </article>)}</div> : <div className="admin-empty"><span>⌕</span><b>{filter === 'active' && period === 'today' && !query && outlet === 'all' ? 'No active orders today' : 'No matching orders'}</b><small>{filter === 'active' && !query ? 'New orders and orders being prepared will appear here.' : 'Try a different outlet, date range, or search.'}</small><button className="admin-secondary" onClick={clearFilters}>Clear filters</button></div>}
   </section>;
 }
+function OrderHistory({ rows }) {
+  const [query, setQuery] = useState('');
+  const [outlet, setOutlet] = useState('all');
+  const [outlets, setOutlets] = useState([]);
+  const [range, setRange] = useState('2');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  useEffect(() => {
+    let active = true;
+    sb.from('brands').select('id,name').order('name').then(({ data }) => { if (active) setOutlets(data || []); });
+    return () => { active = false; };
+  }, []);
+  const today = new Date();
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  const start = range === 'custom' ? (from ? new Date(`${from}T00:00:00`) : null) : new Date(end.getTime() - Number(range) * 86400000);
+  const history = rows.filter(order => ['delivered', 'rejected', 'cancelled'].includes(order.order_stage || order.status))
+    .filter(order => {
+      const created = new Date(order.created_at);
+      const brands = (order.order_items || []).map(item => String(item.brand_id || ''));
+      const search = `${order.id} ${order.customer_name || order.profiles?.name || ''} ${order.phone || order.profiles?.phone || ''}`.toLowerCase();
+      return (!start || created >= start) && (!to || created < new Date(`${to}T23:59:59`))
+        && (outlet === 'all' || brands.includes(String(outlet))) && search.includes(query.trim().toLowerCase());
+    });
+  const clear = () => { setQuery(''); setOutlet('all'); setRange('2'); setFrom(''); setTo(''); };
+  return <section className="admin-content admin-order-history">
+    <div className="admin-page-heading"><div><p>FULFILMENT</p><h2>Order history</h2><span>Recently completed and cancelled orders · {history.length} shown</span></div></div>
+    <div className="admin-history-tools">
+      <label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order ID, customer, or phone" /></label>
+      <label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <div className="admin-period-chips" role="group" aria-label="History date range">{[['2','Last 2 days'],['7','7 days'],['30','30 days'],['custom','Custom']].map(([value,label]) => <button key={value} type="button" className={range === value ? 'active' : ''} aria-pressed={range === value} onClick={() => setRange(value)}>{label}</button>)}</div>
+      {range === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}
+    </div>
+    {history.length ? <div className="admin-history-list">{history.map(order => {
+      const stage = order.order_stage || order.status;
+      return <article className="admin-history-card" key={order.id}>
+        <header><div><span className={`admin-status status-${stage}`}>{LABEL[stage] || stage}</span><h3>#{order.id}</h3></div><time>{new Date(order.created_at).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})}</time></header>
+        <p className="admin-history-brands">{[...new Set((order.order_items || []).map(item => outlets.find(brand => brand.id === item.brand_id)?.name || item.brand_id).filter(Boolean))].join(' · ') || 'Outlet unavailable'}</p>
+        <div className="admin-history-customer"><b>{order.customer_name || order.profiles?.name || 'Customer'}</b><span>{order.phone || order.profiles?.phone || 'No phone provided'}</span></div>
+        <div className="admin-history-items">{(order.order_items || []).map(item => <p key={item.id}><span>{item.qty} × {item.item_name}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></p>)}</div>
+        <footer><span>{order.rejection_reason ? `Reason: ${order.rejection_reason}` : order.payment_type ? `${String(order.payment_type).toUpperCase()}${order.payment_received_at ? ' · PAID' : ''}` : 'Payment details unavailable'}</span><strong>₹{Number(order.total || 0).toLocaleString('en-IN')}</strong></footer>
+      </article>;
+    })}</div> : <div className="admin-empty"><span>◷</span><b>No recent order history</b><small>Completed, rejected, and cancelled orders for this outlet and date range will appear here.</small><button className="admin-secondary" onClick={clear}>Clear filters</button></div>}
+  </section>;
+}
 function OrderRow({
   order
 }) {
@@ -1444,9 +1482,12 @@ function Menu() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  const [category, setCategory] = useState('all');
+  const [stockFilter, setStockFilter] = useState('all');
   const [saving, setSaving] = useState(null);
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [stockTarget, setStockTarget] = useState(null);
   const load = useCallback(async () => {
     const [{
       data,
@@ -1463,7 +1504,6 @@ function Menu() {
     load();
   }, [load]);
   const toggle = async item => {
-    if (!window.confirm(`Are you sure you want to mark ${item.name} ${item.is_available ? 'out of stock' : 'in stock'}?`)) return;
     setSaving(item.id);
     setError('');
     const {
@@ -1471,13 +1511,21 @@ function Menu() {
     } = await sb.from('menu_items').update({
       is_available: !item.is_available
     }).eq('id', item.id);
-    if (updateError) setError(updateError.message);else setItems(current => current.map(row => row.id === item.id ? {
+    if (updateError) {
+      setError(updateError.message);
+      setSaving(null);
+      return updateError.message;
+    } else setItems(current => current.map(row => row.id === item.id ? {
       ...row,
       is_available: !item.is_available
     } : row));
     setSaving(null);
+    return null;
   };
-  const visible = items.filter(item => (filter === 'all' || item.brand_id === filter) && `${item.name} ${item.category}`.toLowerCase().includes(query.toLowerCase()));
+  const outletItems = items.filter(item => filter === 'all' || item.brand_id === filter);
+  const categories = [...new Set(outletItems.map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const categoryItems = outletItems.filter(item => category === 'all' || item.category === category);
+  const visible = categoryItems.filter(item => (stockFilter === 'all' || (stockFilter === 'in' ? item.is_available : !item.is_available)) && `${item.name} ${item.category}`.toLowerCase().includes(query.toLowerCase()));
   const remove = async () => {
     if (!deleteTarget) return 'The menu item could not be found.';
     setError('');
@@ -1501,10 +1549,13 @@ function Menu() {
   };
   return <section className="admin-content">
     <div className="admin-page-heading"><div><p>CATALOG</p><h2>Menu & availability</h2><span>Manage descriptions, food photos, sizes, prices and extras.</span></div><button className="admin-primary" onClick={() => setEditing({})}>Add menu item <span>＋</span></button></div>
-    <div className="admin-catalog-tools"><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a dish" /></label><select aria-label="Filter by outlet" value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All outlets</option>{brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></div>
+    <div className="admin-inventory-summary"><span><b>{outletItems.filter(item => item.is_available).length}</b> in stock</span><span><b>{outletItems.filter(item => !item.is_available).length}</b> out of stock</span><span><b>{outletItems.length}</b> menu items</span></div>
+    <div className="admin-catalog-tools"><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a dish" /></label><label className="admin-outlet-filter">Outlet<select aria-label="Filter by outlet" value={filter} onChange={event => { setFilter(event.target.value); setCategory('all'); }}><option value="all">All outlets</option>{brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label></div>
+    <div className="admin-menu-filter-groups"><div className="admin-menu-category-filters" role="group" aria-label="Filter menu category"><button className={category === 'all' ? 'active' : ''} onClick={() => setCategory('all')}>All categories <b>{outletItems.length}</b></button>{categories.map(name => <button key={name} className={category === name ? 'active' : ''} onClick={() => setCategory(name)}>{name} <b>{outletItems.filter(item => item.category === name).length}</b></button>)}</div><div className="admin-menu-stock-filters" role="group" aria-label="Filter stock status">{[['all','All'],['in','In stock'],['out','Out of stock']].map(([key,label]) => <button key={key} className={stockFilter === key ? 'active' : ''} onClick={() => setStockFilter(key)}>{label}{key === 'in' ? ` (${outletItems.filter(item => item.is_available).length})` : key === 'out' ? ` (${outletItems.filter(item => !item.is_available).length})` : ''}</button>)}</div></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
-    <div className="admin-menu-grid">{visible.map(item => <article className="admin-menu-card" key={item.id}>{item.image_url ? <img className="admin-menu-art admin-menu-photo" src={item.image_url} alt="" /> : <div className="admin-menu-art">{brands.find(brand => brand.id === item.brand_id)?.emoji || '🍽️'}</div>}<div className="admin-menu-info"><span>{item.category} · {brands.find(brand => brand.id === item.brand_id)?.name || item.brand_id}</span><h3>{item.name}</h3><p>{item.description || 'No description added.'}</p><div className="admin-variant-prices">{item.item_variants?.map(variant => <span key={variant.id}>{variant.label} <b>₹{variant.price}</b></span>)}{(item.item_extras || []).map(x => <span key={x.id}>+ {x.name} <b>₹{x.price}</b></span>)}</div><div className="admin-card-actions"><button onClick={() => { if (window.confirm(`Are you sure you want to edit ${item.name}?`)) setEditing(item); }}>Edit</button><button onClick={() => setDeleteTarget(item)}>Delete</button></div></div><button className={`admin-toggle ${item.is_available ? 'on' : ''}`} disabled={saving === item.id} onClick={() => toggle(item)}><i />{saving === item.id ? 'Saving' : item.is_available ? 'Available' : 'Hidden'}</button></article>)}</div>
+    <div className="admin-menu-grid">{visible.map(item => <article className="admin-menu-card" key={item.id}>{item.image_url ? <img className="admin-menu-art admin-menu-photo" src={item.image_url} alt="" /> : <div className="admin-menu-art">{brands.find(brand => brand.id === item.brand_id)?.emoji || '🍽️'}</div>}<div className="admin-menu-info"><span>{item.category} · {brands.find(brand => brand.id === item.brand_id)?.name || item.brand_id}</span><h3>{item.name}</h3><p>{item.description || 'No description added.'}</p><div className="admin-variant-prices">{item.item_variants?.map(variant => <span key={variant.id}>{variant.label} <b>₹{variant.price}</b></span>)}{(item.item_extras || []).map(x => <span key={x.id}>+ {x.name} <b>₹{x.price}</b></span>)}</div><div className="admin-card-actions"><button onClick={() => { if (window.confirm(`Are you sure you want to edit ${item.name}?`)) setEditing(item); }}>Edit</button><button onClick={() => setDeleteTarget(item)}>Delete</button></div></div><button type="button" role="switch" aria-checked={item.is_available} aria-label={`${item.name}: ${item.is_available ? 'available' : 'hidden'}`} className={`admin-stock-toggle ${item.is_available ? 'on' : ''}`} disabled={saving === item.id} onClick={() => setStockTarget(item)}><span>{saving === item.id ? 'Saving…' : item.is_available ? 'Available' : 'Hidden'}</span><i aria-hidden="true"><b /></i></button></article>)}</div>
     {editing && <MenuEditor item={editing} brands={brands} close={() => setEditing(null)} saved={load} />}
+    {stockTarget && <ConfirmDialog title={`${stockTarget.is_available ? 'Mark out of stock' : 'Make available'}?`} message={`Are you sure you want to mark ${stockTarget.name} ${stockTarget.is_available ? 'out of stock' : 'in stock'}?`} confirmLabel={stockTarget.is_available ? 'Mark out of stock' : 'Make available'} busyLabel="Saving…" confirmClassName="admin-confirm-stock" icon="↕" kicker="INVENTORY UPDATE" dialogClassName="admin-confirm-dialog-stock" onCancel={() => setStockTarget(null)} onConfirm={() => toggle(stockTarget)} />}
     {deleteTarget && <ConfirmDialog title={`Delete ${deleteTarget.name}?`} message="This will permanently delete this menu item, including its sizes and extras." onCancel={() => setDeleteTarget(null)} onConfirm={remove} />}
   </section>;
 }
