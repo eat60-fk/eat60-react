@@ -68,6 +68,14 @@ const ORDER_FILTER_STAGES = {
   delivery: ['out_for_delivery', 'payment_received'],
   completed: ['delivered', 'rejected', 'cancelled']
 };
+function readDeliveryCheckpoints() {
+  try { return JSON.parse(localStorage.getItem('eat60-admin-delivery-checks') || '{}') || {}; }
+  catch { return {}; }
+}
+function paymentTypeForOrder(order) {
+  const paymentType = String(order?.payment_type || 'cash').toLowerCase();
+  return ['cash', 'upi', 'card', 'online', 'other'].includes(paymentType) ? paymentType : 'cash';
+}
 function showAdminOrderNotification(title, body, orderId, onClick) {
   const options = {
     body,
@@ -101,17 +109,34 @@ function showAdminOrderNotification(title, body, orderId, onClick) {
   }
 }
 const TAB_ICONS = {
-  overview: '⌂',
-  orders: '▤',
-  history: '◷',
-  growth: '↗',
-  menu: '☷',
-  outlets: '⌖',
-  promos: '%',
-  rewards: '✦',
-  feed: '▧',
-  explore: '⋯'
+  overview: 'home',
+  orders: 'receipt',
+  history: 'clock',
+  growth: 'chart',
+  menu: 'menu',
+  outlets: 'pin',
+  promos: 'ticket',
+  rewards: 'star',
+  feed: 'message',
+  explore: 'more'
 };
+function AdminNavIcon({ name }) {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {name === 'receipt' && <><path d="M6 3h12v18l-2.5-1.5L12 21l-3.5-1.5L6 21z"/><path d="M9 8h6M9 12h6M9 16h4"/></>}
+    {name === 'clock' && <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>}
+    {name === 'home' && <><path d="m3 10 9-7 9 7"/><path d="M5 9v12h14V9M9 21v-7h6v7"/></>}
+    {name === 'chart' && <><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 2 5-6"/><path d="M16 7h3v3"/></>}
+    {name === 'menu' && <><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="8" cy="5" r="1" fill="currentColor"/><circle cx="14" cy="12" r="1" fill="currentColor"/></>}
+    {name === 'pin' && <><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>}
+    {name === 'ticket' && <><path d="M4 7h16v4a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4z"/><path d="M12 8v2M12 14v2"/></>}
+    {name === 'star' && <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"/>}
+    {name === 'message' && <><path d="M4 5h16v12H9l-5 4z"/><path d="M8 9h8M8 13h5"/></>}
+    {name === 'bell' && <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>}
+    {name === 'more' && <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>}
+    {name === 'phone' && <path d="M7 3H4a1 1 0 0 0-1 1c0 9.4 7.6 17 17 17a1 1 0 0 0 1-1v-3l-5-2-2 3a14 14 0 0 1-7-7l3-2z"/>}
+    {name === 'search' && <><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></>}
+  </svg>;
+}
 function ConfirmDialog({
   title,
   message,
@@ -595,16 +620,14 @@ export default function Admin() {
   const [storeOnline, setStoreOnline] = useState(true);
   const [appVersion, setAppVersion] = useState('1.0.0');
   const [storeMessage, setStoreMessage] = useState('');
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('eat60-admin-order-sound') === 'on');
   const soundRef = useRef(null);
-  const soundEnabledRef = useRef(false);
   const alertEnabledRef = useRef('Notification' in window && Notification.permission === 'granted');
   const seenOrderIds = useRef(new Set());
   const initialOrderIds = useRef(new Set());
   const earlyIncomingOrders = useRef([]);
   const ordersInitialized = useRef(false);
   const alertTimer = useRef(null);
-  soundEnabledRef.current = soundEnabled;
   const visitTab = useCallback(nextTab => {
     setTab(nextTab);
     if (nextTab === 'settings') setSettingsSection('delivery');
@@ -726,6 +749,15 @@ export default function Admin() {
         newOrders.forEach(order => unacceptedOrderIds.current.add(String(order.id)));
         setUnacceptedOrderCount(unacceptedOrderIds.current.size);
         setIncomingOrders(current => [...newOrders.reverse(), ...current]);
+        newOrders.forEach(order => {
+          const title = `New order #${order.id}`;
+          const body = `₹${Number(order.total || 0).toLocaleString('en-IN')} · ${order.status || 'placed'}`;
+          setAlert(`${title} received · ${body}`);
+          if (alertEnabledRef.current && 'Notification' in window && Notification.permission === 'granted') {
+            showAdminOrderNotification(title, body, String(order.id), () => { window.focus(); visitTab('orders'); });
+          }
+        });
+        alertTimer.current = window.setTimeout(() => setAlert(''), 6500);
       }
     };
     initializeOrders();
@@ -789,18 +821,29 @@ export default function Admin() {
     }
   }, []);
   useEffect(() => {
-    const audio = soundRef.current;
-    if (!audio) return undefined;
+    localStorage.setItem('eat60-admin-order-sound', soundEnabled ? 'on' : 'off');
+  }, [soundEnabled]);
+  useEffect(() => {
+    if (!unacceptedOrderCount || !soundEnabled) {
+      const audio = soundRef.current;
+      if (audio) { audio.pause(); audio.currentTime = 0; }
+      return undefined;
+    }
+    const audio = soundRef.current || new Audio('/sounds/order-alert.mp3');
+    audio.preload = 'auto';
+    audio.volume = 1;
+    soundRef.current = audio;
     if (unacceptedOrderCount && soundEnabled) {
       audio.loop = true;
-      audio.play().catch(() => setAlert('Tap Turn sound on to allow order alerts to play.'));
+      audio.play().catch(() => {
+        setSoundEnabled(false);
+        setAlert('Tap Enable sound to allow new order alerts to play.');
+      });
       const vibration = window.setInterval(() => {
         if ('vibrate' in navigator) navigator.vibrate([240, 120, 240]);
       }, 2800);
       return () => window.clearInterval(vibration);
     }
-    audio.pause();
-    audio.currentTime = 0;
     return undefined;
   }, [unacceptedOrderCount, soundEnabled]);
   const enableAlerts = async () => {
@@ -818,12 +861,14 @@ export default function Admin() {
     if (!soundEnabled) {
       try {
         const audio = soundRef.current || new Audio('/sounds/order-alert.mp3');
+        audio.preload = 'auto';
         audio.loop = false;
         audio.volume = 1;
         audio.currentTime = 0;
         await audio.play();
         audio.pause();
         audio.currentTime = 0;
+        soundRef.current = audio;
         soundRef.current = audio;
         setSoundEnabled(true);
         setAlert('New order alarm is on.');
@@ -845,11 +890,11 @@ export default function Admin() {
       <nav className="admin-tabs" aria-label="Admin sections">
         {NAV_GROUPS.map(group => <div className="admin-nav-group" key={group.title}>
           <span className="admin-nav-group-title">{group.title}</span>
-          {group.items.map(([key, label]) => <button key={key} data-admin-tab={key} aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''} onClick={() => visitTab(key)}><span aria-hidden="true">{TAB_ICONS[key]}</span>{label}{key === 'orders' && orders.filter(order => (order.order_stage || 'pending') === 'pending').length > 0 && <b>{orders.filter(order => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
+          {group.items.map(([key, label]) => <button key={key} data-admin-tab={key} aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''} onClick={() => visitTab(key)}><span><AdminNavIcon name={TAB_ICONS[key]} /></span>{label}{key === 'orders' && orders.filter(order => (order.order_stage || 'pending') === 'pending').length > 0 && <b>{orders.filter(order => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
         </div>)}
       </nav>
       <nav className="admin-mobile-tabs" aria-label="Admin mobile sections">
-        {MOBILE_TABS.map(([key, label]) => <button key={key} className={(key === 'explore' ? !['orders', 'history', 'overview', 'growth', 'menu'].includes(tab) : tab === key) ? 'active' : ''} onClick={() => visitTab(key)}><span aria-hidden="true">{TAB_ICONS[key]}</span>{label}{key === 'orders' && orders.some(order => (order.order_stage || 'pending') === 'pending') && <b>{orders.filter(order => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
+        {MOBILE_TABS.map(([key, label]) => <button key={key} className={(key === 'explore' ? !['orders', 'history', 'overview', 'growth', 'menu'].includes(tab) : tab === key) ? 'active' : ''} onClick={() => visitTab(key)}><span><AdminNavIcon name={TAB_ICONS[key]} /></span>{label}{key === 'orders' && orders.some(order => (order.order_stage || 'pending') === 'pending') && <b>{orders.filter(order => (order.order_stage || 'pending') === 'pending').length}</b>}</button>)}
       </nav>
 
       {connection !== 'connected' && <div className="admin-connection-banner" role="status"><span aria-hidden="true">●</span>{connection === 'connecting' ? 'Connecting to live orders…' : 'Connection lost · New orders may be delayed. Reconnecting…'}</div>}
@@ -860,8 +905,8 @@ export default function Admin() {
         <section className="admin-incoming-dialog admin-incoming-order-sheet" role="dialog" aria-modal="true" aria-labelledby="admin-incoming-title">
           <div className="admin-sheet-handle" aria-hidden="true" />
           <header><div><p className="admin-incoming-kicker">NEW ORDER</p><h2 id="admin-incoming-title">#{incomingOrders[0].id}</h2></div><button type="button" aria-label="Close order details" onClick={() => setIncomingOrderOpen(false)}>×</button></header>
-          <div className="admin-incoming-customer-row"><b>{incomingOrders[0].customer_name || incomingOrders[0].profiles?.name || 'New customer'}</b><span>•</span><span>{incomingOrders[0].address || 'Delivery address unavailable'}</span>{incomingOrders[0].delivery_latitude != null && incomingOrders[0].delivery_longitude != null && <a href={`https://www.google.com/maps?q=${encodeURIComponent(`${incomingOrders[0].delivery_latitude},${incomingOrders[0].delivery_longitude}`)}`} target="_blank" rel="noreferrer" aria-label="Open customer location in Maps">⌖</a>}</div>
-          {(incomingOrders[0].phone || incomingOrders[0].profiles?.phone) && <a className="admin-incoming-call" href={`tel:${String(incomingOrders[0].phone || incomingOrders[0].profiles?.phone).replace(/[^+\d]/g, '')}`}>CALL <span>☎</span></a>}
+          <div className="admin-incoming-customer-row"><b>{incomingOrders[0].customer_name || incomingOrders[0].profiles?.name || 'New customer'}</b><span>•</span><span>{incomingOrders[0].address || 'Delivery address unavailable'}</span>{incomingOrders[0].delivery_latitude != null && incomingOrders[0].delivery_longitude != null && <a href={`https://www.google.com/maps?q=${encodeURIComponent(`${incomingOrders[0].delivery_latitude},${incomingOrders[0].delivery_longitude}`)}`} target="_blank" rel="noreferrer" aria-label="Open customer location in Maps"><AdminNavIcon name="pin" /></a>}</div>
+          {(incomingOrders[0].phone || incomingOrders[0].profiles?.phone) && <a className="admin-incoming-call" href={`tel:${String(incomingOrders[0].phone || incomingOrders[0].profiles?.phone).replace(/[^+\d]/g, '')}`}>CALL <AdminNavIcon name="phone" /></a>}
           <div className="admin-incoming-items">{(incomingOrders[0].order_items || []).map(item => <div key={item.id}><span>{item.qty} x {item.item_name}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
           <div className="admin-incoming-total-row"><span>{incomingOrders[0].payment_type ? `PAYMENT · ${incomingOrders[0].payment_type.toUpperCase()}` : 'PAYMENT MODE · COD'}</span><b>₹{Number(incomingOrders[0].total || 0).toLocaleString('en-IN')}</b></div>
           {!soundEnabled && <button className="admin-incoming-sound" onClick={toggleSound}>Enable repeating alarm</button>}
@@ -873,7 +918,7 @@ export default function Admin() {
       {visitedTabs.has('growth') && <div hidden={tab !== 'growth'}><Growth orders={orders} /></div>}
       {visitedTabs.has('explore') && <div hidden={tab !== 'explore'}><Explore onNavigate={visitTab} /></div>}
       {visitedTabs.has('settings') && <div hidden={tab !== 'settings'}><SettingsWorkspace section={settingsSection} onSelect={visitSettingsSection} appVersion={appVersion} setAppVersion={setAppVersion} connection={connection} soundEnabled={soundEnabled} toggleSound={toggleSound} alertEnabled={alertEnabled} permission={permission} enableAlerts={enableAlerts} /></div>}
-      {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} connection={connection} online={storeOnline} onToggleStore={toggleStore} /></div>}
+      {visitedTabs.has('orders') && <div hidden={tab !== 'orders'}><Orders rows={orders} refresh={loadOrders} connection={connection} online={storeOnline} onToggleStore={toggleStore} soundEnabled={soundEnabled} onToggleSound={toggleSound} alertEnabled={alertEnabled} onEnableAlerts={enableAlerts} /></div>}
       {visitedTabs.has('history') && <div hidden={tab !== 'history'}><OrderHistory rows={orders} /></div>}
       {visitedTabs.has('menu') && <div hidden={tab !== 'menu'}><Menu /></div>}
       {visitedTabs.has('outlets') && <div hidden={tab !== 'outlets'}><Outlets /></div>}
@@ -1308,6 +1353,23 @@ function OrderReadyCountdown({ order, actionLabel, onClick, disabled }) {
     <span>{actionLabel} ({text})</span><b>{text}</b><i aria-hidden="true">→</i>
   </button>;
 }
+function DeliveryCompletionControls({ order, checkpoint, onCheckpoint, onComplete, busy }) {
+  const arrived = checkpoint?.arrived === true;
+  const paymentReceived = Boolean(order.payment_received_at);
+  return <div className="admin-delivery-completion">
+    <div className="admin-delivery-check"><span>Arrived To Location</span><button type="button" role="switch" aria-checked={arrived} className={arrived ? 'on' : ''} disabled={busy} onClick={() => onCheckpoint('arrived', !arrived)}><i /></button></div>
+    <div className="admin-delivery-check"><span>Payment Received</span><button type="button" role="switch" aria-checked={paymentReceived} className={paymentReceived ? 'on' : ''} disabled={Boolean(order.payment_received_at) || busy} onClick={() => onCheckpoint('paymentReceived', !paymentReceived)}><i /></button></div>
+    <small>When both are confirmed, you can mark the order delivered.</small>
+    <button type="button" className="admin-delivered-button" disabled={!arrived || !paymentReceived || busy} onClick={onComplete}>{busy ? 'Updating order…' : 'Mark Order Delivered'}</button>
+  </div>;
+}
+function CompletedOrderSummary({ order }) {
+  const stage = order.order_stage || order.status;
+  return <details className="admin-history-summary-card">
+    <summary><span className="admin-history-summary-title">ORDER # {order.id} IS <b className={`stage-${stage}`}>{(LABEL[stage] || stage).toUpperCase()}</b></span><time>{new Date(order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}　{new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</time><span className="admin-history-summary-hint">CLICK HERE TO SEE DETAILS</span><i aria-hidden="true" /></summary>
+    <div className="admin-completed-order-details"><div className="admin-history-customer"><b>{order.customer_name || order.profiles?.name || 'Customer'}</b><span>{order.phone || order.profiles?.phone || 'No phone provided'}</span></div>{(order.order_items || []).map(item => <p key={item.id}><span>{item.qty} × {item.item_name}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></p>)}<footer><span>{order.rejection_reason ? `Reason: ${order.rejection_reason}` : order.payment_type ? `${String(order.payment_type).toUpperCase()}${order.payment_received_at ? ' · PAID' : ''}` : 'Payment details unavailable'}</span><strong>₹{Number(order.total || 0).toLocaleString('en-IN')}</strong></footer></div>
+  </details>;
+}
 function PendingDecisionClock({
   createdAt
 }) {
@@ -1344,7 +1406,11 @@ function Orders({
   refresh,
   connection,
   online,
-  onToggleStore
+  onToggleStore,
+  soundEnabled,
+  onToggleSound,
+  alertEnabled,
+  onEnableAlerts
 }) {
   const [filter, setFilter] = useState('active');
   const [outlet, setOutlet] = useState('all');
@@ -1361,8 +1427,7 @@ function Orders({
   const [reasonStage, setReasonStage] = useState('rejected');
   const [acceptId, setAcceptId] = useState(null);
   const [prepMinutes, setPrepMinutes] = useState(15);
-  const [paymentId, setPaymentId] = useState(null);
-  const [payment, setPayment] = useState('cash');
+  const [deliveryChecks, setDeliveryChecks] = useState(readDeliveryCheckpoints);
   const [currentTime, setCurrentTime] = useState(Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 30000);
@@ -1408,33 +1473,48 @@ function Orders({
     setBusyId(null);
     return !updateError;
   };
+  const updateDeliveryCheckpoint = async (id, key, value) => {
+    if (key === 'paymentReceived' && value) {
+      const order = rows.find(item => String(item.id) === String(id));
+      if (order) await move(id, 'payment_received', null, paymentTypeForOrder(order));
+      return;
+    }
+    const next = { ...deliveryChecks, [id]: { ...(deliveryChecks[id] || {}), [key]: value } };
+    setDeliveryChecks(next);
+    try { localStorage.setItem('eat60-admin-delivery-checks', JSON.stringify(next)); } catch { /* In-memory progress still works for this session. */ }
+  };
+  const finishDelivery = async order => {
+    if (busyId === order.id) return;
+    if (stageOf(order) === 'out_for_delivery' && !await move(order.id, 'payment_received', null, paymentTypeForOrder(order))) return;
+    if (!await move(order.id, 'delivered')) return;
+    const next = { ...deliveryChecks };
+    delete next[order.id];
+    setDeliveryChecks(next);
+    try { localStorage.setItem('eat60-admin-delivery-checks', JSON.stringify(next)); } catch { /* The order has already been delivered. */ }
+  };
   return <section className="admin-content">
-    <div className="admin-page-heading admin-orders-heading"><div><p>FULFILMENT</p><h2>ORDERS</h2><span>Live order updates · {connection === 'connected' ? 'connected' : 'reconnecting'}</span></div><label className="admin-service-toggle"><span>SERVICE IS</span><button type="button" role="switch" aria-checked={online} onClick={() => onToggleStore(!online)}><i>{online ? 'ON' : 'OFF'}</i></button></label></div>
+    <div className="admin-page-heading admin-orders-heading"><div><p>FULFILMENT</p><h2>ORDERS</h2><span>Live order updates · {connection === 'connected' ? 'connected' : 'reconnecting'}</span></div><div className="admin-orders-controls"><div className="admin-order-alert-controls"><button type="button" className={`admin-order-sound-toggle${alertEnabled ? ' is-on' : ''}`} aria-pressed={alertEnabled} onClick={onEnableAlerts}><AdminNavIcon name="bell" />{alertEnabled ? 'Alerts on' : 'Enable alerts'}</button><button type="button" className={`admin-order-sound-toggle${soundEnabled ? ' is-on' : ''}`} aria-pressed={soundEnabled} onClick={onToggleSound}><AdminNavIcon name="bell" />{soundEnabled ? 'Sound on' : 'Enable sound'}</button></div><label className="admin-service-toggle"><span>SERVICE IS</span><button type="button" role="switch" aria-checked={online} onClick={() => onToggleStore(!online)}><i>{online ? 'ON' : 'OFF'}</i></button></label></div></div>
     <div className="admin-order-tools"><div className="admin-filter-tabs" aria-label="Filter orders">{ORDER_FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}<b>{countFor(key)}</b></button>)}</div></div>
-    <details className="admin-order-extra-filters"><summary>Search & filters · {filtered.length} orders</summary><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order, name, or phone" /></label><div className="admin-order-filter-row"><label className="admin-choice-label">Date range<select className="admin-choice-select" value={period} onChange={event => setPeriod(event.target.value)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">7 days</option><option value="custom">Custom</option></select></label><label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{period === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}<b className="admin-order-totals">{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b><button className="admin-secondary" onClick={clearFilters}>Clear filters</button></div></details>
+    <details className="admin-order-extra-filters"><summary>Search & filters · {filtered.length} orders</summary><label className="admin-search"><span><AdminNavIcon name="search" /></span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order, name, or phone" /></label><div className="admin-order-filter-row"><label className="admin-choice-label">Date range<select className="admin-choice-select" value={period} onChange={event => setPeriod(event.target.value)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">7 days</option><option value="custom">Custom</option></select></label><label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{period === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}<b className="admin-order-totals">{filtered.length} orders · ₹{filtered.filter(o => !['rejected', 'cancelled'].includes(stageOf(o))).reduce((a, o) => a + Number(o.total || 0), 0).toLocaleString('en-IN')} sales</b><button className="admin-secondary" onClick={clearFilters}>Clear filters</button></div></details>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
-    {filtered.length ? <div className="admin-order-list">{filtered.map(order => <article className="admin-order-card admin-order-card-redesign" key={order.id}>
-      <header className="admin-order-redesign-head"><div className="admin-order-id-time"><span>ORDER # {order.id}</span><time>{new Date(order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}　{new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</time></div><div className="admin-order-customer-line"><b>{[...new Set((order.order_items || []).map(item => item.brand_id).filter(Boolean))].map(brandId => outlets.find(item => item.id === brandId)?.name || brandId).join(', ') || 'EAT60 KITCHEN'}</b><span><strong>{order.customer_name || order.profiles?.name || 'Customer'}</strong>{(order.phone || order.profiles?.phone) && <><small>CALL</small><a href={`tel:${String(order.phone || order.profiles?.phone).replace(/[^+\d]/g, '')}`} aria-label="Call customer">☎</a></>}</span></div></header>
+    {filtered.length ? filter === 'completed' ? <div className="admin-completed-list">{filtered.map(order => <CompletedOrderSummary key={order.id} order={order} />)}</div> : <div className="admin-order-list">{filtered.map(order => <article className="admin-order-card admin-order-card-redesign" key={order.id}>
+      <header className="admin-order-redesign-head"><div className="admin-order-id-time"><span>ORDER # {order.id}</span><time>{new Date(order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}　{new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</time></div><div className="admin-order-customer-line"><b>{[...new Set((order.order_items || []).map(item => item.brand_id).filter(Boolean))].map(brandId => outlets.find(item => item.id === brandId)?.name || brandId).join(', ') || 'EAT60 KITCHEN'}</b><span><strong>{order.customer_name || order.profiles?.name || 'Customer'}</strong>{(order.phone || order.profiles?.phone) && <><small>CALL</small><a href={`tel:${String(order.phone || order.profiles?.phone).replace(/[^+\d]/g, '')}`} aria-label="Call customer"><AdminNavIcon name="phone" /></a></>}</span></div></header>
       <div className="admin-order-items">{(order.order_items || []).map(item => <div key={item.id}><span>{item.qty} x {item.item_name}{item.extra_details?.length > 0 && <small className="admin-order-extras"> · {item.extra_details.map(extra => extra.name).join(', ')}</small>}</span><b>₹{Number(item.unit_price * item.qty).toLocaleString('en-IN')}</b></div>)}</div>
       <div className="admin-order-redesign-payment"><div><span>PAYMENT MODE</span><b>{order.payment_type ? order.payment_type.toUpperCase() : 'COD'}</b></div><strong>₹{Number(order.total || 0).toLocaleString('en-IN')}</strong></div>
-      <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_latitude != null && order.delivery_longitude != null && <a href={`https://www.google.com/maps?q=${encodeURIComponent(`${order.delivery_latitude},${order.delivery_longitude}`)}`} target="_blank" rel="noreferrer" aria-label="Open customer location in Maps">⌖</a>}{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
+      <div className="admin-order-address"><span>DELIVER TO</span><p>{order.address || 'No delivery address provided'}</p>{order.delivery_latitude != null && order.delivery_longitude != null && <a href={`https://www.google.com/maps?q=${encodeURIComponent(`${order.delivery_latitude},${order.delivery_longitude}`)}`} target="_blank" rel="noreferrer" aria-label="Open customer location in Maps"><AdminNavIcon name="pin" /></a>}{order.delivery_distance_km != null && <small>{Number(order.delivery_distance_km).toFixed(1)} km · Delivery ₹{order.delivery_fee}{order.delivery_fee_before_discount > order.delivery_fee ? ` (₹${order.delivery_fee_before_discount} waived)` : ''}</small>}</div>
       {order.order_stage_events?.length > 0 && <OrderJourney order={order} />}
       {stageOf(order) === 'pending' && <PendingDecisionClock createdAt={order.created_at} />}
       {['accepted', 'preparing'].includes(stageOf(order)) && order.prep_time_minutes && <p className="admin-prep-estimate">Kitchen preparation estimate <b>{order.prep_time_minutes} min</b></p>}
       {order.rejection_reason && <p className="admin-rejection-reason">Reason: {order.rejection_reason}</p>}
-      {stageOf(order) === 'payment_received' && <p className="admin-pending-clock">Payment received · {order.payment_type || 'type not recorded'}</p>}
+      {['out_for_delivery', 'payment_received'].includes(stageOf(order)) && <DeliveryCompletionControls order={order} checkpoint={deliveryChecks[order.id]} onCheckpoint={(key, value) => updateDeliveryCheckpoint(order.id, key, value)} onComplete={() => finishDelivery(order)} busy={busyId === order.id} />}
       {reasonId === order.id && <div className="admin-decision-form"><select aria-label="Reason for order decision" value={reason} onChange={e => setReason(e.target.value)}><option value="">Choose a reason</option><option value="Item unavailable">Item unavailable</option><option value="Kitchen closed">Kitchen closed</option><option value="Delivery unavailable">Delivery unavailable</option><option value="Other">Other</option></select>{reason === 'Other' && <input value={reasonDetails} onChange={e => setReasonDetails(e.target.value)} placeholder="Add a short reason" />}{reason && reason !== 'Other' && <small>This reason will be shown to the customer.</small>}<button className="admin-cancel-order" disabled={!reason || reason === 'Other' && !reasonDetails.trim() || busyId === order.id} onClick={async () => {
             const detail = reason === 'Other' ? reasonDetails.trim() : reason;
             if (await move(order.id, reasonStage, detail)) { setReasonId(null); setReason(''); setReasonDetails(''); }
           }}>{reasonStage === 'rejected' ? 'Confirm reject' : 'Confirm cancellation'}</button><button className="admin-secondary" onClick={() => setReasonId(null)}>Cancel</button></div>}
-      {paymentId === order.id && <div className="admin-decision-form"><label className="admin-choice-label">Payment method<select className="admin-choice-select" value={payment} onChange={e => setPayment(e.target.value)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="online">Online</option><option value="other">Other</option></select></label><button className="admin-primary" onClick={async () => {
-            await move(order.id, 'payment_received', null, payment);
-            setPaymentId(null);
-          }}>Confirm payment</button></div>}
       {acceptId === order.id && <div className="admin-decision-form admin-prep-form"><label>Preparation time<select value={prepMinutes} onChange={event => setPrepMinutes(Number(event.target.value))}><option value={15}>15 minutes</option><option value={20}>20 minutes</option><option value={30}>30 minutes</option></select></label><button className="admin-primary" disabled={busyId === order.id} onClick={async () => {
             if (await move(order.id, 'accepted', null, null, Number(prepMinutes))) setAcceptId(null);
           }}>{busyId === order.id ? 'Accepting…' : 'Confirm & accept'} <span>→</span></button><button className="admin-secondary" onClick={() => setAcceptId(null)}>Cancel</button></div>}
-      <div className="admin-order-actions">{stageOf(order) === 'pending' && <><button className="admin-primary" disabled={busyId === order.id} onClick={() => {
+      {['pending', 'ready', 'accepted', 'preparing'].includes(stageOf(order)) && <div className="admin-order-actions">{stageOf(order) === 'pending' && <><button className="admin-primary" disabled={busyId === order.id} onClick={() => {
               setPrepMinutes(15);
               setAcceptId(order.id);
             }}>Accept order <span>→</span></button><button className="admin-cancel-order" disabled={busyId === order.id} onClick={() => {
@@ -1443,23 +1523,9 @@ function Orders({
               setReason('');
               setReasonDetails('');
             }}>Reject</button></>}{['accepted', 'preparing', 'ready'].includes(stageOf(order)) && <button className="admin-cancel-order" disabled={busyId === order.id} onClick={() => { setReasonStage('cancelled'); setReasonId(order.id); setReason(''); setReasonDetails(''); }}>Cancel order</button>}{{
-            accepted: 'preparing',
-            preparing: 'ready',
-            ready: 'out_for_delivery',
-            out_for_delivery: 'payment_received',
-            payment_received: 'delivered'
-          }[stageOf(order)] && !['accepted', 'preparing'].includes(stageOf(order)) && <button className="admin-primary" disabled={busyId === order.id} onClick={() => stageOf(order) === 'out_for_delivery' ? setPaymentId(order.id) : move(order.id, {
-            accepted: 'preparing',
-            preparing: 'ready',
-            ready: 'out_for_delivery',
-            payment_received: 'delivered'
-          }[stageOf(order)])}>{stageOf(order) === 'out_for_delivery' ? 'Record payment' : `Mark ${LABEL[{
-              accepted: 'preparing',
-              preparing: 'ready',
-              ready: 'out_for_delivery',
-              payment_received: 'delivered'
-            }[stageOf(order)]]}`} <span>→</span></button>}{['accepted', 'preparing'].includes(stageOf(order)) && <OrderReadyCountdown order={order} actionLabel={stageOf(order) === 'preparing' ? 'Order ready' : 'Start preparing'} disabled={busyId === order.id} onClick={() => move(order.id, stageOf(order) === 'preparing' ? 'ready' : 'preparing')} />}</div>
-    </article>)}</div> : <div className="admin-empty"><span>⌕</span><b>{filter === 'active' && period === 'today' && !query && outlet === 'all' ? 'No active orders today' : 'No matching orders'}</b><small>{filter === 'active' && !query ? 'New orders and orders being prepared will appear here.' : 'Try a different outlet, date range, or search.'}</small><button className="admin-secondary" onClick={clearFilters}>Clear filters</button></div>}
+          ready: 'out_for_delivery'
+          }[stageOf(order)] && <button className="admin-primary" disabled={busyId === order.id} onClick={() => move(order.id, 'out_for_delivery')}>Mark for delivery <span>→</span></button>}{['accepted', 'preparing'].includes(stageOf(order)) && <OrderReadyCountdown order={order} actionLabel={stageOf(order) === 'preparing' ? 'Order ready' : 'Start preparing'} disabled={busyId === order.id} onClick={() => move(order.id, stageOf(order) === 'preparing' ? 'ready' : 'preparing')} />}</div>}
+    </article>)}</div> : <div className="admin-empty"><span><AdminNavIcon name="search" /></span><b>{filter === 'active' && period === 'today' && !query && outlet === 'all' ? 'No active orders today' : 'No matching orders'}</b><small>{filter === 'active' && !query ? 'New orders and orders being prepared will appear here.' : 'Try a different outlet, date range, or search.'}</small><button className="admin-secondary" onClick={clearFilters}>Clear filters</button></div>}
   </section>;
 }
 function OrderHistory({ rows }) {
@@ -1489,7 +1555,7 @@ function OrderHistory({ rows }) {
   return <section className="admin-content admin-order-history">
     <div className="admin-page-heading"><div><p>FULFILMENT</p><h2>Order history</h2><span>Recently completed and cancelled orders · {history.length} shown</span></div></div>
     <div className="admin-history-tools">
-      <label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order ID, customer, or phone" /></label>
+      <label className="admin-search"><span><AdminNavIcon name="search" /></span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search order ID, customer, or phone" /></label>
       <label className="admin-outlet-filter">Outlet<select value={outlet} onChange={event => setOutlet(event.target.value)}><option value="all">All outlets</option>{outlets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label className="admin-choice-label">Date range<select className="admin-choice-select" aria-label="History date range" value={range} onChange={event => setRange(event.target.value)}><option value="2">Last 2 days</option><option value="7">7 days</option><option value="30">30 days</option><option value="custom">Custom</option></select></label>
       {range === 'custom' && <div className="admin-date-range"><input aria-label="Start date" type="date" value={from} onChange={event => setFrom(event.target.value)} /><span>to</span><input aria-label="End date" type="date" value={to} onChange={event => setTo(event.target.value)} /></div>}
@@ -1590,7 +1656,7 @@ function Menu() {
   return <section className="admin-content">
     <div className="admin-page-heading"><div><p>CATALOG</p><h2>Menu & availability</h2><span>Manage descriptions, food photos, sizes, prices and extras.</span></div><button className="admin-primary" onClick={() => setEditing({})}>Add menu item <span>＋</span></button></div>
     <div className="admin-inventory-summary"><span><b>{outletItems.filter(item => item.is_available).length}</b> in stock</span><span><b>{outletItems.filter(item => !item.is_available).length}</b> out of stock</span><span><b>{outletItems.length}</b> menu items</span></div>
-    <div className="admin-catalog-tools"><label className="admin-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a dish" /></label><label className="admin-outlet-filter">Outlet<select aria-label="Filter by outlet" value={filter} onChange={event => { setFilter(event.target.value); setCategory('all'); }}><option value="all">All outlets</option>{brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label></div>
+    <div className="admin-catalog-tools"><label className="admin-search"><span><AdminNavIcon name="search" /></span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a dish" /></label><label className="admin-outlet-filter">Outlet<select aria-label="Filter by outlet" value={filter} onChange={event => { setFilter(event.target.value); setCategory('all'); }}><option value="all">All outlets</option>{brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label></div>
     <div className="admin-menu-filter-groups"><label className="admin-choice-label">Category<select className="admin-choice-select" aria-label="Filter menu category" value={category} onChange={event => setCategory(event.target.value)}><option value="all">All categories ({outletItems.length})</option>{categories.map(name => <option key={name} value={name}>{name} ({outletItems.filter(item => item.category === name).length})</option>)}</select></label><label className="admin-choice-label">Stock status<select className="admin-choice-select" aria-label="Filter stock status" value={stockFilter} onChange={event => setStockFilter(event.target.value)}><option value="all">All</option><option value="in">In stock ({outletItems.filter(item => item.is_available).length})</option><option value="out">Out of stock ({outletItems.filter(item => !item.is_available).length})</option></select></label></div>
     {error && <p className="admin-inline-error" role="alert">{error}</p>}
     <div className="admin-menu-grid">{visible.map(item => <article className="admin-menu-card" key={item.id}>{item.image_url ? <img className="admin-menu-art admin-menu-photo" src={item.image_url} alt="" /> : <div className="admin-menu-art">{brands.find(brand => brand.id === item.brand_id)?.emoji || '🍽️'}</div>}<div className="admin-menu-info"><span>{item.category} · {brands.find(brand => brand.id === item.brand_id)?.name || item.brand_id}</span><h3>{item.name}</h3><p>{item.description || 'No description added.'}</p><div className="admin-variant-prices">{item.item_variants?.map(variant => <span key={variant.id}>{variant.label} <b>₹{variant.price}</b></span>)}{(item.item_extras || []).map(x => <span key={x.id}>+ {x.name} <b>₹{x.price}</b></span>)}</div><div className="admin-card-actions"><button onClick={() => { if (window.confirm(`Are you sure you want to edit ${item.name}?`)) setEditing(item); }}>Edit</button><button onClick={() => setDeleteTarget(item)}>Delete</button></div></div><button type="button" role="switch" aria-checked={item.is_available} aria-label={`${item.name}: ${item.is_available ? 'available' : 'hidden'}`} className={`admin-stock-toggle ${item.is_available ? 'on' : ''}`} disabled={saving === item.id} onClick={() => setStockTarget(item)}><span>{saving === item.id ? 'Saving…' : item.is_available ? 'Available' : 'Hidden'}</span><i aria-hidden="true"><b /></i></button></article>)}</div>

@@ -160,7 +160,7 @@
   background-position: right 11px center;
 }
 .admin-app .admin-choice-select:focus-visible,
-.admin-app .admin-decision-form select:focus-visible { outline: 2px solid #b5e94f; outline-offset: 2px; }
+.admin-app .admin-decision-form select:focus-visible { outline: 2px solid var(--admin-accent, #b8f04a); outline-offset: 2px; }
 .admin-app .admin-order-tools > .admin-choice-label { min-width: 0; }
 
 .admin-app .admin-filter-tabs {
@@ -725,6 +725,35 @@
   }
 }
 
+.admin-app .admin-search > span svg { display: block; width: 18px; height: 18px; }
+.admin-app .admin-tabs button > span svg { display: block; width: 17px; height: 17px; }
+
+/* Keep admin controls in step with the customer app's lime theme and button feel. */
+.admin-app { --admin-accent: var(--ac, #b8f04a); --admin-accent-soft: #c5ff71; }
+.admin-app .admin-orders-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.admin-app .admin-order-alert-controls { display: flex; align-items: center; gap: 12px; }
+.admin-app .admin-order-sound-toggle { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 4px 0; border: 0; color: #b8b8b8; background: transparent; font-size: 12px; }
+.admin-app .admin-order-sound-toggle svg { width: 15px; height: 15px; color: var(--admin-accent); }
+.admin-app .admin-order-sound-toggle.is-on { color: var(--admin-accent); }
+.admin-app button { transition: transform .18s ease, filter .18s ease, background-color .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease; }
+.admin-app button:hover:not(:disabled) { filter: brightness(1.08); }
+.admin-app button:active:not(:disabled) { transform: scale(.97); }
+.admin-app .admin-tabs button.active > span,
+.admin-app .admin-mobile-tabs button.active > span,
+.admin-app .admin-empty > span { color: #151710; background-color: var(--admin-accent); }
+.admin-app .admin-tabs button.active,
+.admin-app .admin-mobile-tabs button.active,
+.admin-app .admin-order-tools .admin-filter-tabs button.active,
+.admin-app .admin-history-summary-title b.stage-delivered { color: var(--admin-accent); }
+.admin-app .admin-service-toggle button { background-color: var(--admin-accent); box-shadow: 0 4px 0 color-mix(in srgb, var(--admin-accent) 60%, #111); }
+.admin-app .admin-service-toggle i { background: var(--admin-accent-soft); transition: transform .2s ease, background-color .2s ease; }
+.admin-app .admin-primary,
+.admin-app .admin-order-actions .admin-primary { background-color: var(--admin-accent); box-shadow: 0 5px 0 color-mix(in srgb, var(--admin-accent) 58%, #111); }
+@media (prefers-reduced-motion: reduce) {
+  .admin-app button,.admin-app .admin-service-toggle i { transition: none !important; }
+  .admin-app button:active:not(:disabled) { transform: none; }
+}
+
 @media (max-width: 390px) {
   .admin-app .admin-header-actions {
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -802,7 +831,7 @@
 
 .admin-editor-page-heading > div > p {
   margin: 0 0 6px;
-  color: #b7e95d;
+  color: var(--admin-accent, #b8f04a);
   font-size: 11px;
   font-weight: 900;
   letter-spacing: .14em;
@@ -996,13 +1025,40 @@
 
 /* Incoming order dock and sheet also stay usable on wider admin screens. */
 .admin-app .admin-new-order-dock { position: fixed; right: 24px; bottom: 24px; z-index: 42; display: flex; align-items: center; gap: 18px; padding: 14px 18px; border: 1px solid #4e5048; border-radius: 18px; color: #d8d8d3; background: #292a27; box-shadow: 0 12px 36px #0008; }
-.admin-app .admin-new-order-dock button { min-height: 42px; padding: 0 18px; border: 0; border-radius: 12px; color: #b2ff58; background: #444; font-weight: 900; }
+.admin-app .admin-new-order-dock button { min-height: 42px; padding: 0 18px; border: 0; border-radius: 12px; color: var(--admin-accent, #b8f04a); background: #444; font-weight: 900; }
 .admin-app .admin-incoming-order-sheet { align-items: stretch; text-align: left; }
 .admin-app .admin-swipe-accept { position: relative; display: grid; min-height: 66px; place-items: center; overflow: hidden; border-radius: 18px; color: #222; background: #f4edf7; font-size: 13px; font-weight: 900; }
 .admin-app .admin-swipe-accept::before { position: absolute; inset: 0 auto 0 0; width: var(--swipe-progress, 0%); background: #c8d1d8; content: ''; }
 .admin-app .admin-swipe-accept > i { position: absolute; top: 50%; left: min(calc(100% - 60px), var(--swipe-progress, 0%)); z-index: 1; display: grid; width: 52px; height: 52px; place-items: center; transform: translateY(-50%); border-radius: 16px; color: #242424; background: #c8d1d8; font: normal 800 28px Arial, sans-serif; pointer-events: none; }
 .admin-app .admin-swipe-accept input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: .001; cursor: ew-resize; }
 .admin-app .admin-swipe-accept span { z-index: 1; padding-left: 58px; pointer-events: none; }
+.admin-app .admin-delivery-completion { display: grid; gap: 12px; padding: 13px 20px 25px; }
+.admin-app .admin-delivery-check { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #f0eaf4; font-size: 16px; }
+.admin-app .admin-delivery-check button { position: relative; width: 58px; height: 34px; flex: none; padding: 4px; border: 0; border-radius: 99px; background: #bdbdbd; transition: background .16s ease; }
+.admin-app .admin-delivery-check button i { display: block; width: 26px; height: 26px; border-radius: 50%; background: #737373; transition: transform .16s ease, background .16s ease; }
+.admin-app .admin-delivery-check button.on { background: var(--admin-accent, #b8f04a); }
+.admin-app .admin-delivery-check button.on i { transform: translateX(24px); background: #242424; }
+.admin-app .admin-delivery-check button:disabled { cursor: default; opacity: .9; }
+.admin-app .admin-delivery-payment-select { display: grid; gap: 6px; color: #c9c6cb; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
+.admin-app .admin-delivery-completion > small { color: #e2dce5; font-style: italic; text-align: center; }
+.admin-app .admin-delivered-button { min-height: 58px; border: 0; border-radius: 24px; color: #161616; background: #f3edf7; font-size: 16px; }
+.admin-app .admin-delivered-button:disabled { cursor: not-allowed; opacity: .55; }
+.admin-app .admin-history-summary-card { overflow: hidden; border-radius: 18px; background: #696969; }
+.admin-app .admin-history-summary-card > summary { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 6px 12px; min-height: 102px; padding: 15px 22px; list-style: none; cursor: pointer; }
+.admin-app .admin-history-summary-card > summary::-webkit-details-marker { display: none; }
+.admin-app .admin-history-summary-title { color: #f5eef7; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 19px; }
+.admin-app .admin-history-summary-title b.stage-delivered { color: var(--admin-accent, #b8f04a); }
+.admin-app .admin-history-summary-title b.stage-rejected,.admin-app .admin-history-summary-title b.stage-cancelled { color: #ff5f9d; }
+.admin-app .admin-history-summary-card > summary time { color: #f5eef7; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 13px; white-space: nowrap; }
+.admin-app .admin-history-summary-hint { justify-self: end; color: #f5eef7; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 11px; }
+.admin-app .admin-history-summary-card > summary > i { grid-column: 2; justify-self: end; width: 14px; height: 14px; margin: -5px 5px 0 0; transform: rotate(45deg); border-right: 4px solid #f5eef7; border-bottom: 4px solid #f5eef7; }
+.admin-app .admin-history-summary-card[open] > summary > i { margin-top: 4px; transform: rotate(225deg); }
+.admin-app .admin-history-summary-card > .admin-history-card { margin: 0; border: 0; border-top: 1px solid #858585; border-radius: 0; background: #525252; }
+.admin-app .admin-completed-list { display: grid; gap: 18px; padding-bottom: 30px; }
+.admin-app .admin-completed-order-details { padding: 12px 20px 16px; border-top: 1px solid #858585; background: #525252; }
+.admin-app .admin-completed-order-details > p,.admin-app .admin-completed-order-details > footer { display: flex; justify-content: space-between; gap: 12px; margin: 9px 0; color: #f1ebf4; font-size: 13px; }
+.admin-app .admin-completed-order-details > footer { padding-top: 10px; border-top: 1px solid #777; }
+.admin-app .admin-completed-order-details > footer strong { font-weight: 600; }
 
 /* Mobile order screen from the current administrator mockups. */
 @media (max-width: 850px) {
@@ -1020,11 +1076,11 @@
   .admin-app .admin-service-toggle { display: flex; align-items: center; gap: 14px; color: #f4edf7; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 15px; }
   .admin-app .admin-service-toggle button { width: 94px; height: 46px; padding: 4px; border: 0; border-radius: 999px; background: #00b96b; text-align: right; }
   .admin-app .admin-service-toggle button[aria-checked="false"] { background: #555; text-align: left; }
-  .admin-app .admin-service-toggle i { display: inline-grid; width: 36px; height: 36px; place-items: center; border-radius: 50%; color: #171717; background: #eaff00; font: 800 14px Arial, sans-serif; font-style: normal; }
+  .admin-app .admin-service-toggle i { display: inline-grid; width: 36px; height: 36px; place-items: center; border-radius: 50%; color: #171717; background: var(--admin-accent-soft, #c5ff71); font: 800 14px Arial, sans-serif; font-style: normal; }
   .admin-app .admin-order-tools { position: static; display: block; margin: 0 -3px 32px; padding: 8px; border: 0; border-radius: 27px; background: #4b4b4b; box-shadow: none; }
   .admin-app .admin-filter-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; overflow: visible; padding: 0; }
   .admin-app .admin-filter-tabs button { min-width: 0; min-height: 39px; padding: 0 5px; border: 0; border-radius: 999px; color: #f3edf5; background: #414141; font-family: Impact, 'Arial Narrow', sans-serif; font-size: clamp(10px, 3.4vw, 15px); font-weight: 500; white-space: nowrap; }
-  .admin-app .admin-filter-tabs button.active { color: #b4ff57; background: #373737; }
+  .admin-app .admin-filter-tabs button.active { color: var(--admin-accent, #b8f04a); background: #373737; }
   .admin-app .admin-filter-tabs button b { display: none; }
   .admin-app .admin-order-extra-filters { margin: -20px 2px 22px; color: #bcbcbc; font-size: 12px; }
   .admin-app .admin-order-extra-filters summary { width: fit-content; padding: 6px 0; cursor: pointer; }
@@ -1040,7 +1096,7 @@
   .admin-app .admin-order-customer-line > span { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
   .admin-app .admin-order-customer-line strong { max-width: 34vw; overflow: hidden; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 17px; text-overflow: ellipsis; }
   .admin-app .admin-order-customer-line small { color: #c4c4c4; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
-  .admin-app .admin-order-customer-line a { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; color: #1b1b1b; background: #b2ff58; font-size: 17px; text-decoration: none; }
+  .admin-app .admin-order-customer-line a { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; color: #1b1b1b; background: var(--admin-accent, #b8f04a); font-size: 17px; text-decoration: none; }
   .admin-app .admin-order-card-redesign .admin-order-items { gap: 11px; padding: 22px 22px 20px; border-top: 0; border-bottom-color: #696969; }
   .admin-app .admin-order-card-redesign .admin-order-items > div { align-items: flex-start; gap: 8px; color: #f2edf5; font-size: 16px; line-height: 1.35; }
   .admin-app .admin-order-card-redesign .admin-order-items > div > span { min-width: 0; color: inherit; font-weight: 400; }
@@ -1052,26 +1108,30 @@
   .admin-app .admin-order-card-redesign .admin-order-address { display: flex; align-items: center; gap: 9px; padding: 3px 20px 15px; }
   .admin-app .admin-order-card-redesign .admin-order-address > span { color: #e9e4eb; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 11px; font-weight: 400; letter-spacing: 0; }
   .admin-app .admin-order-card-redesign .admin-order-address p { margin: 0; overflow: hidden; color: #e9e4eb; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-  .admin-app .admin-order-card-redesign .admin-order-address > a { display: grid; width: 29px; height: 29px; flex: none; place-items: center; border-radius: 50%; color: #171717; background: #b2ff58; font-size: 14px; text-decoration: none; }
+  .admin-app .admin-order-card-redesign .admin-order-address > a { display: grid; width: 29px; height: 29px; flex: none; place-items: center; border-radius: 50%; color: #171717; background: var(--admin-accent, #b8f04a); font-size: 14px; text-decoration: none; }
   .admin-app .admin-order-card-redesign .admin-order-address > small { display: none; }
+  .admin-app .admin-delivery-completion { padding: 24px 24px 28px; }
+  .admin-app .admin-history-summary-card > summary { min-height: 104px; padding: 15px 18px; }
+  .admin-app .admin-history-summary-title { font-size: 17px; }
+  .admin-app .admin-history-summary-card > summary time { font-size: 12px; }
   .admin-app .admin-order-card-redesign .admin-pending-clock,.admin-app .admin-order-card-redesign .admin-order-journey { margin-right: 20px; margin-left: 20px; }
   .admin-app .admin-order-card-redesign .admin-order-actions { display: grid; grid-template-columns: 1fr; gap: 9px; padding: 10px 24px 28px; }
   .admin-app .admin-order-card-redesign .admin-order-actions .admin-primary,.admin-app .admin-order-card-redesign .admin-ready-countdown { min-height: 58px; justify-content: center; border: 0; border-radius: 26px; color: #161616; background: #f3edf7; font-family: Arial, sans-serif; font-size: 15px; font-weight: 600; }
   .admin-app .admin-order-card-redesign .admin-ready-countdown > b,.admin-app .admin-order-card-redesign .admin-ready-countdown > i { display: none; }
   .admin-app .admin-new-order-dock { position: fixed; right: 7%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); left: 7%; z-index: 42; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 86px; padding: 17px 22px; border-radius: 28px 28px 0 0; color: #c7c7c7; background: #292929; box-shadow: 0 -12px 36px #0006; font-family: Impact, 'Arial Narrow', sans-serif; font-size: clamp(20px, 5vw, 28px); }
-  .admin-app .admin-new-order-dock button { min-width: 145px; min-height: 52px; border: 0; border-radius: 17px; color: #b2ff58; background: #4a4a4a; font: inherit; font-size: 22px; }
+  .admin-app .admin-new-order-dock button { min-width: 145px; min-height: 52px; border: 0; border-radius: 17px; color: var(--admin-accent, #b8f04a); background: #4a4a4a; font: inherit; font-size: 22px; }
   .admin-app .admin-incoming-backdrop { z-index: 44; display: flex; align-items: flex-end; justify-content: center; padding: 0 7% calc(72px + env(safe-area-inset-bottom, 0px)); background: #0003; backdrop-filter: none; }
   .admin-app .admin-incoming-order-sheet { width: min(100%, 630px); max-height: min(76vh, 820px); overflow-y: auto; align-items: stretch; gap: 15px; padding: 14px 23px 24px; border: 0; border-radius: 34px; color: #f4edf7; background: #292929; box-shadow: 0 10px 40px #0007; text-align: left; }
   .admin-app .admin-sheet-handle { width: 126px; height: 9px; align-self: center; border-radius: 99px; background: #f4edf7; }
   .admin-app .admin-incoming-order-sheet > header { display: flex; align-items: center; justify-content: space-between; }
   .admin-app .admin-incoming-order-sheet > header h2 { font-family: Impact, 'Arial Narrow', sans-serif; font-size: 28px; }
   .admin-app .admin-incoming-order-sheet > header button { width: 36px; height: 36px; border: 0; border-radius: 50%; color: white; background: #414141; font-size: 25px; }
-  .admin-app .admin-incoming-order-sheet .admin-incoming-kicker { color: #b2ff58; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 22px; letter-spacing: 0; }
+  .admin-app .admin-incoming-order-sheet .admin-incoming-kicker { color: var(--admin-accent, #b8f04a); font-family: Impact, 'Arial Narrow', sans-serif; font-size: 22px; letter-spacing: 0; }
   .admin-app .admin-incoming-customer-row { display: flex; align-items: center; gap: 8px; overflow: hidden; color: #f1ebf4; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 14px; white-space: nowrap; }
   .admin-app .admin-incoming-customer-row > span:nth-of-type(2) { overflow: hidden; text-overflow: ellipsis; }
-  .admin-app .admin-incoming-customer-row a { color: #b2ff58; text-decoration: none; }
+  .admin-app .admin-incoming-customer-row a { color: var(--admin-accent, #b8f04a); text-decoration: none; }
   .admin-app .admin-incoming-call { display: flex; align-items: center; gap: 9px; align-self: flex-end; color: #c7c7c7; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 13px; text-decoration: none; }
-  .admin-app .admin-incoming-call span { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 50%; color: #191919; background: #b2ff58; font-size: 16px; }
+  .admin-app .admin-incoming-call span { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 50%; color: #191919; background: var(--admin-accent, #b8f04a); font-size: 16px; }
   .admin-app .admin-incoming-items { display: grid; gap: 10px; padding: 3px 0 16px; border-bottom: 1px solid #676767; }
   .admin-app .admin-incoming-items > div,.admin-app .admin-incoming-total-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 16px; }
   .admin-app .admin-incoming-items b,.admin-app .admin-incoming-total-row b { font-weight: 400; }
@@ -1085,8 +1145,8 @@
   .admin-app .admin-mobile-tabs { background: #4b4b4b; border: 0; border-radius: 22px; }
   .admin-app .admin-mobile-tabs button { min-height: 66px; gap: 4px; border-radius: 16px; color: #d0d0d0; font-family: Impact, 'Arial Narrow', sans-serif; font-size: 12px; }
   .admin-app .admin-mobile-tabs button > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; color: #383838; background: #bdbdbd; font-size: 19px; }
-  .admin-app .admin-mobile-tabs button.active { color: #b2ff58; background: transparent; }
-  .admin-app .admin-mobile-tabs button.active > span { color: #202020; background: #b2ff58; }
+  .admin-app .admin-mobile-tabs button.active { color: var(--admin-accent, #b8f04a); background: transparent; }
+  .admin-app .admin-mobile-tabs button.active > span { color: #202020; background: var(--admin-accent, #b8f04a); }
 }
 
 @media (max-width: 420px) {
@@ -1097,4 +1157,30 @@
   .admin-app .admin-order-redesign-payment,.admin-app .admin-order-card-redesign .admin-order-address { padding-right: 14px; padding-left: 14px; }
   .admin-app .admin-new-order-dock { right: 4%; left: 4%; padding: 15px; }
   .admin-app .admin-new-order-dock button { min-width: 112px; font-size: 19px; }
+}
+
+@media (max-width: 850px) {
+  .admin-app .admin-orders-heading { display: grid !important; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .admin-app .admin-orders-heading > div { width: auto; min-width: 0; flex: initial; }
+  .admin-app .admin-orders-heading h2 { color: #a7a7a7; }
+  .admin-app .admin-service-toggle { width: auto; margin-left: auto; justify-self: end; white-space: nowrap; }
+  .admin-app .admin-service-toggle button { width: 68px; height: 36px; padding: 3px; }
+  .admin-app .admin-service-toggle i { width: 30px; height: 30px; font-size: 12px; }
+  .admin-app .admin-order-tools { box-sizing: border-box; min-height: 54px; height: 54px; padding: 8px; }
+  .admin-app .admin-order-tools .admin-filter-tabs { box-sizing: border-box; width: 100%; height: 38px; grid-auto-rows: 38px; align-items: stretch; }
+  .admin-app .admin-order-tools .admin-filter-tabs button { box-sizing: border-box; height: 38px; min-height: 38px; padding: 0 3px; line-height: 1; text-align: center; text-transform: uppercase; }
+  .admin-app .admin-order-extra-filters { margin-top: -22px; }
+  .admin-app .admin-order-extra-filters > summary { display: flex; align-items: center; gap: 7px; color: #c0c0c0; }
+  .admin-app .admin-order-extra-filters > summary svg { width: 16px; height: 16px; color: var(--admin-accent, #b8f04a); }
+  .admin-app .admin-order-extra-filters > .admin-search > span svg { width: 17px; height: 17px; }
+  .admin-app .admin-empty { border-color: #454545; background: #222; }
+  .admin-app .admin-empty > span { color: var(--admin-accent, #b8f04a); }
+  .admin-app .admin-empty > span svg { width: 24px; height: 24px; }
+  .admin-app .admin-empty > b { color: #f5f5f5; }
+  .admin-app .admin-empty > small { color: #b8b8b8; }
+  .admin-app .admin-footer { color: #909090; }
+  .admin-app .admin-footer strong,.admin-app .admin-footer .powered-footer-meta { color: #999; }
+  .admin-app .admin-mobile-tabs button > span svg { display: block; width: 22px; height: 22px; }
+  .admin-app .admin-order-customer-line a svg,.admin-app .admin-incoming-call svg { width: 18px; height: 18px; }
+  .admin-app .admin-order-address > a svg,.admin-app .admin-incoming-customer-row a svg { width: 18px; height: 18px; }
 }
